@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hermes Chat</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <div id="app">
+      <!-- Header -->
+      <header class="header">
+        <div class="header-title">
+          <span class="logo-icon">👔</span>
+          <h1>Hermes Chat</h1>
+        </div>
+        <div class="header-status">
+          <span id="connection-status" class="status-dot disconnected"></span>
+          <span id="status-text">未连接</span>
+        </div>
+      </header>
+
+      <!-- Chat Messages -->
+      <main class="chat-container">
+        <div id="messages" class="messages">
+          <div class="welcome-message">
+            <p>👋 欢迎使用 Hermes Chat</p>
+            <p class="hint">在下方输入消息开始对话</p>
+          </div>
+        </div>
+      </main>
+
+      <!-- Input Area -->
+      <footer class="input-area">
+        <form id="chat-form" class="chat-form">
+          <textarea
+            id="message-input"
+            placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
+            rows="1"
+            autofocus
+          ></textarea>
+          <button type="submit" id="send-btn" disabled>
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+          </button>
+        </form>
+        <div class="input-info">
+          <span id="model-name">-</span>
+          <span id="char-count">0 / 4000</span>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
