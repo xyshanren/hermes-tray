@@ -26,21 +26,11 @@ hermes-tray/
 
 | # | 分类 | 文件 | 描述 | 目标 |
 |---|------|------|------|------|
-| 1 | 前端 BUG | `src/main.ts:329` | `sendBtn.textContent` 覆盖 SVG 图标，按钮图标被清空。 | S0-BUG-1 |
-| 2 | 前端 BUG | `src/main.ts:251-255` | 用户消息在 API 请求中重复发送。 | S0-BUG-2 |
-| 3 | 后端 缺陷 | `src-tauri/src/lib.rs:217,225` | 托盘菜单 WSL 发行版硬编码。 | S1 |
-| 4 | 后端 缺陷 | `src-tauri/src/lib.rs` | 缺少 Gateway 状态检测和重启接口。 | S1/S2 |
-| 5 | 后端 缺陷 | `src-tauri/src/lib.rs:217-227` | `spawn()` 结果未检查，错误可被吞掉。 | S1 |
-| 6 | 后端 缺陷 | `src-tauri/src/lib.rs:69-105` | 无 WSL 可用性检测，假设 `wsl` 命令一定存在。 | S2 |
-| 7 | 后端 缺陷 | `src-tauri/src/lib.rs:170-220` | Gateway 启动路径硬编码，假设 `~/.hermes`。 | S2 |
-| 8 | 前端 缺陷 | `src/main.ts:170,218` | XSS 风险：模型返回直接 `innerHTML` 渲染。 | S1 |
-| 9 | 前端 缺陷 | `src/main.ts:120` | 连接检测仅加载时执行，缺少周期性健康检查。 | S1 |
-| 10 | 前端 缺陷 | `src/main.ts:11-15` | `GatewayInfo` 接口缺少 `distro` 字段。 | S2 |
-| 11 | UX 改进 | `src/main.ts` | Textarea 无自动增高。 | S3 |
-| 12 | 配置 缺陷 | `src-tauri/tauri.conf.json` | 图标路径引用 `icons/`，实际目录是 `assets/`。 | S4 |
-| 13 | 配置 缺陷 | `src/main.ts:19` | API Key 硬编码。 | S3 |
-| 14 | 配置 缺陷 | `src-tauri/tauri.conf.json` | 无窗口位置持久化。 | S3 |
-| 15 | 配置 缺陷 | `src-tauri/capabilities/default.json` | 权限列表过简。 | S4 |
+| 1 | UX 改进 | `src/main.ts` | Textarea 无自动增高。 | S3 |
+| 2 | 配置 缺陷 | `src/main.ts:19` | API Key 硬编码。 | S3 |
+| 3 | 配置 缺陷 | `src-tauri/tauri.conf.json` | 无窗口位置持久化。 | S3 |
+| 4 | 配置 缺陷 | `src-tauri/tauri.conf.json` | 图标路径引用 `icons/`，实际目录是 `assets/`。 | S4 |
+| 5 | 配置 缺陷 | `src-tauri/capabilities/default.json` | 权限列表过简。 | S4 |
 
 ### In Progress
 
@@ -55,9 +45,17 @@ hermes-tray/
 | 1 | 前端 BUG | `src/main.ts:329` | 修复 `sendBtn.textContent` 覆盖 SVG 图标的问题。 | S0-BUG-1 |
 | 2 | 前端 BUG | `src/main.ts:251-255` | 已移除 `sendMessage()` 中重复推送的用户消息。 | S0-BUG-2 |
 | 3 | 后端 优化 | `src-tauri/src/lib.rs:217,225` | 使用 `read_wsl_distro()` 替换硬编码 WSL 发行版。 | S1 |
-| 4 | 后端 优化 | `src-tauri/src/lib.rs` | 新增 `hermes_check_gateway_status` / `hermes_start_gateway` / `hermes_stop_gateway` / `hermes_check_gateway_health` 命令。 | S1 |
-| 5 | 前端 安全 | `src/main.ts` | 添加 `escapeHtml()` 以防止模型返回内容 XSS。 | S1 |
-| 6 | 前端 健康检查 | `src/main.ts` | 确认已有 30s 周期的连接健康检查定时器。 | S1 |
+| 4 | 后端 优化 | `src-tauri/src/lib.rs` | 新增 Gateway 状态检测 / 启停 / 健康检查命令。 | S1 |
+| 5 | 后端 缺陷 | `src-tauri/src/lib.rs:443` | `spawn()` 结果已添加 `match` 错误处理，失败时发通知。 | S1 |
+| 6 | 前端 安全 | `src/main.ts` | 添加 `escapeHtml()` 以防止模型返回内容 XSS。 | S1 |
+| 7 | 前端 健康检查 | `src/main.ts` | 确认已有 30s 周期的连接健康检查定时器。 | S1 |
+| 8 | 后端 新功能 | `src-tauri/src/lib.rs` | 新增 `hermes_detect_wsl()` / `hermes_list_wsl_distros()`。 | S2 |
+| 9 | 后端 新功能 | `src-tauri/src/lib.rs` | 新增 `hermes_find_bin()` 自动搜索 WSL 中 hermes 路径。 | S2 |
+| 10 | 后端 新功能 | `src-tauri/src/lib.rs` | Graceful Stop → Force Kill 两级停止逻辑。 | S2 |
+| 11 | 后端 新功能 | `src-tauri/src/lib.rs` | 新增 Gateway 重启功能 `hermes_restart_gateway()`。 | S2 |
+| 12 | 后端 新功能 | `src-tauri/src/lib.rs` | 托盘菜单新增"重启 Gateway"项。 | S2 |
+| 13 | 后端 通知 | `src-tauri/src/lib.rs` | 启停/重启操作后通过 `app.emit()` 发送通知事件。 | S2 |
+| 14 | 前端 通知 | `index.html` + `styles.css` + `main.ts` | 添加 Toast 通知组件（右下角滑入/3 色/3.5s 自动消失）。 | S2 |
 
 ---
 
@@ -79,12 +77,12 @@ hermes-tray/
 
 ### S2 — Python 版功能移植至 Rust
 
-- [ ] 实现 `hermes_detect_wsl()` 命令（检测 WSL 是否可用）
-- [ ] 实现 WSL 发行版自动发现/配置回退
-- [ ] 实现 Gateway 启动失败的通知/提示
-- [ ] 实现 `hermes_find_bin()` 自动寻找 `hermes` 路径
-- [ ] 实现 Graceful Stop → Force Kill 两级停止逻辑
-- [ ] 实现 Gateway 重启功能
+- [x] 实现 `hermes_detect_wsl()` 命令（检测 WSL 是否可用）
+- [x] 实现 WSL 发行版自动发现/配置回退
+- [x] 实现 Gateway 启动失败的通知/提示
+- [x] 实现 `hermes_find_bin()` 自动寻找 `hermes` 路径
+- [x] 实现 Graceful Stop → Force Kill 两级停止逻辑
+- [x] 实现 Gateway 重启功能
 
 ### S3 — 用户体验改善
 
@@ -122,3 +120,19 @@ hermes-tray/
   - `hermes_check_gateway_health(url)`
 - **main.ts — XSS 防护**：已补充 `escapeHtml()`。
 - **main.ts — 健康检查**：确认已有 30s 周期的 `checkConnection()` 定时器。
+
+### S2
+
+- **lib.rs — WSL 检测命令**：
+  - `hermes_detect_wsl()` — 检测 WSL 是否可用
+  - `hermes_list_wsl_distros()` — 列出可用 WSL 发行版
+  - `hermes_find_bin(distro)` — 自动搜索 WSL 中 hermes 路径（多候选回退）
+- **lib.rs — 新增命令**：
+  - `hermes_restart_gateway(distro)` — 重启 Gateway（pkill → sleep → force kill → nohup 启动）
+- **lib.rs — spawn() 错误处理**：托盘菜单 `start_gateway` 中 `.spawn()` 已添加 `match` 错误处理，失败时通过 `app.emit()` 发送通知。
+- **lib.rs — 托盘菜单**：新增"重启 Gateway"菜单项。
+- **lib.rs — 通知事件**：启停/重启操作后通过 `app.emit("gateway-notification", payload)` 向前端发送通知事件。
+- **前端 — Toast 通知系统**：
+  - `index.html` 新增 `#toast-container` 容器
+  - `styles.css` 新增 Toast 样式（右下角滑入、3 色、滑出动画）
+  - `main.ts` 新增 `showToast()` 函数 + `gateway-notification` 事件监听，3.5s 自动消失

@@ -94,7 +94,16 @@ npm run tauri build
 | 显示窗口 | 打开聊天界面 |
 | 启动 Gateway | 在 WSL 中启动 `hermes gateway start` |
 | 停止 Gateway | 停止 Hermes Gateway 进程 |
+| 重启 Gateway | 重启 Hermes Gateway（停止 → 启动） |
 | 退出 | 关闭应用（Gateway 继续运行） |
+
+## 文档
+
+| 文档 | 说明 |
+|------|------|
+| [产品需求文档](docs/product-requirements.md) | 用户故事、功能/非功能需求、发布计划 |
+| [架构设计文档](docs/architecture.md) | 系统架构、模块设计、数据结构、安全设计 |
+| [开发指南](docs/development-guide.md) | 环境搭建、项目结构、命令参考、调试技巧 |
 
 ## 技术栈
 
