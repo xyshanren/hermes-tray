@@ -111,6 +111,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     finishStream();
   });
 
+  // Listen for gateway notifications from tray menu
+  await listen<{ type: string; title: string; message: string }>('gateway-notification', (event) => {
+    showToast(event.payload.title, event.payload.message, event.payload.type as ToastType);
+  });
+
   // Cleanup on unload
   window.addEventListener('unload', () => {
     unlistenChunk?.();
@@ -118,7 +123,37 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
 
   checkConnection();
+
+  // Periodic health check every 30 seconds
+  setInterval(() => {
+    checkConnection();
+  }, 30000);
 });
+
+type ToastType = 'success' | 'error' | 'info';
+
+function showToast(title: string, message: string, type: ToastType = 'info') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `<div class="toast-title">${title}</div><div class="toast-message">${message}</div>`;
+  toast.addEventListener('click', () => {
+    toast.classList.add('fadeout');
+    setTimeout(() => toast.remove(), 300);
+  });
+
+  container.appendChild(toast);
+
+  // Auto-dismiss after 3.5s
+  setTimeout(() => {
+    if (toast.isConnected) {
+      toast.classList.add('fadeout');
+      setTimeout(() => toast.remove(), 300);
+    }
+  }, 3500);
+}
 
 function handleInput() {
   if (!messageInput || !sendBtn || !charCount) return;
@@ -144,7 +179,7 @@ async function handleSubmit(e: Event) {
   messageInput.dispatchEvent(new Event('input'));
   if (messageInput) messageInput.style.height = 'auto';
   addMessage('user', content);
-  await sendMessage(content);
+  await sendMessage();
 }
 
 function addMessage(role: 'user' | 'assistant', content: string) {
@@ -238,7 +273,7 @@ function finishStream() {
   updateSendButton();
 }
 
-async function sendMessage(content: string) {
+async function sendMessage() {
   state.isLoading = true;
   updateSendButton();
 
@@ -252,7 +287,6 @@ async function sendMessage(content: string) {
       .filter(m => m.role !== 'system')
       .slice(-10)
       .map(m => ({ role: m.role, content: m.content }));
-    apiMessages.push({ role: 'user', content });
 
     // Use streaming — response is empty, chunks via events
     await hermesPostStream('/v1/chat/completions', {
@@ -326,8 +360,17 @@ function updateConnectionStatus(status: 'disconnected' | 'connecting' | 'connect
 
 function updateSendButton() {
   if (!sendBtn) return;
-  sendBtn.textContent = state.isLoading ? '生成中...' : '发送';
+  const label = document.getElementById('send-btn-label');
+  const icon = document.getElementById('send-btn-icon');
+  if (!label || !icon) return;
   sendBtn.disabled = state.isLoading;
+  if (state.isLoading) {
+    label.textContent = '生成中...';
+    icon.style.display = 'none';
+  } else {
+    label.textContent = '';
+    icon.style.display = '';
+  }
 }
 
 function scrollToBottom() {

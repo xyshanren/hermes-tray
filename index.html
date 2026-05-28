@@ -41,7 +41,8 @@
             autofocus
           ></textarea>
           <button type="submit" id="send-btn" disabled>
-            <svg viewBox="0 0 24 24" width="20" height="20">
+            <span id="send-btn-label">发送</span>
+            <svg viewBox="0 0 24 24" width="20" height="20" id="send-btn-icon">
               <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
             </svg>
           </button>
@@ -51,6 +52,9 @@
           <span id="char-count">0 / 4000</span>
         </div>
       </footer>
+
+      <!-- Toast Notifications -->
+      <div id="toast-container"></div>
     </div>
   </body>
 </html>
