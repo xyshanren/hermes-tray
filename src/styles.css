@@ -295,10 +295,12 @@ html, body {
   font-size: 14px;
   font-family: inherit;
   resize: none;
-  max-height: 120px;
+  max-height: 200px;
+  min-height: 42px;
   background: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.5;
+  overflow-y: auto;
 }
 
 #message-input:focus {

@@ -161,6 +161,10 @@ function handleInput() {
   charCount.textContent = `${length} / ${CONFIG.maxInputLength}`;
   sendBtn.disabled = state.isLoading || length > CONFIG.maxInputLength;
   charCount.style.color = length > CONFIG.maxInputLength ? 'var(--error)' : '';
+  // Auto-resize: reset then set to scrollHeight
+  messageInput.style.height = 'auto';
+  const newHeight = Math.min(messageInput.scrollHeight, 200);
+  messageInput.style.height = newHeight + 'px';
 }
 
 function handleKeydown(e: KeyboardEvent) {

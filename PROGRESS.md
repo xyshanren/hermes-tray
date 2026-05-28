@@ -86,8 +86,8 @@ hermes-tray/
 
 ### S3 — 用户体验改善
 
-- [ ] Textarea 自动增高
-- [ ] 窗口大小/位置持久化（`tauri-plugin-window-state`）
+- [x] Textarea 自动增高（动态高度随输入文本自适应，max-height: 200px）
+- [x] 窗口大小/位置持久化（`tauri-plugin-window-state`）
 - [ ] 设置页面（WSL 发行版配置、API Key、端口）
 - [ ] Markdown 渲染增强（代码高亮、表格）
 - [ ] 输入框字数限制显示
@@ -136,3 +136,14 @@ hermes-tray/
   - `index.html` 新增 `#toast-container` 容器
   - `styles.css` 新增 Toast 样式（右下角滑入、3 色、滑出动画）
   - `main.ts` 新增 `showToast()` 函数 + `gateway-notification` 事件监听，3.5s 自动消失
+
+### S3
+
+- **Textarea 自动增高**：
+  - `handleInput()` 新增 auto-resize 逻辑（重置 height → 取 scrollHeight → 限 cap 200px）
+  - `styles.css` max-height 从 120px 提升至 200px，增加 `min-height: 42px` + `overflow-y: auto`
+- **窗口位置持久化**：
+  - `Cargo.toml` 新增 `tauri-plugin-window-state`
+  - `lib.rs` 注册 `.plugin(tauri_plugin_window_state::Builder::new().build())`
+  - `capabilities/default.json` 添加 `"window-state:default"`
+  - 前端安装 `@tauri-apps/plugin-window-state` npm 包
