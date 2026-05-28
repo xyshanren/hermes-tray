@@ -16,7 +16,7 @@ interface GatewayInfo {
 
 // Resolved at runtime via hermes_resolve_gateway_ip()
 let RESOLVED_GATEWAY_URL = '';
-const API_KEY = 'hermes-local-dev-key';
+let API_KEY = 'hermes-local-dev-key';
 
 async function hermesGet(path: string): Promise<HermesResponse> {
   return await invoke('hermes_proxy_get', {
@@ -90,6 +90,18 @@ window.addEventListener('DOMContentLoaded', async () => {
     console.warn('[Hermes] Gateway IP detection failed, using fallback');
   }
 
+  // Load saved API key and port from config
+  try {
+    const config: Record<string, any> = await invoke('hermes_get_config');
+    if (config.api_key) {
+      API_KEY = config.api_key;
+    }
+    if (config.port && RESOLVED_GATEWAY_URL) {
+      // Replace port in the URL
+      RESOLVED_GATEWAY_URL = RESOLVED_GATEWAY_URL.replace(/:\d+$/, `:${config.port}`);
+    }
+  } catch { /* no config */ }
+
   messagesContainer = document.getElementById('messages');
   messageInput = document.getElementById('message-input') as HTMLTextAreaElement;
   sendBtn = document.getElementById('send-btn') as HTMLButtonElement;
@@ -115,6 +127,100 @@ window.addEventListener('DOMContentLoaded', async () => {
   await listen<{ type: string; title: string; message: string }>('gateway-notification', (event) => {
     showToast(event.payload.title, event.payload.message, event.payload.type as ToastType);
   });
+
+  // ── Settings Initialization ──────────────────
+
+  const settingsModal = document.getElementById('settings-modal')!;
+  const settingsBtn = document.getElementById('settings-btn')!;
+  const settingsClose = document.getElementById('settings-close')!;
+  const settingsCancel = document.getElementById('settings-cancel')!;
+  const settingsSave = document.getElementById('settings-save')!;
+  const wslDistroSelect = document.getElementById('setting-wsl-distro') as HTMLSelectElement;
+  const portInput = document.getElementById('setting-port') as HTMLInputElement;
+  const apiKeyInput = document.getElementById('setting-api-key') as HTMLInputElement;
+
+  // Open settings
+  settingsBtn.addEventListener('click', () => openSettings());
+  settingsClose.addEventListener('click', closeSettings);
+  settingsCancel.addEventListener('click', closeSettings);
+
+  // Click overlay to close
+  settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) closeSettings();
+  });
+
+  // Save
+  settingsSave.addEventListener('click', () => saveSettings());
+
+  // Load WSL distro list on open
+  function openSettings() {
+    settingsModal.classList.remove('hidden');
+    loadSettings();
+  }
+
+  function closeSettings() {
+    settingsModal.classList.add('hidden');
+  }
+
+  async function loadSettings() {
+    // Load WSL distro list
+    try {
+      const distros = await invoke<string[]>('hermes_list_wsl_distros');
+      wslDistroSelect.innerHTML = '';
+      for (const d of distros) {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = d;
+        wslDistroSelect.appendChild(opt);
+      }
+    } catch { /* no WSL */ }
+
+    // Load current config values
+    try {
+      const config: Record<string, any> = await invoke('hermes_get_config');
+      if (config.wsl_distro && wslDistroSelect.querySelector(`option[value="${config.wsl_distro}"]`)) {
+        wslDistroSelect.value = config.wsl_distro;
+      }
+      if (config.port) {
+        portInput.value = config.port;
+      }
+      if (config.api_key) {
+        apiKeyInput.value = config.api_key;
+      }
+    } catch { /* no config yet */ }
+  }
+
+  async function saveSettings() {
+    const updates: Record<string, any> = {};
+    const distro = wslDistroSelect.value;
+    const port = portInput.value;
+    const apiKey = apiKeyInput.value;
+
+    if (distro) updates.wsl_distro = distro;
+    if (port) updates.port = Number(port);
+    if (apiKey) updates.api_key = apiKey;
+
+    try {
+      await invoke('hermes_save_config', { updates });
+      showToast('设置已保存', '配置已更新，部分设置可能需要重启后生效', 'success');
+      closeSettings();
+
+      // Apply settings at runtime
+      if (apiKey) API_KEY = apiKey;
+
+      // Re-resolve gateway after distro/port change
+      try {
+        const info = await invoke<GatewayInfo>('hermes_resolve_gateway_ip');
+        RESOLVED_GATEWAY_URL = info.url;
+        // Apply port override
+        if (port && RESOLVED_GATEWAY_URL) {
+          RESOLVED_GATEWAY_URL = RESOLVED_GATEWAY_URL.replace(/:\d+$/, `:${port}`);
+        }
+      } catch { /* keep old */ }
+    } catch (e) {
+      showToast('保存失败', String(e), 'error');
+    }
+  }
 
   // Cleanup on unload
   window.addEventListener('unload', () => {

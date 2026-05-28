@@ -19,6 +19,11 @@
           <span id="connection-status" class="status-dot disconnected"></span>
           <span id="status-text">未连接</span>
         </div>
+        <button id="settings-btn" class="settings-btn" title="设置">
+          <svg viewBox="0 0 24 24" width="18" height="18">
+            <path fill="currentColor" d="M19.14 12.94a7.07 7.07 0 0 0 .06-.94 7.07 7.07 0 0 0-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a6.93 6.93 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54a6.93 6.93 0 0 0-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.49.49 0 0 0 .12.61l2.03 1.58a7.07 7.07 0 0 0-.06.94c0 .32.02.64.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54a6.93 6.93 0 0 0 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/>
+          </svg>
+        </button>
       </header>
 
       <!-- Chat Messages -->
@@ -55,6 +60,36 @@
 
       <!-- Toast Notifications -->
       <div id="toast-container"></div>
-    </div>
+
+      <!-- Settings Modal -->
+      <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal">
+          <div class="modal-header">
+            <h2>⚙️ 设置</h2>
+            <button id="settings-close" class="modal-close-btn">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="setting-wsl-distro">WSL 发行版</label>
+              <select id="setting-wsl-distro"></select>
+              <span class="form-hint">选择运行 Hermes Gateway 的 WSL 发行版</span>
+            </div>
+            <div class="form-group">
+              <label for="setting-port">Gateway 端口</label>
+              <input type="number" id="setting-port" min="1024" max="65535" placeholder="8642" />
+              <span class="form-hint">Hermes Gateway 监听端口（默认 8642）</span>
+            </div>
+            <div class="form-group">
+              <label for="setting-api-key">API Key</label>
+              <input type="password" id="setting-api-key" placeholder="输入 API Key" />
+              <span class="form-hint">用于与 Hermes Gateway 通信的 API 密钥</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button id="settings-cancel" class="btn btn-secondary">取消</button>
+            <button id="settings-save" class="btn btn-primary">保存</button>
+          </div>
+        </div>
+      </div>
   </body>
 </html>

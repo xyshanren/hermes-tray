@@ -210,6 +210,52 @@ async fn hermes_check_gateway_health(url: String) -> Result<HermesResponse, Stri
 
 // ── WSL Environment Detection ──────────────────────────────────────
 
+/// Read config.json next to the executable.
+fn read_config_json() -> serde_json::Value {
+    let config_paths = [
+        std::env::current_exe().ok().map(|p| p.with_file_name("config.json")),
+        Some(std::path::PathBuf::from("config.json")),
+    ];
+    for path in config_paths.into_iter().flatten() {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(json) = serde_json::from_str(&content) {
+                return json;
+            }
+        }
+    }
+    serde_json::json!({})
+}
+
+/// Write config.json next to the executable.
+fn write_config_json(config: &serde_json::Value) -> Result<(), String> {
+    let path = if let Ok(exe_path) = std::env::current_exe() {
+        exe_path.with_file_name("config.json")
+    } else {
+        std::path::PathBuf::from("config.json")
+    };
+    let content = serde_json::to_string_pretty(config).map_err(|e| format!("序列化配置失败: {}", e))?;
+    std::fs::write(&path, content).map_err(|e| format!("写入配置失败: {}", e))?;
+    Ok(())
+}
+
+/// Get current configuration (all fields).
+#[tauri::command]
+fn hermes_get_config() -> serde_json::Value {
+    read_config_json()
+}
+
+/// Save configuration fields (merges with existing config).
+#[tauri::command]
+fn hermes_save_config(updates: serde_json::Value) -> Result<(), String> {
+    let mut config = read_config_json();
+    if let Some(obj) = updates.as_object() {
+        for (k, v) in obj {
+            config[k] = v.clone();
+        }
+    }
+    write_config_json(&config)
+}
+
 /// Check if WSL is available on the system.
 #[tauri::command]
 fn hermes_detect_wsl() -> bool {
@@ -531,6 +577,9 @@ pub fn run() {
             hermes_list_wsl_distros,
             hermes_find_bin,
             hermes_restart_gateway,
+            // S3 — Config commands
+            hermes_get_config,
+            hermes_save_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

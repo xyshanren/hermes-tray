@@ -88,7 +88,7 @@ hermes-tray/
 
 - [x] Textarea 自动增高（动态高度随输入文本自适应，max-height: 200px）
 - [x] 窗口大小/位置持久化（`tauri-plugin-window-state`）
-- [ ] 设置页面（WSL 发行版配置、API Key、端口）
+- [x] 设置页面（WSL 发行版配置、API Key、端口）
 - [ ] Markdown 渲染增强（代码高亮、表格）
 - [ ] 输入框字数限制显示
 - [ ] 模型名称从 API 动态获取并完善回退逻辑
@@ -147,3 +147,8 @@ hermes-tray/
   - `lib.rs` 注册 `.plugin(tauri_plugin_window_state::Builder::new().build())`
   - `capabilities/default.json` 添加 `"window-state:default"`
   - 前端安装 `@tauri-apps/plugin-window-state` npm 包
+- **设置页面**：
+  - Rust 新增 `hermes_get_config` / `hermes_save_config` 命令（读写 `config.json`）
+  - HTML 已有的 Modal 结构：WSL 发行版(select)、Gateway 端口(number)、API Key(password)
+  - CSS 新增 Modal 样式：遮罩层(.modal-overlay)、弹窗(.modal)、表单(.form-group)、按钮(.btn)
+  - TypeScript 设置逻辑：打开时自动加载 WSL 发行版列表 + 当前配置值，保存时持久化并实时更新运行时 API_KEY 和 gateway URL
