@@ -95,9 +95,9 @@ hermes-tray/
 
 ### S4 — 构建与 CI
 
-- [ ] 修复 `tauri.conf.json` 图标路径（`icons/` → `assets/`）
-- [ ] 确保 `npm run build` 通过（`tsc --noEmit`）
-- [ ] 编写构建发布脚本
+- [x] 修复 `tauri.conf.json` 图标路径（`icons/` → `assets/`）— 路径已验证正确，无需修复
+- [x] 确保 `npm run build` 通过（`tsc --noEmit`）
+- [x] 编写构建发布脚本
 
 ---
 
@@ -164,3 +164,11 @@ hermes-tray/
   - `fetchModelInfo()` 3 层回退：API 返回模型 → 空数组 → 失败时用 `CONFIG.defaultModel`
   - `sendMessage()` 使用 `state.currentModel`，首次消息回退 `CONFIG.defaultModel`
   - `modelName` 元素始终更新：动态模型名或回退默认值
+
+### S4
+
+- **Tauri 图标路径**：`src-tauri/icons/` 文件齐全，`tauri.conf.json` 中 `"icons/..."` 路径相对于 `src-tauri/` 解析，已验证正确。
+- **构建验证**：`npx tsc --noEmit` 通过，`npm run build`(tsc + vite) 生产构建成功。
+- **GitHub Actions CI**：
+  - `ci.yml`：PR 检查（tsc → build → cargo check → clippy → fmt）
+  - `release.yml`：打 tag `v*` 时触发，矩阵构建（Linux .deb + AppImage / macOS .dmg / Windows .msi），自动发布 Release
