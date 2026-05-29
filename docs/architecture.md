@@ -12,10 +12,8 @@
 │  │                      │IPC  │                      │   │
 │  │  • 聊天界面           │     │  • 托盘图标 & 菜单   │   │
 │  │  • Toast 通知        │     │  • Gateway 进程管理   │   │
-│  │  • 设置页面(规划中)   │     │  • HTTP 代理         │   │
+│  │  • 设置页面（Modal）  │     │  • HTTP 代理          │   │
 │  └─────────────────────┘     └─────────┬────────────┘   │
-│                                        │                │
-└────────────────────────────────────────┼────────────────┘
                                          │
                                          │  WSL / Native
                                          ▼
@@ -36,7 +34,7 @@
 | 流式通信 | Server-Sent Events (SSE) | Hermes API 原生支持，简单高效 |
 | 进程管理 | `std::process::Command` | Rust 标准库，零依赖 |
 | WSL 交互 | `wsl.exe -d <distro>` | WSL2 标准调用方式 |
-| 配置存储 | Tauri Store 插件（规划中） | 类型安全、持久化 |
+| 配置存储 | `config.json` 文件 + `tauri-plugin-window-state` | API Key/端口/WSL 发行版持久化 + 窗口位置记忆 |
 
 ## 3. 模块设计
 
@@ -73,6 +71,9 @@ run()                          # 应用入口：初始化托盘、注册命令
 │   │   ├── hermes_proxy_get()
 │   │   ├── hermes_proxy_post()
 │   │   └── hermes_proxy_post_stream()
+│   ├── 配置
+│   │   ├── hermes_save_config()
+│   │   └── hermes_load_config()
 │   └── 辅助
 │       └── hermes_find_bin()
 │
@@ -99,7 +100,9 @@ run()                          # 应用入口：初始化托盘、注册命令
 │   ├── escapeHtml()          # HTML 转义（XSS 防护）
 │   ├── showToast()           # Toast 通知展示
 │   ├── updateSendButton()    # 发送按钮状态切换
-│   └── checkConnection()     # 健康检查执行
+│   ├── checkConnection()     # 健康检查执行
+│   ├── autoResize()         # textarea 自动增高
+│   └── openSettings()       # 设置 Modal 开关
 │
 └── 事件监听
     ├── gateway-notification  # 后端推送的通知事件

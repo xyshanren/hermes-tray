@@ -1,14 +1,20 @@
 # Hermes Tray
 
+[![CI](https://github.com/xyshanren/hermes-tray/actions/workflows/ci.yml/badge.svg)](https://github.com/xyshanren/hermes-tray/actions/workflows/ci.yml)
+
 Windows 系统托盘应用 + 聊天界面，用于连接 WSL/Linux 中的 Hermes Agent。
 
 ## 功能特性
 
 - 📥 系统托盘图标，常驻后台运行
-- 💬 聊天界面，支持流式响应
-- ⚡ 一键启动/停止 Hermes Gateway
-- 🔌 自动检测 WSL2 IP 地址
+- 💬 聊天界面，支持流式响应 & Markdown 渲染（代码高亮、表格）
+- ⚙️ 设置页面：WSL 发行版、Gateway 端口、API Key 自由配置
+- 🧠 模型名动态获取并在标题栏实时显示
+- 📏 输入框字数限制 & 自动增高
+- ⚡ 一键启动/停止/重启 Hermes Gateway
+- 🔌 自动检测 WSL2 IP 地址（支持任意 WSL 发行版）
 - 🚪 关闭窗口最小化到托盘，而非退出应用
+- 🪟 窗口位置/大小自动记忆
 
 ## 系统要求
 
@@ -80,11 +86,13 @@ npm run tauri build
 
 1. 启动 hermes-tray，状态显示"已连接"表示 Gateway 正常
 2. 在聊天窗口输入消息，与 Hermes AI 对话
-3. 点击窗口关闭按钮，最小化到系统托盘
-4. 右键托盘图标：
+3. 点击右上角 ⚙️ 按钮可修改 WSL 发行版、端口、API Key
+4. 点击窗口关闭按钮，最小化到系统托盘
+5. 右键托盘图标：
    - 显示窗口 - 重新打开聊天界面
    - 启动 Gateway - 启动 WSL 中的 Hermes Gateway
    - 停止 Gateway - 停止 Gateway 进程
+   - 重启 Gateway - 重启 Hermes Gateway
    - 退出 - 完全退出应用
 
 ## 托盘菜单

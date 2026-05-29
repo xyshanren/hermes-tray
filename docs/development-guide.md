@@ -30,9 +30,9 @@ npm run dev
 ```
 hermes-tray/
 ├── src/                        # 前端代码
-│   ├── main.ts                 # 入口 + 聊天逻辑 + 通知
-│   ├── styles.css              # 全局样式（亮色/暗色主题）
-│   └── index.html              # HTML 入口（WebView）
+│   ├── main.ts                 # 入口 + 聊天逻辑 + 通知 + 设置
+│   ├── styles.css              # 全局样式（亮色/暗色主题、Markdown、表格）
+│   └── index.html              # HTML 入口（WebView + 设置 Modal）
 │
 ├── src-tauri/                  # Rust 后端代码
 │   ├── src/
@@ -163,6 +163,8 @@ npm run tauri build
 
 ## 编码规范
 
+[![CI](https://github.com/xyshanren/hermes-tray/actions/workflows/ci.yml/badge.svg)](https://github.com/xyshanren/hermes-tray/actions/workflows/ci.yml)
+
 ### TypeScript
 - 使用 `const` / `let`，避免 `var`
 - 函数命名：camelCase
@@ -190,5 +192,8 @@ npm run tauri build
 | 托盘启动 | 运行 `npm run tauri dev` | 托盘图标出现，菜单可用 |
 | Gateway 启动 | 右键 → 启动 Gateway | Toast 通知"Gateway 已启动" |
 | Gateway 停止 | 右键 → 停止 Gateway | Toast 通知"Gateway 已停止" |
+| Gateway 重启 | 右键 → 重启 Gateway | Toast 通知"正在重启" → "已启动" |
 | 聊天 | 输入消息并发送 | 模型流式回复 |
-| 窗口恢复 | 关闭后重新打开 | 窗口位置/大小不变（规划中） |
+| Markdown 渲染 | 发送含代码/表格的消息 | 代码块语法高亮 + 表格样式正常 |
+| 设置页面 | 点击 ⚙️ 按钮 | Modal 弹出，可配置 WSL/端口/API Key |
+| 窗口恢复 | 关闭后重新打开 | 窗口位置/大小不变 |
