@@ -99,6 +99,14 @@ hermes-tray/
 - [x] 确保 `npm run build` 通过（`tsc --noEmit`）
 - [x] 编写构建发布脚本
 
+### S5 — 构建管线增强与 Windows 打包测试
+
+- [x] `setup.iss` 修复 Source 路径指向 Tauri 产物
+- [x] `build.bat` 重写为 Tauri 构建管线
+- [x] `build-setup.bat` 同步更新路径检查
+- [x] `build-test.bat` 新增 Windows 构建测试脚本（含日志输出）
+- [ ] Windows 环境运行 `build-test.bat`，将日志发回分析
+
 ---
 
 ## 已完成记录

@@ -17,6 +17,11 @@ Thumbs.db
 
 # Logs
 *.log
+build-test-summary.txt
+
+# Build outputs
+dist/
+installer/
 
 # Runtime files
 *.exe
