@@ -90,8 +90,8 @@ hermes-tray/
 - [x] 窗口大小/位置持久化（`tauri-plugin-window-state`）
 - [x] 设置页面（WSL 发行版配置、API Key、端口）
 - [x] Markdown 渲染增强（代码高亮、表格）
-- [ ] 输入框字数限制显示
-- [ ] 模型名称从 API 动态获取并完善回退逻辑
+- [x] 输入框字数限制显示
+- [x] 模型名称从 API 动态获取并完善回退逻辑
 
 ### S4 — 构建与 CI
 
@@ -159,3 +159,8 @@ hermes-tray/
   - CSS 新增表格样式：`table`、`th/td`、`tr:nth-child(even)`
   - CSS 强化代码块：暗色背景 `#1e1e1e`、`border`、`overflow-x: auto`
   - CSS 导入 `highlight.js/styles/github-dark.css` 语法高亮主题
+- **模型动态获取**：
+  - 提取 `UNKNOWN_MODEL` 命名常量（代替硬编码 `'-'`）
+  - `fetchModelInfo()` 3 层回退：API 返回模型 → 空数组 → 失败时用 `CONFIG.defaultModel`
+  - `sendMessage()` 使用 `state.currentModel`，首次消息回退 `CONFIG.defaultModel`
+  - `modelName` 元素始终更新：动态模型名或回退默认值

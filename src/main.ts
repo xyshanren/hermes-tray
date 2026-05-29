@@ -25,6 +25,8 @@ marked.setOptions({
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
+const UNKNOWN_MODEL = '-';
+
 interface HermesResponse {
   ok: boolean;
   status: number;
@@ -83,7 +85,7 @@ const state: ChatState = {
   messages: [],
   isLoading: false,
   connectionStatus: 'disconnected',
-  currentModel: '-',
+  currentModel: UNKNOWN_MODEL,
   isStreaming: false,
   streamContent: '',
   streamElement: null,
@@ -415,8 +417,9 @@ async function sendMessage() {
       .map(m => ({ role: m.role, content: m.content }));
 
     // Use streaming — response is empty, chunks via events
+    const model = state.currentModel !== UNKNOWN_MODEL ? state.currentModel : CONFIG.defaultModel;
     await hermesPostStream('/v1/chat/completions', {
-      model: CONFIG.defaultModel,
+      model,
       messages: apiMessages,
       max_tokens: CONFIG.maxTokens,
       temperature: CONFIG.temperature,
@@ -469,10 +472,16 @@ async function fetchModelInfo() {
       const data = JSON.parse(response.body);
       if (data.data && data.data.length > 0) {
         state.currentModel = data.data[0].id;
-        if (modelName) modelName.textContent = state.currentModel;
+      } else {
+        state.currentModel = CONFIG.defaultModel;
       }
+    } else {
+      state.currentModel = CONFIG.defaultModel;
     }
-  } catch { /* skip */ }
+  } catch {
+    state.currentModel = CONFIG.defaultModel;
+  }
+  if (modelName) modelName.textContent = state.currentModel;
 }
 
 function updateConnectionStatus(status: 'disconnected' | 'connecting' | 'connected') {
