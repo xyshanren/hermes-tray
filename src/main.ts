@@ -1,4 +1,27 @@
 // Hermes Chat - Main Application
+import { marked } from 'marked';
+import { markedHighlight } from 'marked-highlight';
+import hljs from 'highlight.js';
+import 'highlight.js/styles/github-dark.css';
+
+// Configure marked with code highlighting via marked-highlight extension
+marked.use(markedHighlight({
+  langPrefix: 'hljs language-',
+  highlight(code: string, lang: string) {
+    if (lang && hljs.getLanguage(lang)) {
+      try {
+        return hljs.highlight(code, { language: lang }).value;
+      } catch { /* fall through */ }
+    }
+    return hljs.highlightAuto(code).value;
+  },
+}));
+
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+});
+
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -320,15 +343,8 @@ function renderMessage(message: Message) {
 }
 
 function formatMessage(content: string): string {
-  let formatted = content
-    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-    .split('\n\n').map(p => p.trim() ? `<p>${p}</p>` : '').join('');
-  formatted = formatted.replace(/([^>])\n([^<])/g, '$1<br>$2');
-  return formatted;
+  // Use marked for full GFM markdown rendering (tables, code blocks with syntax highlighting, etc.)
+  return marked.parse(content) as string;
 }
 
 function createStreamMessage(): HTMLElement {

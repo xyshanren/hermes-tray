@@ -89,7 +89,7 @@ hermes-tray/
 - [x] Textarea 自动增高（动态高度随输入文本自适应，max-height: 200px）
 - [x] 窗口大小/位置持久化（`tauri-plugin-window-state`）
 - [x] 设置页面（WSL 发行版配置、API Key、端口）
-- [ ] Markdown 渲染增强（代码高亮、表格）
+- [x] Markdown 渲染增强（代码高亮、表格）
 - [ ] 输入框字数限制显示
 - [ ] 模型名称从 API 动态获取并完善回退逻辑
 
@@ -152,3 +152,10 @@ hermes-tray/
   - HTML 已有的 Modal 结构：WSL 发行版(select)、Gateway 端口(number)、API Key(password)
   - CSS 新增 Modal 样式：遮罩层(.modal-overlay)、弹窗(.modal)、表单(.form-group)、按钮(.btn)
   - TypeScript 设置逻辑：打开时自动加载 WSL 发行版列表 + 当前配置值，保存时持久化并实时更新运行时 API_KEY 和 gateway URL
+- **Markdown 渲染增强**：
+  - 安装 `marked` (v18) + `marked-highlight` + `highlight.js`
+  - `main.ts` 配置 `marked-highlight` 扩展：`langPrefix: 'hljs language-'`，按语言高亮 → 自动检测
+  - `main.ts` 移除旧的 `formatMessage()` 正则替换，改用 `marked.parse()` (GFM 完整语法)
+  - CSS 新增表格样式：`table`、`th/td`、`tr:nth-child(even)`
+  - CSS 强化代码块：暗色背景 `#1e1e1e`、`border`、`overflow-x: auto`
+  - CSS 导入 `highlight.js/styles/github-dark.css` 语法高亮主题

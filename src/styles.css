@@ -253,13 +253,21 @@ html, body {
 
 /* Code blocks */
 .message-content pre {
-  background: var(--bg-tertiary);
+  background: #1e1e1e;
   padding: 12px;
   border-radius: 8px;
   overflow-x: auto;
   margin: 8px 0;
   font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
   font-size: 13px;
+  border: 1px solid var(--border);
+  position: relative;
+}
+
+.message-content pre code {
+  background: none !important;
+  padding: 0 !important;
+  color: inherit;
 }
 
 .message-content code {
@@ -388,6 +396,32 @@ html, body {
 
 .message-content a:hover {
   text-decoration: underline;
+}
+
+/* Markdown Tables */
+.message-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  font-size: 13px;
+  overflow-x: auto;
+  display: block;
+}
+
+.message-content th,
+.message-content td {
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  text-align: left;
+}
+
+.message-content th {
+  background: var(--bg-tertiary);
+  font-weight: 600;
+}
+
+.message-content tr:nth-child(even) {
+  background: var(--bg-secondary);
 }
 
 /* Toast Notifications */
