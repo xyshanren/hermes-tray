@@ -19,6 +19,10 @@ Thumbs.db
 *.log
 build-test-summary.txt
 
+# Test artifacts
+test-output-*.txt
+coverage/
+
 # Build outputs
 dist/
 installer/
