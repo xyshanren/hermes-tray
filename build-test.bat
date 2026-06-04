@@ -281,8 +281,19 @@ echo. >> build-test-summary.txt
 echo Result: %FAILED% failures >> build-test-summary.txt
 
 echo.
-echo 日志已保存到: build-test.log
-echo 摘要已保存到: build-test-summary.txt
+echo 日志已保存到: %CD%\build-test.log
+echo 摘要已保存到: %CD%\build-test-summary.txt
 echo.
 echo 请将 build-test.log 文件内容发回给开发者分析
 echo.
+echo ========================================
+echo  窗口将自动关闭 (按任意键立即关闭)
+echo ========================================
+timeout /t 30 /nobreak >nul
+echo.
+echo 现在打开 build-test.log (按任意键继续)...
+pause >nul
+start "" notepad.exe "%CD%\build-test.log"
+echo.
+echo 关闭前确认: 请把 build-test.log 内容贴回给开发者
+pause
