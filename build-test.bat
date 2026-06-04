@@ -5,7 +5,6 @@ REM 使用方法: build-test.bat > build-test.log 2>&1
 REM 完成后将 build-test.log 内容发回给开发者分析
 
 setlocal enabledelayedexpansion
-chcp 65001 >nul 2>&1
 
 set LOGFILE=build-test.log
 set TIMESTAMP=%DATE% %TIME%
