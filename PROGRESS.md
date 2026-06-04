@@ -24,13 +24,11 @@ hermes-tray/
 
 ### Open
 
+> **2026-06-04 同步说明 (T-Q2)**: 之前 5 项 Open 实际已在 S3-S4 完成 (Textarea 自动增高 / API Key 硬编码→设置页面 / 窗口位置持久化→tauri-plugin-window-state / 图标路径→已验证正确 / 权限列表→S4 标 done), 现清空. 唯一未完成项即 S5 的 Windows 端 build-test.bat.
+
 | # | 分类 | 文件 | 描述 | 目标 |
 |---|------|------|------|------|
-| 1 | UX 改进 | `src/main.ts` | Textarea 无自动增高。 | S3 |
-| 2 | 配置 缺陷 | `src/main.ts:19` | API Key 硬编码。 | S3 |
-| 3 | 配置 缺陷 | `src-tauri/tauri.conf.json` | 无窗口位置持久化。 | S3 |
-| 4 | 配置 缺陷 | `src-tauri/tauri.conf.json` | 图标路径引用 `icons/`，实际目录是 `assets/`。 | S4 |
-| 5 | 配置 缺陷 | `src-tauri/capabilities/default.json` | 权限列表过简。 | S4 |
+| 1 | 构建 | `build-test.bat` | Windows 环境运行 `build-test.bat`，将日志发回分析 | S5 |
 
 ### In Progress
 
