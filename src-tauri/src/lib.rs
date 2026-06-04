@@ -426,6 +426,354 @@ async fn hermes_proxy_post_stream(
 
 // ── Application Entry Point ─────────────────────────────────────────
 
+/// 单元测试: 覆盖文件 IO 类纯函数 (config.json 读写 / WSL distro 解析).
+///
+/// 覆盖策略:
+///   - 跳过: 所有 WSL exec / 进程 spawn / HTTP 包装函数 (依赖外部环境, 行为不可重现).
+///   - 测试: read_wsl_distro / read_config_json / write_config_json /
+///           hermes_get_config / hermes_save_config — 隔离用 tempfile + Mutex.
+///
+/// 隔离机制:
+///   - read_* 优先看 exe dir 的 config.json, 再看 CWD.
+///   - write_* 只写 exe dir 的 config.json.
+///   - 测试用 IO_LOCK 串行化 (CWD / exe dir 都是 process-global 状态).
+///   - 每个测试退出时: 恢复 CWD + 恢复/清理 exe dir 的 config.json 残留.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+
+    /// 串行化所有触碰 CWD / exe dir 的测试, 防止 cargo 的并行测试互相污染.
+    static IO_LOCK: Mutex<()> = Mutex::new(());
+
+    /// 取当前 exe 目录下的 config.json 路径, 并备份/清空.
+    fn take_exe_config_path() -> (PathBuf, Option<Vec<u8>>) {
+        let exe = std::env::current_exe().expect("current_exe");
+        let cfg = exe.with_file_name("config.json");
+        let backup = std::fs::read(&cfg).ok();
+        let _ = std::fs::remove_file(&cfg);
+        (cfg, backup)
+    }
+
+    fn restore_exe_config(cfg: &Path, backup: Option<Vec<u8>>) {
+        match backup {
+            Some(b) => {
+                let _ = std::fs::write(cfg, b);
+            }
+            None => {
+                let _ = std::fs::remove_file(cfg);
+            }
+        }
+    }
+
+    /// 在隔离的 CWD 中运行 `f`. exe dir 的 config.json 也会临时清空,
+    /// 防止 read_*_json 优先命中 exe dir 而绕过测试意图.
+    fn with_isolated_cwd<F: FnOnce(&Path)>(f: F) {
+        let _guard = IO_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let original_cwd = std::env::current_dir().expect("current_dir");
+        let (cfg, backup) = take_exe_config_path();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::env::set_current_dir(tmp.path()).expect("set_current_dir");
+        f(tmp.path());
+        let _ = std::env::set_current_dir(&original_cwd);
+        restore_exe_config(&cfg, backup);
+    }
+
+    /// 把 exe dir 的 config.json 交给 `f` 任意读写, 退出时恢复.
+    /// CWD 不动.
+    fn with_exe_config<F: FnOnce(&Path)>(f: F) {
+        let _guard = IO_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let (cfg, backup) = take_exe_config_path();
+        f(&cfg);
+        restore_exe_config(&cfg, backup);
+    }
+
+    // ─────────────── read_wsl_distro ───────────────
+
+    #[test]
+    fn read_wsl_distro_reads_from_cwd_config() {
+        with_isolated_cwd(|dir| {
+            std::fs::write(
+                dir.join("config.json"),
+                r#"{"wsl_distro": "Debian"}"#,
+            )
+            .unwrap();
+            assert_eq!(read_wsl_distro(), "Debian");
+        });
+    }
+
+    #[test]
+    fn read_wsl_distro_reads_arbitrary_string() {
+        with_isolated_cwd(|dir| {
+            std::fs::write(
+                dir.join("config.json"),
+                r#"{"wsl_distro": "Ubuntu-22.04-ARM64"}"#,
+            )
+            .unwrap();
+            assert_eq!(read_wsl_distro(), "Ubuntu-22.04-ARM64");
+        });
+    }
+
+    #[test]
+    fn read_wsl_distro_returns_default_when_no_file() {
+        with_isolated_cwd(|_dir| {
+            assert_eq!(read_wsl_distro(), "Ubuntu-24.04.4");
+        });
+    }
+
+    #[test]
+    fn read_wsl_distro_returns_default_when_json_invalid() {
+        with_isolated_cwd(|dir| {
+            std::fs::write(dir.join("config.json"), "not json {{{ broken").unwrap();
+            assert_eq!(read_wsl_distro(), "Ubuntu-24.04.4");
+        });
+    }
+
+    #[test]
+    fn read_wsl_distro_returns_default_when_distro_key_missing() {
+        with_isolated_cwd(|dir| {
+            std::fs::write(
+                dir.join("config.json"),
+                r#"{"other_key": "value", "port": 8642}"#,
+            )
+            .unwrap();
+            assert_eq!(read_wsl_distro(), "Ubuntu-24.04.4");
+        });
+    }
+
+    #[test]
+    fn read_wsl_distro_returns_default_for_empty_object() {
+        with_isolated_cwd(|dir| {
+            std::fs::write(dir.join("config.json"), "{}").unwrap();
+            assert_eq!(read_wsl_distro(), "Ubuntu-24.04.4");
+        });
+    }
+
+    #[test]
+    fn read_wsl_distro_ignores_non_string_distro_value() {
+        with_isolated_cwd(|dir| {
+            // wsl_distro 不是 string → as_str() 返回 None → 用默认值
+            std::fs::write(
+                dir.join("config.json"),
+                r#"{"wsl_distro": 42}"#,
+            )
+            .unwrap();
+            assert_eq!(read_wsl_distro(), "Ubuntu-24.04.4");
+        });
+    }
+
+    #[test]
+    fn read_wsl_distro_prefers_exe_dir_over_cwd() {
+        let _guard = IO_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let original_cwd = std::env::current_dir().expect("current_dir");
+        let (cfg, backup) = take_exe_config_path();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::env::set_current_dir(tmp.path()).expect("set_current_dir");
+        std::fs::write(
+            tmp.path().join("config.json"),
+            r#"{"wsl_distro": "CwdDistro"}"#,
+        )
+        .unwrap();
+        std::fs::write(&cfg, r#"{"wsl_distro": "ExeDistro"}"#).unwrap();
+
+        let result = read_wsl_distro();
+
+        let _ = std::env::set_current_dir(&original_cwd);
+        restore_exe_config(&cfg, backup);
+
+        assert_eq!(result, "ExeDistro");
+    }
+
+    // ─────────────── read_config_json ───────────────
+
+    #[test]
+    fn read_config_json_returns_parsed_object() {
+        with_isolated_cwd(|dir| {
+            std::fs::write(
+                dir.join("config.json"),
+                r#"{"a": 1, "b": "two", "nested": {"k": "v"}}"#,
+            )
+            .unwrap();
+            let v = read_config_json();
+            assert_eq!(v["a"], 1);
+            assert_eq!(v["b"], "two");
+            assert_eq!(v["nested"]["k"], "v");
+        });
+    }
+
+    #[test]
+    fn read_config_json_returns_empty_on_missing_file() {
+        with_isolated_cwd(|_dir| {
+            let v = read_config_json();
+            assert_eq!(v, serde_json::json!({}));
+            assert!(v.is_object());
+        });
+    }
+
+    #[test]
+    fn read_config_json_returns_empty_on_invalid_json() {
+        with_isolated_cwd(|dir| {
+            std::fs::write(dir.join("config.json"), "garbage ::: not json").unwrap();
+            let v = read_config_json();
+            assert_eq!(v, serde_json::json!({}));
+        });
+    }
+
+    #[test]
+    fn read_config_json_returns_empty_object_when_file_is_empty() {
+        with_isolated_cwd(|dir| {
+            std::fs::write(dir.join("config.json"), "").unwrap();
+            let v = read_config_json();
+            assert_eq!(v, serde_json::json!({}));
+        });
+    }
+
+    // ─────────────── write_config_json ───────────────
+
+    #[test]
+    fn write_config_json_creates_file_with_expected_content() {
+        with_exe_config(|cfg| {
+            let v = serde_json::json!({"wsl_distro": "WriteDistro", "port": 8642});
+            write_config_json(&v).expect("write");
+            assert!(cfg.exists(), "config.json 应该在 exe 目录创建");
+
+            let content = std::fs::read_to_string(cfg).unwrap();
+            let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+            assert_eq!(parsed["wsl_distro"], "WriteDistro");
+            assert_eq!(parsed["port"], 8642);
+        });
+    }
+
+    #[test]
+    fn write_config_json_overwrites_previous_content() {
+        with_exe_config(|cfg| {
+            write_config_json(&serde_json::json!({"a": 1, "old": true})).unwrap();
+            write_config_json(&serde_json::json!({"b": 2})).unwrap();
+            let parsed: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(cfg).unwrap()).unwrap();
+            assert!(parsed.get("a").is_none(), "旧 key a 应该消失");
+            assert!(parsed.get("old").is_none(), "旧 key old 应该消失");
+            assert_eq!(parsed["b"], 2);
+        });
+    }
+
+    #[test]
+    fn write_config_json_writes_pretty_printed_json() {
+        with_exe_config(|cfg| {
+            write_config_json(&serde_json::json!({"x": 1})).unwrap();
+            let content = std::fs::read_to_string(cfg).unwrap();
+            // pretty 格式应该带换行/缩进
+            assert!(content.contains('\n'), "pretty 格式应包含换行");
+            assert!(
+                content.contains("  \"x\""),
+                "pretty 格式应包含缩进的 key: got={}",
+                content
+            );
+        });
+    }
+
+    // ─────────────── hermes_get_config ───────────────
+
+    #[test]
+    fn hermes_get_config_returns_parsed_object() {
+        with_isolated_cwd(|dir| {
+            std::fs::write(
+                dir.join("config.json"),
+                r#"{"wsl_distro": "FromGet"}"#,
+            )
+            .unwrap();
+            let v = hermes_get_config();
+            assert_eq!(v["wsl_distro"], "FromGet");
+        });
+    }
+
+    #[test]
+    fn hermes_get_config_returns_empty_when_no_file() {
+        with_isolated_cwd(|_dir| {
+            let v = hermes_get_config();
+            assert_eq!(v, serde_json::json!({}));
+        });
+    }
+
+    // ─────────────── hermes_save_config ───────────────
+
+    #[test]
+    fn hermes_save_config_writes_when_no_existing() {
+        with_exe_config(|cfg| {
+            // 起始无文件 (with_exe_config 已清空)
+            assert!(!cfg.exists());
+            hermes_save_config(serde_json::json!({"wsl_distro": "SaveDistro"}))
+                .expect("save");
+            let parsed: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(cfg).unwrap()).unwrap();
+            assert_eq!(parsed["wsl_distro"], "SaveDistro");
+        });
+    }
+
+    #[test]
+    fn hermes_save_config_merges_with_existing_keys() {
+        with_exe_config(|cfg| {
+            // 预置已有 config
+            write_config_json(&serde_json::json!({
+                "wsl_distro": "Initial",
+                "port": 1234,
+            }))
+            .unwrap();
+
+            hermes_save_config(serde_json::json!({"wsl_distro": "Updated"})).unwrap();
+
+            let parsed: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(cfg).unwrap()).unwrap();
+            assert_eq!(parsed["wsl_distro"], "Updated");
+            assert_eq!(parsed["port"], 1234, "未触碰的 key 应保留");
+        });
+    }
+
+    #[test]
+    fn hermes_save_config_adds_new_keys() {
+        with_exe_config(|cfg| {
+            write_config_json(&serde_json::json!({"a": 1})).unwrap();
+
+            hermes_save_config(serde_json::json!({"b": 2, "c": "three"})).unwrap();
+
+            let parsed: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(cfg).unwrap()).unwrap();
+            assert_eq!(parsed["a"], 1, "旧 key 保留");
+            assert_eq!(parsed["b"], 2, "新 key b 写入");
+            assert_eq!(parsed["c"], "three", "新 key c 写入");
+        });
+    }
+
+    #[test]
+    fn hermes_save_config_empty_updates_preserves_existing() {
+        with_exe_config(|cfg| {
+            write_config_json(&serde_json::json!({"wsl_distro": "Initial", "port": 1234}))
+                .unwrap();
+            hermes_save_config(serde_json::json!({})).unwrap();
+            let parsed: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(cfg).unwrap()).unwrap();
+            assert_eq!(parsed["wsl_distro"], "Initial");
+            assert_eq!(parsed["port"], 1234);
+        });
+    }
+
+    #[test]
+    fn hermes_save_config_non_object_updates_is_noop_merge() {
+        // 更新不是 object (比如 array / string) → 走 if let Some(obj) 失败,
+        // 结果只回写原 config (即空对象), 不报错.
+        with_exe_config(|cfg| {
+            assert!(!cfg.exists());
+            let result = hermes_save_config(serde_json::json!([1, 2, 3]));
+            assert!(result.is_ok(), "非 object 更新不应该报错");
+            // 没有现成 config 时, 写一个空对象
+            let parsed: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(cfg).unwrap()).unwrap();
+            assert_eq!(parsed, serde_json::json!({}));
+        });
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
