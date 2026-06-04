@@ -86,10 +86,7 @@ fn detect_wsl_ip(distro: &str) -> Option<String> {
     }
 
     // Fallback: try the default WSL distro (no -d flag)
-    let output = Command::new("wsl")
-        .args(["hostname", "-I"])
-        .output()
-        .ok()?;
+    let output = Command::new("wsl").args(["hostname", "-I"]).output().ok()?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -213,7 +210,9 @@ async fn hermes_check_gateway_health(url: String) -> Result<HermesResponse, Stri
 /// Read config.json next to the executable.
 fn read_config_json() -> serde_json::Value {
     let config_paths = [
-        std::env::current_exe().ok().map(|p| p.with_file_name("config.json")),
+        std::env::current_exe()
+            .ok()
+            .map(|p| p.with_file_name("config.json")),
         Some(std::path::PathBuf::from("config.json")),
     ];
     for path in config_paths.into_iter().flatten() {
@@ -233,7 +232,8 @@ fn write_config_json(config: &serde_json::Value) -> Result<(), String> {
     } else {
         std::path::PathBuf::from("config.json")
     };
-    let content = serde_json::to_string_pretty(config).map_err(|e| format!("序列化配置失败: {}", e))?;
+    let content =
+        serde_json::to_string_pretty(config).map_err(|e| format!("序列化配置失败: {}", e))?;
     std::fs::write(&path, content).map_err(|e| format!("写入配置失败: {}", e))?;
     Ok(())
 }
@@ -331,8 +331,13 @@ fn hermes_find_bin(distro: String) -> String {
 fn hermes_restart_gateway(distro: String) -> Result<String, String> {
     // Graceful stop
     let _ = std::process::Command::new("wsl")
-        .args(["-d", &distro, "bash", "-c",
-            "pkill -f 'hermes.*gateway' 2>/dev/null || true"])
+        .args([
+            "-d",
+            &distro,
+            "bash",
+            "-c",
+            "pkill -f 'hermes.*gateway' 2>/dev/null || true",
+        ])
         .status();
 
     // Wait for process to fully exit
@@ -340,8 +345,13 @@ fn hermes_restart_gateway(distro: String) -> Result<String, String> {
 
     // Force kill any remaining process
     let _ = std::process::Command::new("wsl")
-        .args(["-d", &distro, "bash", "-c",
-            "kill -9 $(pgrep -f 'hermes.*gateway') 2>/dev/null || true"])
+        .args([
+            "-d",
+            &distro,
+            "bash",
+            "-c",
+            "kill -9 $(pgrep -f 'hermes.*gateway') 2>/dev/null || true",
+        ])
         .status();
 
     // Start with nohup (non-blocking)
@@ -362,7 +372,10 @@ fn hermes_restart_gateway(distro: String) -> Result<String, String> {
 // ── Hermes API Proxy ────────────────────────────────────────────────
 
 #[tauri::command]
-async fn hermes_proxy_get(url: String, headers: HashMap<String, String>) -> Result<HermesResponse, String> {
+async fn hermes_proxy_get(
+    url: String,
+    headers: HashMap<String, String>,
+) -> Result<HermesResponse, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -374,11 +387,19 @@ async fn hermes_proxy_get(url: String, headers: HashMap<String, String>) -> Resu
     let resp = req.send().await.map_err(|e| format!("连接失败: {}", e))?;
     let status = resp.status().as_u16();
     let body = resp.text().await.unwrap_or_default();
-    Ok(HermesResponse { ok: status < 400, status, body })
+    Ok(HermesResponse {
+        ok: status < 400,
+        status,
+        body,
+    })
 }
 
 #[tauri::command]
-async fn hermes_proxy_post(url: String, headers: HashMap<String, String>, body: String) -> Result<HermesResponse, String> {
+async fn hermes_proxy_post(
+    url: String,
+    headers: HashMap<String, String>,
+    body: String,
+) -> Result<HermesResponse, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
@@ -387,10 +408,18 @@ async fn hermes_proxy_post(url: String, headers: HashMap<String, String>, body: 
     for (k, v) in &headers {
         req = req.header(k, v);
     }
-    let resp = req.body(body).send().await.map_err(|e| format!("连接失败: {}", e))?;
+    let resp = req
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| format!("连接失败: {}", e))?;
     let status = resp.status().as_u16();
     let body_str = resp.text().await.unwrap_or_default();
-    Ok(HermesResponse { ok: status < 400, status, body: body_str })
+    Ok(HermesResponse {
+        ok: status < 400,
+        status,
+        body: body_str,
+    })
 }
 
 #[tauri::command]
@@ -408,7 +437,11 @@ async fn hermes_proxy_post_stream(
     for (k, v) in &headers {
         req = req.header(k, v);
     }
-    let resp = req.body(body).send().await.map_err(|e| format!("连接失败: {}", e))?;
+    let resp = req
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| format!("连接失败: {}", e))?;
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status().as_u16()));
     }
@@ -494,11 +527,7 @@ mod tests {
     #[test]
     fn read_wsl_distro_reads_from_cwd_config() {
         with_isolated_cwd(|dir| {
-            std::fs::write(
-                dir.join("config.json"),
-                r#"{"wsl_distro": "Debian"}"#,
-            )
-            .unwrap();
+            std::fs::write(dir.join("config.json"), r#"{"wsl_distro": "Debian"}"#).unwrap();
             assert_eq!(read_wsl_distro(), "Debian");
         });
     }
@@ -554,11 +583,7 @@ mod tests {
     fn read_wsl_distro_ignores_non_string_distro_value() {
         with_isolated_cwd(|dir| {
             // wsl_distro 不是 string → as_str() 返回 None → 用默认值
-            std::fs::write(
-                dir.join("config.json"),
-                r#"{"wsl_distro": 42}"#,
-            )
-            .unwrap();
+            std::fs::write(dir.join("config.json"), r#"{"wsl_distro": 42}"#).unwrap();
             assert_eq!(read_wsl_distro(), "Ubuntu-24.04.4");
         });
     }
@@ -678,11 +703,7 @@ mod tests {
     #[test]
     fn hermes_get_config_returns_parsed_object() {
         with_isolated_cwd(|dir| {
-            std::fs::write(
-                dir.join("config.json"),
-                r#"{"wsl_distro": "FromGet"}"#,
-            )
-            .unwrap();
+            std::fs::write(dir.join("config.json"), r#"{"wsl_distro": "FromGet"}"#).unwrap();
             let v = hermes_get_config();
             assert_eq!(v["wsl_distro"], "FromGet");
         });
@@ -703,8 +724,7 @@ mod tests {
         with_exe_config(|cfg| {
             // 起始无文件 (with_exe_config 已清空)
             assert!(!cfg.exists());
-            hermes_save_config(serde_json::json!({"wsl_distro": "SaveDistro"}))
-                .expect("save");
+            hermes_save_config(serde_json::json!({"wsl_distro": "SaveDistro"})).expect("save");
             let parsed: serde_json::Value =
                 serde_json::from_str(&std::fs::read_to_string(cfg).unwrap()).unwrap();
             assert_eq!(parsed["wsl_distro"], "SaveDistro");
@@ -748,8 +768,7 @@ mod tests {
     #[test]
     fn hermes_save_config_empty_updates_preserves_existing() {
         with_exe_config(|cfg| {
-            write_config_json(&serde_json::json!({"wsl_distro": "Initial", "port": 1234}))
-                .unwrap();
+            write_config_json(&serde_json::json!({"wsl_distro": "Initial", "port": 1234})).unwrap();
             hermes_save_config(serde_json::json!({})).unwrap();
             let parsed: serde_json::Value =
                 serde_json::from_str(&std::fs::read_to_string(cfg).unwrap()).unwrap();
