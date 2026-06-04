@@ -1,8 +1,8 @@
 @echo off
-REM Hermes Tray Windows æ„å»ºæµ‹è¯•è„šæœ¬
-REM è¿è¡Œæ‰€æœ‰æ„å»ºæ­¥éª¤ï¼Œæ£€æŸ¥äº§ç‰©ï¼Œè¾“å‡ºæ—¥å¿—
-REM ä½¿ç”¨æ–¹æ³•: build-test.bat > build-test.log 2>&1
-REM å®Œæˆåå°† build-test.log å†…å®¹å‘å›ç»™å¼€å‘è€…åˆ†æ
+REM Hermes Tray Windows ¹¹½¨²âÊÔ½Å±¾
+REM ÔËĞĞËùÓĞ¹¹½¨²½Öè£¬¼ì²é²úÎï£¬Êä³öÈÕÖ¾
+REM Ê¹ÓÃ·½·¨: build-test.bat > build-test.log 2>&1
+REM Íê³Éºó½« build-test.log ÄÚÈİ·¢»Ø¸ø¿ª·¢Õß·ÖÎö
 
 setlocal enabledelayedexpansion
 
@@ -10,137 +10,137 @@ set LOGFILE=build-test.log
 set TIMESTAMP=%DATE% %TIME%
 
 echo ========================================
-echo Hermes Tray Windows æ„å»ºæµ‹è¯•
-echo å¼€å§‹æ—¶é—´: %TIMESTAMP%
+echo Hermes Tray Windows ¹¹½¨²âÊÔ
+echo ¿ªÊ¼Ê±¼ä: %TIMESTAMP%
 echo ========================================
 echo.
 
-REM ============ ç¯å¢ƒæ£€æŸ¥ ============
+REM ============ »·¾³¼ì²é ============
 echo ========================================
-echo [é˜¶æ®µ 1/6] ç¯å¢ƒæ£€æŸ¥
+echo [½×¶Î 1/6] »·¾³¼ì²é
 echo ========================================
 
-echo [æ£€æŸ¥] Node.js ç‰ˆæœ¬
+echo [¼ì²é] Node.js °æ±¾
 where node >nul 2>&1
 if errorlevel 1 (
-    echo [å¤±è´¥] Node.js æœªå®‰è£…
-    echo [ä¿®å¤] è¯·è®¿é—® https://nodejs.org å®‰è£… v18+
+    echo [Ê§°Ü] Node.js Î´°²×°
+    echo [ĞŞ¸´] Çë·ÃÎÊ https://nodejs.org °²×° v18+
     set ERROR_NODE=1
 ) else (
     node --version
-    echo [é€šè¿‡] Node.js
+    echo [Í¨¹ı] Node.js
 )
 
 echo.
-echo [æ£€æŸ¥] npm ç‰ˆæœ¬
+echo [¼ì²é] npm °æ±¾
 where npm >nul 2>&1
 if errorlevel 1 (
-    echo [å¤±è´¥] npm æœªæ‰¾åˆ°
+    echo [Ê§°Ü] npm Î´ÕÒµ½
     set ERROR_NPM=1
 ) else (
     npm --version
-    echo [é€šè¿‡] npm
+    echo [Í¨¹ı] npm
 )
 
 echo.
-echo [æ£€æŸ¥] Rust ç‰ˆæœ¬
+echo [¼ì²é] Rust °æ±¾
 where rustc >nul 2>&1
 if errorlevel 1 (
-    echo [å¤±è´¥] Rust æœªå®‰è£…
-    echo [ä¿®å¤] è¯·è¿è¡Œ: winget install Rustlang.Rustup
+    echo [Ê§°Ü] Rust Î´°²×°
+    echo [ĞŞ¸´] ÇëÔËĞĞ: winget install Rustlang.Rustup
     set ERROR_RUST=1
 ) else (
     rustc --version
     cargo --version
-    echo [é€šè¿‡] Rust
+    echo [Í¨¹ı] Rust
 )
 
 echo.
-echo [æ£€æŸ¥] Inno Setup
+echo [¼ì²é] Inno Setup
 where iscc >nul 2>&1
 if errorlevel 1 (
-    echo [è­¦å‘Š] Inno Setup æœªå®‰è£…ï¼ˆä¸å½±å“ä¸»ç¨‹åºï¼Œåªå½±å“å®‰è£…ç¨‹åºæ‰“åŒ…ï¼‰
-    echo [ä¿®å¤] è¯·è®¿é—® https://jrsoftware.org/isdl.php å®‰è£…
+    echo [¾¯¸æ] Inno Setup Î´°²×°£¨²»Ó°ÏìÖ÷³ÌĞò£¬Ö»Ó°Ïì°²×°³ÌĞò´ò°ü£©
+    echo [ĞŞ¸´] Çë·ÃÎÊ https://jrsoftware.org/isdl.php °²×°
     set SKIP_ISCC=1
 ) else (
     iscc /? | findstr /C:"Inno Setup" >nul
-    if errorlevel 1 (echo [é€šè¿‡] Inno Setup) else (echo [é€šè¿‡] Inno Setup)
+    if errorlevel 1 (echo [Í¨¹ı] Inno Setup) else (echo [Í¨¹ı] Inno Setup)
 )
 
 echo.
-echo [æ£€æŸ¥] é¡¹ç›®æ–‡ä»¶å®Œæ•´æ€§
+echo [¼ì²é] ÏîÄ¿ÎÄ¼şÍêÕûĞÔ
 if not exist "src-tauri\Cargo.toml" (
-    echo [å¤±è´¥] ç¼ºå°‘ src-tauri\Cargo.toml
+    echo [Ê§°Ü] È±ÉÙ src-tauri\Cargo.toml
     set ERROR_PROJECT=1
 )
 if not exist "package.json" (
-    echo [å¤±è´¥] ç¼ºå°‘ package.json
+    echo [Ê§°Ü] È±ÉÙ package.json
     set ERROR_PROJECT=1
 )
 if not exist "setup.iss" (
-    echo [å¤±è´¥] ç¼ºå°‘ setup.iss
+    echo [Ê§°Ü] È±ÉÙ setup.iss
     set ERROR_PROJECT=1
 )
 if not exist "assets\icon.ico" (
-    echo [å¤±è´¥] ç¼ºå°‘ assets\icon.ico
+    echo [Ê§°Ü] È±ÉÙ assets\icon.ico
     set ERROR_PROJECT=1
 ) else (
-    echo [é€šè¿‡] é¡¹ç›®æ–‡ä»¶æ¸…å•
+    echo [Í¨¹ı] ÏîÄ¿ÎÄ¼şÇåµ¥
 )
 
 echo.
 
-REM ============ ä¾èµ–å®‰è£… ============
+REM ============ ÒÀÀµ°²×° ============
 echo ========================================
-echo [é˜¶æ®µ 2/6] npm ä¾èµ–å®‰è£…
+echo [½×¶Î 2/6] npm ÒÀÀµ°²×°
 echo ========================================
 
 if "%ERROR_NODE%"=="1" (
-    echo [è·³è¿‡] Node.js ä¸å¯ç”¨ï¼Œæ— æ³•å®‰è£…ä¾èµ–
+    echo [Ìø¹ı] Node.js ²»¿ÉÓÃ£¬ÎŞ·¨°²×°ÒÀÀµ
 ) else (
-    echo [æ­¥éª¤] npm install...
+    echo [²½Öè] npm install...
     call npm install
     if errorlevel 1 (
-        echo [å¤±è´¥] npm install æŠ¥é”™: !ERRORLEVEL!
+        echo [Ê§°Ü] npm install ±¨´í: !ERRORLEVEL!
     ) else (
-        echo [é€šè¿‡] npm install å®Œæˆ
-        REM éªŒè¯å…³é”®ä¾èµ–
-        echo [éªŒè¯] æ£€æŸ¥å…³é”®åŒ…...
+        echo [Í¨¹ı] npm install Íê³É
+        REM ÑéÖ¤¹Ø¼üÒÀÀµ
+        echo [ÑéÖ¤] ¼ì²é¹Ø¼ü°ü...
         if exist "node_modules\@tauri-apps\cli" (
-            echo [é€šè¿‡] @tauri-apps/cli å·²å®‰è£…
+            echo [Í¨¹ı] @tauri-apps/cli ÒÑ°²×°
         ) else (
-            echo [å¤±è´¥] @tauri-apps/cli ç¼ºå¤±
+            echo [Ê§°Ü] @tauri-apps/cli È±Ê§
         )
         if exist "node_modules\vue" (
-            echo [é€šè¿‡] Vue å·²å®‰è£…
+            echo [Í¨¹ı] Vue ÒÑ°²×°
         ) else (
-            echo [å¤±è´¥] Vue ç¼ºå¤±
+            echo [Ê§°Ü] Vue È±Ê§
         )
     )
 )
 
 echo.
 
-REM ============ å‰ç«¯æ„å»º ============
+REM ============ Ç°¶Ë¹¹½¨ ============
 echo ========================================
-echo [é˜¶æ®µ 3/6] å‰ç«¯æ„å»º
+echo [½×¶Î 3/6] Ç°¶Ë¹¹½¨
 echo ========================================
 
 if "%ERROR_NPM%"=="1" (
-    echo [è·³è¿‡] npm ä¸å¯ç”¨ï¼Œæ— æ³•æ„å»ºå‰ç«¯
+    echo [Ìø¹ı] npm ²»¿ÉÓÃ£¬ÎŞ·¨¹¹½¨Ç°¶Ë
 ) else (
-    echo [æ­¥éª¤] npm run build...
+    echo [²½Öè] npm run build...
     call npm run build
     if errorlevel 1 (
-        echo [å¤±è´¥] å‰ç«¯æ„å»ºæŠ¥é”™: !ERRORLEVEL!
+        echo [Ê§°Ü] Ç°¶Ë¹¹½¨±¨´í: !ERRORLEVEL!
     ) else (
-        echo [é€šè¿‡] å‰ç«¯æ„å»ºå®Œæˆ
-        REM éªŒè¯äº§ç‰©
+        echo [Í¨¹ı] Ç°¶Ë¹¹½¨Íê³É
+        REM ÑéÖ¤²úÎï
         if exist "dist\index.html" (
-            echo [é€šè¿‡] dist\index.html å·²ç”Ÿæˆ
+            echo [Í¨¹ı] dist\index.html ÒÑÉú³É
             dir /s "dist\*.html" "dist\*.js" "dist\*.css" 2>nul
         ) else (
-            echo [å¤±è´¥] dist ç›®å½•ç¼ºå°‘ index.html
+            echo [Ê§°Ü] dist Ä¿Â¼È±ÉÙ index.html
             dir dist 2>nul
         )
     )
@@ -148,39 +148,39 @@ if "%ERROR_NPM%"=="1" (
 
 echo.
 
-REM ============ Tauri æ„å»º ============
+REM ============ Tauri ¹¹½¨ ============
 echo ========================================
-echo [é˜¶æ®µ 4/6] Tauri æ„å»º
+echo [½×¶Î 4/6] Tauri ¹¹½¨
 echo ========================================
 
 if "%ERROR_RUST%"=="1" (
-    echo [è·³è¿‡] Rust ä¸å¯ç”¨ï¼Œæ— æ³•æ„å»º Tauri ç¨‹åº
+    echo [Ìø¹ı] Rust ²»¿ÉÓÃ£¬ÎŞ·¨¹¹½¨ Tauri ³ÌĞò
 ) else (
-    echo [æ­¥éª¤] npm run tauri build...
-    echo [æ³¨æ„] é¦–æ¬¡æ„å»ºä¼šä¸‹è½½ Rust crate ä¾èµ–ï¼Œå¯èƒ½éœ€è¦ 5-15 åˆ†é’Ÿ
+    echo [²½Öè] npm run tauri build...
+    echo [×¢Òâ] Ê×´Î¹¹½¨»áÏÂÔØ Rust crate ÒÀÀµ£¬¿ÉÄÜĞèÒª 5-15 ·ÖÖÓ
     call npm run tauri build
     if errorlevel 1 (
-        echo [å¤±è´¥] Tauri æ„å»ºæŠ¥é”™: !ERRORLEVEL!
+        echo [Ê§°Ü] Tauri ¹¹½¨±¨´í: !ERRORLEVEL!
     ) else (
-        echo [é€šè¿‡] Tauri æ„å»ºå®Œæˆ
-        REM éªŒè¯äº§ç‰©
+        echo [Í¨¹ı] Tauri ¹¹½¨Íê³É
+        REM ÑéÖ¤²úÎï
         if exist "src-tauri\target\release\hermes-tray-tauri.exe" (
-            echo [é€šè¿‡] ä¸»ç¨‹åºå·²ç”Ÿæˆ
+            echo [Í¨¹ı] Ö÷³ÌĞòÒÑÉú³É
             for %%A in ("src-tauri\target\release\hermes-tray-tauri.exe") do (
-                echo å¤§å°: %%~zA å­—èŠ‚
-                echo è·¯å¾„: %%~fA
+                echo ´óĞ¡: %%~zA ×Ö½Ú
+                echo Â·¾¶: %%~fA
             )
         ) else (
-            echo [å¤±è´¥] ä¸»ç¨‹åºæœªæ‰¾åˆ°
+            echo [Ê§°Ü] Ö÷³ÌĞòÎ´ÕÒµ½
             dir "src-tauri\target\release\*.exe" 2>nul
         )
-        REM æ£€æŸ¥ Tauri åŸç”Ÿ bundle
+        REM ¼ì²é Tauri Ô­Éú bundle
         if exist "src-tauri\target\release\bundle\msi" (
-            echo [ä¿¡æ¯] Tauri MSI åŒ…å·²ç”Ÿæˆ
+            echo [ĞÅÏ¢] Tauri MSI °üÒÑÉú³É
             dir "src-tauri\target\release\bundle\msi\*.msi" 2>nul
         )
         if exist "src-tauri\target\release\bundle\nsis" (
-            echo [ä¿¡æ¯] Tauri NSIS åŒ…å·²ç”Ÿæˆ
+            echo [ĞÅÏ¢] Tauri NSIS °üÒÑÉú³É
             dir "src-tauri\target\release\bundle\nsis\*.exe" 2>nul
         )
     )
@@ -188,27 +188,27 @@ if "%ERROR_RUST%"=="1" (
 
 echo.
 
-REM ============ å®‰è£…ç¨‹åºæ„å»º ============
+REM ============ °²×°³ÌĞò¹¹½¨ ============
 echo ========================================
-echo [é˜¶æ®µ 5/6] Inno Setup å®‰è£…ç¨‹åº
+echo [½×¶Î 5/6] Inno Setup °²×°³ÌĞò
 echo ========================================
 
 if "%SKIP_ISCC%"=="1" (
-    echo [è·³è¿‡] Inno Setup ä¸å¯ç”¨
+    echo [Ìø¹ı] Inno Setup ²»¿ÉÓÃ
 ) else if not exist "src-tauri\target\release\hermes-tray-tauri.exe" (
-    echo [è·³è¿‡] ä¸»ç¨‹åºä¸å­˜åœ¨ï¼Œå…ˆä¿®å¤é˜¶æ®µ 4
+    echo [Ìø¹ı] Ö÷³ÌĞò²»´æÔÚ£¬ÏÈĞŞ¸´½×¶Î 4
 ) else (
-    echo [æ­¥éª¤] iscc setup.iss...
+    echo [²½Öè] iscc setup.iss...
     iscc setup.iss
     if errorlevel 1 (
-        echo [å¤±è´¥] Inno Setup ç¼–è¯‘æŠ¥é”™: !ERRORLEVEL!
+        echo [Ê§°Ü] Inno Setup ±àÒë±¨´í: !ERRORLEVEL!
     ) else (
-        echo [é€šè¿‡] å®‰è£…ç¨‹åºç”Ÿæˆå®Œæˆ
+        echo [Í¨¹ı] °²×°³ÌĞòÉú³ÉÍê³É
         if exist "installer" (
             dir "installer\*.exe" 2>nul
             for %%A in ("installer\*.exe") do (
-                echo å¤§å°: %%~zA å­—èŠ‚
-                echo è·¯å¾„: %%~fA
+                echo ´óĞ¡: %%~zA ×Ö½Ú
+                echo Â·¾¶: %%~fA
             )
         )
     )
@@ -216,49 +216,49 @@ if "%SKIP_ISCC%"=="1" (
 
 echo.
 
-REM ============ æ±‡æ€» ============
+REM ============ »ã×Ü ============
 echo ========================================
-echo [é˜¶æ®µ 6/6] æµ‹è¯•æ±‡æ€»
+echo [½×¶Î 6/6] ²âÊÔ»ã×Ü
 echo ========================================
 
 echo.
 set FAILED=0
 
-echo --- äº§ç‰©æ¸…å• ---
+echo --- ²úÎïÇåµ¥ ---
 if exist "src-tauri\target\release\hermes-tray-tauri.exe" (
-    echo [âœ…] ä¸»ç¨‹åº: å­˜åœ¨
+    echo [?] Ö÷³ÌĞò: ´æÔÚ
 ) else (
-    echo [âŒ] ä¸»ç¨‹åº: ç¼ºå¤±
+    echo [?] Ö÷³ÌĞò: È±Ê§
     set /a FAILED+=1
 )
 if exist "installer\*.exe" (
     for %%A in ("installer\*.exe") do (
-        echo [âœ…] å®‰è£…ç¨‹åº: %%A (%%~zA å­—èŠ‚)
+        echo [?] °²×°³ÌĞò: %%A (%%~zA ×Ö½Ú)
     )
 ) else (
-    echo [âš ï¸ ] å®‰è£…ç¨‹åº: æœªç”Ÿæˆ
+    echo [?? ] °²×°³ÌĞò: Î´Éú³É
 )
 
 echo.
-echo --- æ‰§è¡Œç»Ÿè®¡ ---
-echo ç¯å¢ƒæ£€æŸ¥: %ERROR_NODE%%ERROR_NPM%%ERROR_RUST%
-echo npm ä¾èµ–: å·²å®Œæˆ
-echo å‰ç«¯æ„å»º: å·²å®Œæˆ
-echo Tauriæ„å»º: å·²å®Œæˆ
-echo å®‰è£…ç¨‹åº: å·²å®Œæˆ
+echo --- Ö´ĞĞÍ³¼Æ ---
+echo »·¾³¼ì²é: %ERROR_NODE%%ERROR_NPM%%ERROR_RUST%
+echo npm ÒÀÀµ: ÒÑÍê³É
+echo Ç°¶Ë¹¹½¨: ÒÑÍê³É
+echo Tauri¹¹½¨: ÒÑÍê³É
+echo °²×°³ÌĞò: ÒÑÍê³É
 echo.
-echo ç»“æŸæ—¶é—´: %DATE% %TIME%
+echo ½áÊøÊ±¼ä: %DATE% %TIME%
 
 echo.
 echo ========================================
 if %FAILED% GTR 0 (
-    echo ç»“æœ: %FAILED% é¡¹æ£€æŸ¥å¤±è´¥ï¼Œè¯·æŸ¥çœ‹ä¸Šæ–¹æ—¥å¿—
+    echo ½á¹û: %FAILED% Ïî¼ì²éÊ§°Ü£¬Çë²é¿´ÉÏ·½ÈÕÖ¾
 ) else (
-    echo ç»“æœ: å…¨éƒ¨é€šè¿‡ âœ…
+    echo ½á¹û: È«²¿Í¨¹ı ?
 )
 echo ========================================
 
-REM è¾“å‡ºæµ‹è¯•ç»“æœæ‘˜è¦åˆ°å•ç‹¬æ–‡ä»¶
+REM Êä³ö²âÊÔ½á¹ûÕªÒªµ½µ¥¶ÀÎÄ¼ş
 echo Hermes Tray Build Test Summary > build-test-summary.txt
 echo ================================ >> build-test-summary.txt
 echo Date: %DATE% %TIME% >> build-test-summary.txt
@@ -281,19 +281,19 @@ echo. >> build-test-summary.txt
 echo Result: %FAILED% failures >> build-test-summary.txt
 
 echo.
-echo æ—¥å¿—å·²ä¿å­˜åˆ°: %CD%\build-test.log
-echo æ‘˜è¦å·²ä¿å­˜åˆ°: %CD%\build-test-summary.txt
+echo ÈÕÖ¾ÒÑ±£´æµ½: %CD%\build-test.log
+echo ÕªÒªÒÑ±£´æµ½: %CD%\build-test-summary.txt
 echo.
-echo è¯·å°† build-test.log æ–‡ä»¶å†…å®¹å‘å›ç»™å¼€å‘è€…åˆ†æ
+echo Çë½« build-test.log ÎÄ¼şÄÚÈİ·¢»Ø¸ø¿ª·¢Õß·ÖÎö
 echo.
 echo ========================================
-echo  çª—å£å°†è‡ªåŠ¨å…³é—­ (æŒ‰ä»»æ„é”®ç«‹å³å…³é—­)
+echo  ´°¿Ú½«×Ô¶¯¹Ø±Õ (°´ÈÎÒâ¼üÁ¢¼´¹Ø±Õ)
 echo ========================================
 timeout /t 30 /nobreak >nul
 echo.
-echo ç°åœ¨æ‰“å¼€ build-test.log (æŒ‰ä»»æ„é”®ç»§ç»­)...
+echo ÏÖÔÚ´ò¿ª build-test.log (°´ÈÎÒâ¼ü¼ÌĞø)...
 pause >nul
 start "" notepad.exe "%CD%\build-test.log"
 echo.
-echo å…³é—­å‰ç¡®è®¤: è¯·æŠŠ build-test.log å†…å®¹è´´å›ç»™å¼€å‘è€…
+echo ¹Ø±ÕÇ°È·ÈÏ: Çë°Ñ build-test.log ÄÚÈİÌù»Ø¸ø¿ª·¢Õß
 pause
