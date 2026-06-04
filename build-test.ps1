@@ -1,6 +1,6 @@
 ﻿# Hermes Tray Windows 构建测试 (PowerShell 版)
 # 替代 build-test.bat, 避开 CMD 行尾/块解析/编码坑
-# 用法: .\build-test.ps1 (从 PowerShell 运行)
+# 用法: .\build-test.ps1
 
 $ErrorActionPreference = "Continue"
 Set-Location $PSScriptRoot
@@ -15,11 +15,12 @@ function Stage($n, $name) {
     Write-Host "========================================" -ForegroundColor Cyan
 }
 
-function Check($name, $cmd, $args = "--version", $hint = "") {
+function Check($name, $cmd, $cmdArgs = "--version", $hint = "") {
     Write-Host -NoNewline "[检查] $name ... "
-    $out = & $cmd $args 2>&1
+    # 用 cmd /c 替代 & (PowerShell `&` 操作符在某些环境下会挂)
+    $out = cmd /c "$cmd $cmdArgs 2>&1"
     if ($LASTEXITCODE -eq 0) {
-        Write-Host $out -ForegroundColor Green
+        Write-Host $out.Trim() -ForegroundColor Green
         return $true
     } else {
         Write-Host "[失败]" -ForegroundColor Red
@@ -38,7 +39,7 @@ $envOk = (Check "Node.js" "node") -and $envOk
 $envOk = (Check "npm" "npm") -and $envOk
 $rustOk = (Check "Rust" "rustc") -and (Check "Cargo" "cargo")
 $envOk = $rustOk -and $envOk
-$isccOk = (& "iscc" "/?" 2>&1 | Select-String "Inno Setup" -Quiet) -ne $null
+$isccOk = (cmd /c "iscc /?" 2>&1 | Select-String "Inno Setup" -Quiet) -ne $null
 if (-not $isccOk) { Write-Host "[警告] Inno Setup 未找到 (阶段 5 会跳过)" -ForegroundColor Yellow }
 
 Write-Host ""
@@ -55,7 +56,7 @@ if (-not $envOk) {
     Write-Host "[跳过] 环境未通过" -ForegroundColor Yellow
 } else {
     Write-Host "[步骤] npm install..."
-    npm install
+    cmd /c "npm install" 2>&1 | Out-Host
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[通过] npm install" -ForegroundColor Green
     } else {
@@ -68,7 +69,7 @@ if (-not $envOk) {
 Stage 3 "前端构建"
 if ($envOk) {
     Write-Host "[步骤] npm run build (tsc + vite)..."
-    npm run build
+    cmd /c "npm run build" 2>&1 | Out-Host
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[通过] 前端构建" -ForegroundColor Green
     } else {
@@ -83,7 +84,7 @@ if (-not $rustOk) {
 } else {
     Write-Host "[步骤] npm run tauri build..."
     Write-Host "[注意] 首次构建会下载 Rust crate (5-15 分钟)"
-    npm run tauri build
+    cmd /c "npm run tauri build" 2>&1 | Out-Host
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[通过] Tauri 构建" -ForegroundColor Green
         $exe = "src-tauri\target\release\hermes-tray-tauri.exe"
@@ -114,7 +115,7 @@ if (-not $isccOk) {
     Write-Host "[跳过] 主程序不存在 (需先修复阶段 4)" -ForegroundColor Yellow
 } else {
     Write-Host "[步骤] iscc setup.iss..."
-    iscc setup.iss
+    cmd /c "iscc setup.iss" 2>&1 | Out-Host
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[通过] Inno Setup 编译" -ForegroundColor Green
         if (Test-Path "installer") {
