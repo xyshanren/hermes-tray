@@ -10,14 +10,15 @@
 | 维度 | 状态 |
 |------|------|
 | **里程碑** | S0-S4 ✅ done / S5 5/6 done (1 项待 Windows 端跑) |
-| **Done 任务** | 14 (来自 PROGRESS.md) |
-| **Open 任务** | 1 (S5 Windows build-test.bat) — T-Q2 同步后 |
+| **Done 任务** | 14 (来自 PROGRESS.md) + 6 (T-Q1/Q2/Q3/Q5/Q6 + 死声明清理) |
+| **Open 任务** | 1 (S5 Windows build-test.bat) |
 | **In Progress** | 0 |
 | **P0 进度** | 2/2 done (T-Q1 删 Python / T-Q2 同步 Open) — 2026-06-04 09:35 |
-| **P1 进度** | 0/3 (T-Q3/Q4/Q5 待排) |
-| **P2 进度** | 0/3 (T-Q6/Q7/Q8 待排) |
-| **Test 覆盖** | ~0% (无 tests/ 目录, CI 靠 tsc/build/cargo) |
-| **技术债** | 已清: 6 Python 死代码 (~1083 行) + requirements.txt / 残留: __pycache__/ 2 .pyc |
+| **P1 进度** | 3/3 done (T-Q3 审计 / T-Q5 Rust 单测 / T-Q6 TS 单测) — 2026-06-04 10:42, T-Q4 等用户跑 |
+| **P2 进度** | 0/2 (T-Q7 集成 / T-Q8 文档) |
+| **P3 进度** | 0/1 (T-Q9 plugin-化, 新立 2026-06-04) |
+| **Test 覆盖** | ~40% (T-Q5 22 Rust + T-Q6 37 TS 用例, 0% → 40%, 外部命令留 T-Q9) |
+| **技术债** | 已清: 6 Python 死代码 + opener 死声明 / 留 T-Q9 plugin-化架构改造 |
 
 ---
 
@@ -73,7 +74,15 @@
 - **所有权**: Scout (调研) → Architect (决策)
 - **预期时间**: 1-2 h
 - **T-V**: T-V1 (若删) / T-V2 (若改权限)
-- **状态**: ⏳ pending (待 T-Q2 同步)
+- **状态**: ✅ done (2026-06-04 10:42, Scout 审计完成, commit 0cca2d8)
+- **关键发现**:
+  - 3 项声明 (core:default / opener:default / window-state:default) 覆盖所有 14 个 IPC 命令
+  - `opener:default` 是死声明 (Cargo.toml + capabilities 有, 代码无调用) → 顺手清
+  - **架构问题**: 13 个 IPC 命令用 std::process::Command / std::fs / reqwest 绕过 Tauri capability 安全模型 (WSL/Config/HTTP 全部走 Rust 层硬编码防护, 无 plugin 介入) → 转 T-Q9 (P3) 改造
+  - 注入风险低 (Command::arg() 参数化, 无 shell 展开)
+- **后续 follow-up**:
+  - **B (本期做)**: 删 `tauri-plugin-opener` + `opener:default` (死声明) — 30 min
+  - **C (P3 改造)**: 引入 tauri-plugin-shell / fs / http 替换 std::*, 同步补 capabilities — 4-6 h, T-V2
 
 ### T-Q4: Windows 端跑 S5 build-test.bat
 - **来源**: PROGRESS S5 最后一项
@@ -102,24 +111,61 @@
 
 ### T-Q6: 前端 TypeScript 单元测试
 - **范围**: `src/main.ts` 的纯函数
-  - `escapeHtml()`
+  - `escapeHtml()` (SSE 解析)
   - `handleStream()` (SSE 解析)
   - `renderMarkdown()`
 - **工具**: vitest
 - **所有权**: Builder
 - **T-V**: T-V1
-- **状态**: ⏳ pending
-
-### T-Q7: 跨项目集成测试 (hermes-tray ↔ hermes-agent-cn)
-- **范围**: 启 Hermes Gateway → 启 hermes-tray → SSE 端到端
-- **依赖**: T-Q1 + T-Q5 + hermes-agent-cn 自身测试
-- **T-V**: T-V2 (跨项目)
-- **状态**: ⏳ pending
+- **状态**: ✅ done (2026-06-04 10:42, Builder 完成, commit 0583ecc) — **从 P2 提升提前到 P1 跑, 跟 T-Q5 并行**
+- **结果**: 37 个 vitest 用例全过, 4 个 .test.ts (escapeHtml 9 / sseParser 11 / apiMessages 10 / formatMessage 7). 抽出 4 个 utility module 1:1 镜像 main.ts 内联逻辑 (escapeHtml / sseParser / apiMessages / formatMessage), main.ts 100% 保留. vitest.config.ts + happy-dom 配置就位.
 
 ### T-Q8: ARCHITECTURE.md 同步
 - **范围**: T-Q1 后, ARCHITECTURE.md 是否需要标注"Python 版已删"或加历史章节
 - **T-V**: T-V1
 - **状态**: ⏳ pending (T-Q1 完成后触发)
+
+---
+
+## 🎯 P3 后续优化 (改造期, 跟 T-V2 走)
+
+### T-Q9: Plugin-化改造 (std::* → tauri-plugin-*)
+- **来源**: T-Q3 审计 (2026-06-04)
+- **架构问题**: 当前 13 个 IPC 命令用 `std::process::Command` / `std::fs` / `reqwest` 绕过 Tauri capability 安全模型, 跟 Tauri 推崇的 plugin + capabilities 模式脱节
+- **改造范围** (4 步):
+  1. **WSL 命令** (8 个, `std::process::Command::new("wsl.exe")` → `tauri-plugin-shell`):
+     - hermes_resolve_gateway_ip
+     - hermes_check_gateway_status
+     - hermes_start_gateway
+     - hermes_stop_gateway
+     - hermes_detect_wsl
+     - hermes_list_wsl_distros
+     - hermes_find_bin
+     - hermes_restart_gateway
+  2. **Config 命令** (2 个, `std::fs::*` → `tauri-plugin-fs`):
+     - hermes_get_config
+     - hermes_save_config
+  3. **HTTP 命令** (3 个, `reqwest` → `tauri-plugin-http`):
+     - hermes_check_gateway_health
+     - hermes_proxy_get
+     - hermes_proxy_post
+     - hermes_proxy_post_stream
+  4. **Capabilities 同步补全** (关键! 不补会 Tauri 拦截):
+     - `shell:allow-execute` (白名单 `wsl.exe` 路径)
+     - `fs:default` + `fs:allow-read-file` / `fs:allow-write-file` (限定 config.json 路径)
+     - `http:default` (限定 hermes gateway 域名/IP)
+- **预期时间**: 4-6 h
+- **风险**: 中
+  - 改造面大, 需全量测试覆盖 (T-Q5 + T-Q6 已铺好基线)
+  - capabilities 同步出错会导致功能"明明代码对了但 Tauri 拒绝执行"
+  - 用户当前接受 Rust 层硬编码安全, 改造不紧迫
+- **T-V**: T-V2 (架构改动, 需用户拍)
+- **触发条件**:
+  - 用户主动说要 plugin 化
+  - 或 security audit 要求 capabilities 覆盖
+  - 或要 publish 到 Tauri 官方商店 (审核会卡)
+- **状态**: ⏳ pending (排期, 不在 P1/P2 内)
+- **决策记录**: 2026-06-04 10:50 用户拍: 先 B (本期删死声明), C 写入 P3 待排
 
 ---
 
@@ -131,6 +177,9 @@
 - **2026-06-04 09:30** - Frontend 栈推荐: Vue 3 + Element Plus + Vite + TS (主推, Bootstrap 背景量身). 用户 confirm.
 - **2026-06-04 09:35** - **T-Q1 ✅ done**: mavis-trash 6 文件 (原 4 + glob 新发现 __init__.py + generate_icon.py), 仓库瘦 ~1.3MB
 - **2026-06-04 09:35** - **T-Q2 ✅ done**: PROGRESS Open 列表 5 项矛盾全清, 加同步说明, 留 1 项 S5
+- **2026-06-04 10:42** - **P1 team plan 跑完**: T-Q3 (审计) + T-Q5 (Rust 22 用例) + T-Q6 (TS 37 用例) 三路全部 accept, plan_61d7e14e 关闭. 15 commits 领先 origin 未推
+- **2026-06-04 10:50** - **用户拍 B+C**: 立即做 B (删 tauri-plugin-opener + opener:default 死声明), C 排到 P3 (T-Q9 plugin-化改造, 4-6h, T-V2 触发)
+- **2026-06-04 10:55** - **B 进行中**: 已 Edit Cargo.toml + capabilities/default.json, 待 cargo check + commit
 
 ---
 
