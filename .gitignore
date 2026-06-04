@@ -40,3 +40,8 @@ installer/
 
 # Bundle outputs
 src-tauri/target/release/bundle/
+
+# Mavis / atomcode local working dirs (NOT project source)
+.agent-teams/
+.atomcode/
+.mavis/
