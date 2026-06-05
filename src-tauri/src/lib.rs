@@ -152,7 +152,7 @@ fn pick_gateway_host(distro: &str, port: &str) -> String {
     first_some(&candidates).unwrap_or_else(|| "172.31.98.230".to_string())
 }
 
-// ── Gateway Process Management ──────────────────────────────────────
+// ── Gateway Status (read-only) ─────────────────────────────────────
 
 /// Check if Hermes Gateway is running in the WSL distro.
 #[tauri::command]
@@ -171,49 +171,6 @@ fn hermes_check_gateway_status(distro: String) -> Result<String, String> {
         }
     } else {
         Ok("stopped".to_string())
-    }
-}
-
-/// Start Hermes Gateway in the specified WSL distro.
-///
-/// We delegate to `hermes gateway start` (which wraps `systemctl --user start`)
-/// instead of spawning the process directly. The hermes gateway runs under a
-/// systemd user service (`hermes-gateway.service`, `enabled`), so spawning a
-/// naked process would either (a) conflict with the service instance, or
-/// (b) be killed by systemd the next time it resyncs. Letting the CLI manage
-/// the service is the only correct path.
-#[tauri::command]
-fn hermes_start_gateway(distro: String) -> Result<String, String> {
-    let output = std::process::Command::new("wsl")
-        .args(["-d", &distro, "bash", "-c", "hermes gateway start"])
-        .output()
-        .map_err(|e| format!("启动命令执行失败: {}", e))?;
-
-    if output.status.success() {
-        Ok("Gateway 已启动".to_string())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(format!("Gateway 启动失败: {}", stderr.trim()))
-    }
-}
-
-/// Stop Hermes Gateway in the specified WSL distro.
-///
-/// Uses `hermes gateway stop` (wraps `systemctl --user stop`). Direct `pkill`
-/// would only work for the brief moment between kill and systemd's automatic
-/// respawn — see hermes_start_gateway doc for the full story.
-#[tauri::command]
-fn hermes_stop_gateway(distro: String) -> Result<String, String> {
-    let output = std::process::Command::new("wsl")
-        .args(["-d", &distro, "bash", "-c", "hermes gateway stop"])
-        .output()
-        .map_err(|e| format!("停止命令执行失败: {}", e))?;
-
-    if output.status.success() {
-        Ok("Gateway 已停止".to_string())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(format!("Gateway 停止失败: {}", stderr.trim()))
     }
 }
 
@@ -356,26 +313,6 @@ fn hermes_find_bin(distro: String) -> String {
     }
 
     "/root/.local/bin/hermes".to_string()
-}
-
-// ── Gateway Management ────────────────────────────────────────────
-
-/// Restart Gateway via the hermes CLI (wraps `systemctl --user restart`).
-/// Also auto-refreshes the service unit definition if it's outdated
-/// (the `⚠ Installed gateway service definition is outdated` notice).
-#[tauri::command]
-fn hermes_restart_gateway(distro: String) -> Result<String, String> {
-    let output = std::process::Command::new("wsl")
-        .args(["-d", &distro, "bash", "-c", "hermes gateway restart"])
-        .output()
-        .map_err(|e| format!("重启命令执行失败: {}", e))?;
-
-    if output.status.success() {
-        Ok("Gateway 已重启".to_string())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(format!("Gateway 重启失败: {}", stderr.trim()))
-    }
 }
 
 // ── Hermes API Proxy ────────────────────────────────────────────────
@@ -904,19 +841,15 @@ pub fn run() {
             // Resolve distro once at startup for tray menu use
             let distro = read_wsl_distro();
 
-            // Build tray menu
+            // Build tray menu (simplified: show + quit only. Gateway lifecycle is
+            // managed out-of-band via systemd + hermes CLI, not the tray — see
+            // MEMORY.md "systemd service" entry for why tray control is
+            // fundamentally a bad UX for systemd-managed services).
             let show_item = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
-            let start_gw = MenuItemBuilder::with_id("start_gateway", "启动 Gateway").build(app)?;
-            let stop_gw = MenuItemBuilder::with_id("stop_gateway", "停止 Gateway").build(app)?;
-            let restart_gw = MenuItemBuilder::with_id("restart_gateway", "重启 Gateway").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
 
             let menu = MenuBuilder::new(app)
                 .item(&show_item)
-                .separator()
-                .item(&start_gw)
-                .item(&stop_gw)
-                .item(&restart_gw)
                 .separator()
                 .item(&quit_item)
                 .build()?;
@@ -933,54 +866,6 @@ pub fn run() {
                                 let _ = window.show();
                                 let _ = window.set_focus();
                             }
-                        }
-                        "start_gateway" => {
-                            let d = distro.clone();
-                            let payload = match hermes_start_gateway(d) {
-                                Ok(msg) => serde_json::json!({
-                                    "type": "success",
-                                    "title": "Gateway 已启动",
-                                    "message": msg
-                                }),
-                                Err(e) => serde_json::json!({
-                                    "type": "error",
-                                    "title": "启动失败",
-                                    "message": e
-                                }),
-                            };
-                            let _ = app.emit("gateway-notification", payload);
-                        }
-                        "stop_gateway" => {
-                            let d = distro.clone();
-                            let payload = match hermes_stop_gateway(d) {
-                                Ok(msg) => serde_json::json!({
-                                    "type": "info",
-                                    "title": "Gateway 已停止",
-                                    "message": msg
-                                }),
-                                Err(e) => serde_json::json!({
-                                    "type": "error",
-                                    "title": "停止失败",
-                                    "message": e
-                                }),
-                            };
-                            let _ = app.emit("gateway-notification", payload);
-                        }
-                        "restart_gateway" => {
-                            let d = distro.clone();
-                            let payload = match hermes_restart_gateway(d) {
-                                Ok(msg) => serde_json::json!({
-                                    "type": "success",
-                                    "title": "Gateway 已重启",
-                                    "message": msg
-                                }),
-                                Err(e) => serde_json::json!({
-                                    "type": "error",
-                                    "title": "重启失败",
-                                    "message": e
-                                }),
-                            };
-                            let _ = app.emit("gateway-notification", payload);
                         }
                         "quit" => {
                             app.exit(0);
@@ -1006,16 +891,13 @@ pub fn run() {
             hermes_proxy_get,
             hermes_proxy_post,
             hermes_proxy_post_stream,
-            // S1 — Gateway commands
+            // S1 — Gateway status (read-only)
             hermes_check_gateway_status,
-            hermes_start_gateway,
-            hermes_stop_gateway,
             hermes_check_gateway_health,
-            // S2 — WSL detection & Gateway management
+            // S2 — WSL detection
             hermes_detect_wsl,
             hermes_list_wsl_distros,
             hermes_find_bin,
-            hermes_restart_gateway,
             // S3 — Config commands
             hermes_get_config,
             hermes_save_config,
