@@ -1,3 +1,7 @@
+// `mod tests` 在文件中间 (紧跟被测函数), `pub fn run()` 在它后面是常规 Tauri 模式.
+// 关掉这条 clippy lint, 不去为了 lint 把整文件 reorder.
+#![allow(clippy::items_after_test_module)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tauri::{
@@ -82,6 +86,21 @@ async fn hermes_resolve_gateway_ip(app: tauri::AppHandle) -> GatewayInfo {
     }
 }
 
+/// Parse the first whitespace-separated token from `hostname -I` output, but
+/// only accept it if it contains a dot (rough IPv4 sanity check) and is non-empty.
+/// IPv6 link-local addresses like `fe80::1` are rejected because they contain no '.';
+/// we route IPv6 callers through `read_gateway_host_override` instead.
+///
+/// Pure helper, extracted from `detect_wsl_ip` for testability (the AppHandle-bound
+/// wrapper itself is not unit-testable; see the skip comment in `mod tests`).
+fn parse_first_ip_token(s: &str) -> Option<String> {
+    // `split_whitespace` 已经吃掉前后空白和空 token, 不需要先 trim.
+    s.split_whitespace()
+        .next()
+        .filter(|tok| !tok.is_empty() && tok.contains('.'))
+        .map(str::to_string)
+}
+
 async fn detect_wsl_ip(app: &tauri::AppHandle, distro: &str) -> Option<String> {
     // Primary: try the specified distro
     let output = app
@@ -93,12 +112,9 @@ async fn detect_wsl_ip(app: &tauri::AppHandle, distro: &str) -> Option<String> {
         .ok()?;
 
     if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if let Some(first_ip) = stdout.split_whitespace().next() {
-            let ip = first_ip.to_string();
-            if ip.contains('.') && !ip.is_empty() {
-                return Some(ip);
-            }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Some(ip) = parse_first_ip_token(&stdout) {
+            return Some(ip);
         }
     }
 
@@ -112,12 +128,9 @@ async fn detect_wsl_ip(app: &tauri::AppHandle, distro: &str) -> Option<String> {
         .ok()?;
 
     if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if let Some(first_ip) = stdout.split_whitespace().next() {
-            let ip = first_ip.to_string();
-            if ip.contains('.') && !ip.is_empty() {
-                return Some(ip);
-            }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Some(ip) = parse_first_ip_token(&stdout) {
+            return Some(ip);
         }
     }
 
@@ -164,11 +177,7 @@ fn first_some(candidates: &[Option<String>]) -> Option<String> {
 /// Routing through `127.0.0.1` (loopback) avoids Windows system proxies
 /// (e.g. Clash at 127.0.0.1:7890) that would intercept 172.16-31.x.x
 /// requests and return HTTP 502 Bad Gateway.
-async fn pick_gateway_host(
-    app: &tauri::AppHandle,
-    distro: &str,
-    port: &str,
-) -> String {
+async fn pick_gateway_host(app: &tauri::AppHandle, distro: &str, port: &str) -> String {
     let candidates = [
         read_gateway_host_override(),
         if check_localhost_gateway(port) {
@@ -199,13 +208,22 @@ async fn hermes_check_gateway_status(
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.contains("gateway") {
-            Ok("running".to_string())
-        } else {
-            Ok("stopped".to_string())
-        }
+        Ok(classify_gateway_status(true, &stdout).to_string())
     } else {
-        Ok("stopped".to_string())
+        Ok(classify_gateway_status(false, "").to_string())
+    }
+}
+
+/// Classify gateway running state from `pgrep -a -f hermes` output.
+/// "running" requires both: pgrep succeeded AND stdout mentions "gateway"
+/// (filters out hermes CLI tool lines that don't match the gateway binary).
+///
+/// Pure helper, extracted from `hermes_check_gateway_status` for testability.
+fn classify_gateway_status(success: bool, stdout: &str) -> &'static str {
+    if success && stdout.contains("gateway") {
+        "running"
+    } else {
+        "stopped"
     }
 }
 
@@ -310,13 +328,19 @@ async fn hermes_list_wsl_distros(app: tauri::AppHandle) -> Result<Vec<String>, S
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let distros: Vec<String> = stdout
-        .lines()
+    Ok(parse_wsl_distro_list(&stdout))
+}
+
+/// Parse the trimmed-non-empty-line list returned by `wsl -l -q`.
+/// `wsl -l -q` emits one distro per line, sometimes with leading/trailing spaces
+/// and occasional blank lines on stderr bleeding through; we strip + filter.
+///
+/// Pure helper, extracted from `hermes_list_wsl_distros` for testability.
+fn parse_wsl_distro_list(s: &str) -> Vec<String> {
+    s.lines()
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
-        .collect();
-
-    Ok(distros)
+        .collect()
 }
 
 /// Search for hermes binary inside the WSL distro.
@@ -459,7 +483,7 @@ async fn hermes_proxy_post_stream(
 /// 覆盖策略:
 ///   - 跳过: 所有 WSL exec / 进程 spawn / HTTP 包装函数 (依赖外部环境, 行为不可重现).
 ///   - 测试: read_wsl_distro / read_config_json / write_config_json /
-///           hermes_get_config / hermes_save_config — 隔离用 tempfile + Mutex.
+///     hermes_get_config / hermes_save_config — 隔离用 tempfile + Mutex.
 ///
 /// 隔离机制:
 ///   - read_* 优先看 exe dir 的 config.json, 再看 CWD.
@@ -839,10 +863,7 @@ mod tests {
     fn read_gateway_host_override_trims_surrounding_whitespace() {
         with_exe_config(|_cfg| {
             write_config_json(&serde_json::json!({"gateway_host": "  10.0.0.1  "})).unwrap();
-            assert_eq!(
-                read_gateway_host_override(),
-                Some("10.0.0.1".to_string())
-            );
+            assert_eq!(read_gateway_host_override(), Some("10.0.0.1".to_string()));
         });
     }
 
@@ -865,6 +886,155 @@ mod tests {
     fn first_some_returns_none_for_empty_input() {
         assert_eq!(first_some(&[]), None);
     }
+
+    // ─────────────── plugin wrapper helpers (T-Q9 S2) ───────────────
+    //
+    // Skip: `detect_wsl_ip` / `hermes_check_gateway_status` / `hermes_list_wsl_distros`
+    // / `hermes_find_bin` / `hermes_detect_wsl` / `hermes_resolve_gateway_ip` all
+    // require `tauri::AppHandle` (needed by `app.shell().command(...).output().await`).
+    // Constructing a real `AppHandle` in unit tests requires booting the Tauri runtime,
+    // which is a heavier integration-test setup (and not what the existing 31 tests do).
+    //
+    // What we do test: the pure parsing/classification helpers extracted from those
+    // wrappers — `parse_first_ip_token`, `parse_wsl_distro_list`, `classify_gateway_status`.
+    // These cover the exact logic the AppHandle wrappers delegate to, just without the IO.
+
+    #[test]
+    fn parse_first_ip_token_returns_single_ipv4() {
+        assert_eq!(
+            parse_first_ip_token("192.168.1.42"),
+            Some("192.168.1.42".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_first_ip_token_takes_first_of_multiple() {
+        // `hostname -I` 在多接口主机上可能返回多个 IP, 空格分隔.
+        assert_eq!(
+            parse_first_ip_token("192.168.1.10 10.0.0.5 172.17.0.1"),
+            Some("192.168.1.10".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_first_ip_token_trims_surrounding_whitespace() {
+        assert_eq!(
+            parse_first_ip_token("  172.31.0.1  \n"),
+            Some("172.31.0.1".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_first_ip_token_handles_trailing_newline() {
+        // `hostname -I` 典型输出尾部带 \n.
+        assert_eq!(
+            parse_first_ip_token("172.31.98.230\n"),
+            Some("172.31.98.230".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_first_ip_token_rejects_ipv6() {
+        // IPv6 link-local 用 `:` 分段, 不含 `.` → 拒绝 (我们走 gateway_host override).
+        assert_eq!(parse_first_ip_token("fe80::1"), None);
+    }
+
+    #[test]
+    fn parse_first_ip_token_rejects_empty_input() {
+        assert_eq!(parse_first_ip_token(""), None);
+    }
+
+    #[test]
+    fn parse_first_ip_token_rejects_whitespace_only() {
+        assert_eq!(parse_first_ip_token("   \n\t  "), None);
+    }
+
+    #[test]
+    fn parse_first_ip_token_rejects_token_without_dot() {
+        // 没有 `.` 的 token (如主机名) 不算 IP, 跳过.
+        assert_eq!(parse_first_ip_token("localhost"), None);
+        assert_eq!(parse_first_ip_token("hostname"), None);
+    }
+
+    #[test]
+    fn parse_first_ip_token_skips_leading_non_ip_tokens() {
+        // 首个 token 不像 IP, 但后续有 — 这种 `hostname -I` 实际不会产生, 但保险测试.
+        assert_eq!(parse_first_ip_token("not-an-ip 192.168.0.1"), None);
+    }
+
+    #[test]
+    fn parse_wsl_distro_list_parses_basic_output() {
+        let input = "Ubuntu-24.04.4\nDebian\narchlinux\n";
+        assert_eq!(
+            parse_wsl_distro_list(input),
+            vec![
+                "Ubuntu-24.04.4".to_string(),
+                "Debian".to_string(),
+                "archlinux".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_wsl_distro_list_strips_surrounding_whitespace() {
+        // `wsl -l -q` 有时给行带前导空格 (对齐表格).
+        let input = "  Ubuntu  \n  Debian  \n";
+        assert_eq!(
+            parse_wsl_distro_list(input),
+            vec!["Ubuntu".to_string(), "Debian".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_wsl_distro_list_filters_blank_lines() {
+        // 空行/纯空格行不算 distro.
+        let input = "Ubuntu\n\n\nDebian\n   \n";
+        assert_eq!(
+            parse_wsl_distro_list(input),
+            vec!["Ubuntu".to_string(), "Debian".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_wsl_distro_list_returns_empty_for_empty_input() {
+        assert_eq!(parse_wsl_distro_list(""), Vec::<String>::new());
+    }
+
+    #[test]
+    fn parse_wsl_distro_list_returns_empty_for_whitespace_only() {
+        assert_eq!(parse_wsl_distro_list("\n\n  \n"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn classify_gateway_status_running_when_pgrep_matches_gateway() {
+        // pgrep -a -f hermes 输出: "<pid> /root/.local/bin/hermes gateway start"
+        let stdout = "1234 /root/.local/bin/hermes gateway start";
+        assert_eq!(classify_gateway_status(true, stdout), "running");
+    }
+
+    #[test]
+    fn classify_gateway_status_stopped_when_pgrep_succeeds_but_no_gateway_keyword() {
+        // pgrep 命中但行里没有 "gateway" (例如 hermes CLI 别的子命令) → stopped.
+        let stdout = "1234 /usr/bin/hermes --help";
+        assert_eq!(classify_gateway_status(true, stdout), "stopped");
+    }
+
+    #[test]
+    fn classify_gateway_status_stopped_when_pgrep_fails() {
+        // pgrep 失败 (exit != 0) → 没有任何 hermes 进程在跑.
+        assert_eq!(classify_gateway_status(false, ""), "stopped");
+        // stdout 内容无所谓, 失败即 stopped.
+        assert_eq!(
+            classify_gateway_status(false, "garbage error output"),
+            "stopped"
+        );
+    }
+
+    #[test]
+    fn classify_gateway_status_running_requires_both_success_and_keyword() {
+        // 仅有 keyword 但 pgrep 失败 → 还是 stopped (不可能从 IO, 但函数应鲁棒).
+        assert_eq!(classify_gateway_status(false, "hermes gateway"), "stopped");
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -886,8 +1056,10 @@ pub fn run() {
                 }
             });
 
-            // Resolve distro once at startup for tray menu use
-            let distro = read_wsl_distro();
+            // Resolve distro once at startup so the value is captured for
+            // future tray menu consumers (currently only the menu builder runs
+            // here, so the binding is intentionally consumed via `_`).
+            let _distro = read_wsl_distro();
 
             // Build tray menu (simplified: show + quit only. Gateway lifecycle is
             // managed out-of-band via systemd + hermes CLI, not the tray — see
@@ -907,22 +1079,25 @@ pub fn run() {
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .tooltip("Hermes Tray - Hermes 助手")
-                .on_menu_event(move |app, event| {
-                    match event.id().as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                .on_menu_event(move |app, event| match event.id().as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
                     }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
