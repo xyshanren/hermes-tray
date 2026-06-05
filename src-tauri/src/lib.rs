@@ -5,6 +5,24 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager,
 };
+use tauri_plugin_shell::ShellExt;
+
+// 关于 std::process::Command 迁移:
+// 4 处 WSL 进程调用已迁到 tauri-plugin-shell (lib.rs 内 `app.shell().command("wsl")...`).
+// 改用 ShellExt 是为了让 capability 模型覆盖进程调用 (frontend 调用 shell 命令需 scope).
+//
+// 关于 std::fs:
+// 后端读/写 config.json 仍用 std::fs (迁移决策见 .agent-teams/research/tq9-s2-fs-decision.md).
+// 原因: tauri-plugin-fs 的 Rust API 强制要求 AppHandle, 会破坏现有 31 个 unit test (它们无 AppHandle).
+// 仍注册 tauri-plugin-fs + 在 capabilities 里登记 fs 权限, 是为了 capability 模型一致 + 未来
+// frontend 真用到 fs 命令时 (例如读 $APPDATA 里其它文件) 不需要再改 capability.
+//
+// 关于 reqwest::Client:
+// 4 处 HTTP 调用保留 reqwest, 不迁 tauri-plugin-http. 原因:
+// 1. Tauri capability 模型不控制 backend 自己的 HTTP 调用 (capability 只覆盖 frontend 调到
+//    plugin 的 IPC command).
+// 2. tauri-plugin-http 是给 frontend 用的; 后端用 reqwest 直连更直接, 还能用 no_proxy() 绕开
+//    系统代理 (修 Clash 502 的关键, 见 T-Q9 stage 1 commit f31245e).
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HermesResponse {
@@ -51,10 +69,10 @@ fn read_wsl_distro() -> String {
 /// Distro is configurable via config.json next to the executable.
 /// Falls back to hardcoded IP if detection fails.
 #[tauri::command]
-fn hermes_resolve_gateway_ip() -> GatewayInfo {
+async fn hermes_resolve_gateway_ip(app: tauri::AppHandle) -> GatewayInfo {
     let fallback_port = "8642";
     let distro = read_wsl_distro();
-    let host = pick_gateway_host(&distro, fallback_port);
+    let host = pick_gateway_host(&app, &distro, fallback_port).await;
 
     GatewayInfo {
         ip: host.clone(),
@@ -64,13 +82,14 @@ fn hermes_resolve_gateway_ip() -> GatewayInfo {
     }
 }
 
-fn detect_wsl_ip(distro: &str) -> Option<String> {
-    use std::process::Command;
-
+async fn detect_wsl_ip(app: &tauri::AppHandle, distro: &str) -> Option<String> {
     // Primary: try the specified distro
-    let output = Command::new("wsl")
+    let output = app
+        .shell()
+        .command("wsl")
         .args(["-d", distro, "bash", "-c", "hostname -I"])
         .output()
+        .await
         .ok()?;
 
     if output.status.success() {
@@ -84,7 +103,13 @@ fn detect_wsl_ip(distro: &str) -> Option<String> {
     }
 
     // Fallback: try the default WSL distro (no -d flag)
-    let output = Command::new("wsl").args(["hostname", "-I"]).output().ok()?;
+    let output = app
+        .shell()
+        .command("wsl")
+        .args(["hostname", "-I"])
+        .output()
+        .await
+        .ok()?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -139,7 +164,11 @@ fn first_some(candidates: &[Option<String>]) -> Option<String> {
 /// Routing through `127.0.0.1` (loopback) avoids Windows system proxies
 /// (e.g. Clash at 127.0.0.1:7890) that would intercept 172.16-31.x.x
 /// requests and return HTTP 502 Bad Gateway.
-fn pick_gateway_host(distro: &str, port: &str) -> String {
+async fn pick_gateway_host(
+    app: &tauri::AppHandle,
+    distro: &str,
+    port: &str,
+) -> String {
     let candidates = [
         read_gateway_host_override(),
         if check_localhost_gateway(port) {
@@ -147,7 +176,7 @@ fn pick_gateway_host(distro: &str, port: &str) -> String {
         } else {
             None
         },
-        detect_wsl_ip(distro),
+        detect_wsl_ip(app, distro).await,
     ];
     first_some(&candidates).unwrap_or_else(|| "172.31.98.230".to_string())
 }
@@ -156,10 +185,16 @@ fn pick_gateway_host(distro: &str, port: &str) -> String {
 
 /// Check if Hermes Gateway is running in the WSL distro.
 #[tauri::command]
-fn hermes_check_gateway_status(distro: String) -> Result<String, String> {
-    let output = std::process::Command::new("wsl")
+async fn hermes_check_gateway_status(
+    app: tauri::AppHandle,
+    distro: String,
+) -> Result<String, String> {
+    let output = app
+        .shell()
+        .command("wsl")
         .args(["-d", &distro, "pgrep", "-a", "-f", "hermes"])
         .output()
+        .await
         .map_err(|e| format!("检测失败: {}", e))?;
 
     if output.status.success() {
@@ -249,20 +284,25 @@ fn hermes_save_config(updates: serde_json::Value) -> Result<(), String> {
 
 /// Check if WSL is available on the system.
 #[tauri::command]
-fn hermes_detect_wsl() -> bool {
-    std::process::Command::new("wsl")
+async fn hermes_detect_wsl(app: tauri::AppHandle) -> bool {
+    app.shell()
+        .command("wsl")
         .arg("--version")
         .output()
+        .await
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
 
 /// List available WSL distributions.
 #[tauri::command]
-fn hermes_list_wsl_distros() -> Result<Vec<String>, String> {
-    let output = std::process::Command::new("wsl")
+async fn hermes_list_wsl_distros(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let output = app
+        .shell()
+        .command("wsl")
         .args(["-l", "-q"])
         .output()
+        .await
         .map_err(|e| format!("列举 WSL 发行版失败: {}", e))?;
 
     if !output.status.success() {
@@ -281,7 +321,7 @@ fn hermes_list_wsl_distros() -> Result<Vec<String>, String> {
 
 /// Search for hermes binary inside the WSL distro.
 #[tauri::command]
-fn hermes_find_bin(distro: String) -> String {
+async fn hermes_find_bin(app: tauri::AppHandle, distro: String) -> String {
     let candidates = vec![
         "/root/.local/bin/hermes",
         "/usr/local/bin/hermes",
@@ -290,9 +330,12 @@ fn hermes_find_bin(distro: String) -> String {
     ];
 
     for path in &candidates {
-        let output = std::process::Command::new("wsl")
+        let output = app
+            .shell()
+            .command("wsl")
             .args(["-d", &distro, "test", "-f", path])
-            .output();
+            .output()
+            .await;
         if let Ok(o) = output {
             if o.status.success() {
                 return path.to_string();
@@ -302,9 +345,12 @@ fn hermes_find_bin(distro: String) -> String {
 
     // Fallback: try default WSL (no -d flag)
     for path in &candidates {
-        let output = std::process::Command::new("wsl")
+        let output = app
+            .shell()
+            .command("wsl")
             .args(["test", "-f", path])
-            .output();
+            .output()
+            .await;
         if let Ok(o) = output {
             if o.status.success() {
                 return path.to_string();
@@ -825,6 +871,8 @@ mod tests {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             // Get the main window
             let window = app.get_webview_window("main").unwrap();
