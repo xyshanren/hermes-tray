@@ -52,16 +52,14 @@ fn read_wsl_distro() -> String {
 /// Falls back to hardcoded IP if detection fails.
 #[tauri::command]
 fn hermes_resolve_gateway_ip() -> GatewayInfo {
-    let fallback_ip = "172.31.98.230";
     let fallback_port = "8642";
-
     let distro = read_wsl_distro();
-    let ip = detect_wsl_ip(&distro).unwrap_or_else(|| fallback_ip.to_string());
+    let host = pick_gateway_host(&distro, fallback_port);
 
     GatewayInfo {
-        ip: ip.clone(),
+        ip: host.clone(),
         port: fallback_port.to_string(),
-        url: format!("http://{}:{}", ip, fallback_port),
+        url: format!("http://{}:{}", host, fallback_port),
         distro: distro.clone(),
     }
 }
@@ -99,6 +97,59 @@ fn detect_wsl_ip(distro: &str) -> Option<String> {
     }
 
     None
+}
+
+// ── Gateway Host Resolution ───────────────────────────────────────
+
+/// Read optional `gateway_host` override from config.json.
+/// Lets the user pin a specific host (e.g. "192.168.1.10" for a remote
+/// gateway, or "[::1]" for IPv6 localhost).
+fn read_gateway_host_override() -> Option<String> {
+    let config = read_config_json();
+    config
+        .get("gateway_host")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Quick TCP probe to detect WSL2 localhostForwarding.
+/// Win11 enables this by default; Win10 does not.
+fn check_localhost_gateway(port: &str) -> bool {
+    use std::net::{SocketAddr, TcpStream};
+    use std::time::Duration;
+    let addr = format!("127.0.0.1:{}", port);
+    match addr.parse::<SocketAddr>() {
+        Ok(sa) => TcpStream::connect_timeout(&sa, Duration::from_millis(500)).is_ok(),
+        Err(_) => false,
+    }
+}
+
+/// Return the first non-None candidate. Pure helper, easy to unit test.
+fn first_some(candidates: &[Option<String>]) -> Option<String> {
+    candidates.iter().flatten().next().cloned()
+}
+
+/// Pick the best gateway host using this priority chain:
+/// 1. config override (`gateway_host` in config.json)
+/// 2. localhost (`127.0.0.1`) — Win11 WSL2 localhostForwarding default
+/// 3. WSL eth0 IP — Win10 or no localhostForwarding
+/// 4. hardcoded fallback (`172.31.98.230`) — last resort
+///
+/// Routing through `127.0.0.1` (loopback) avoids Windows system proxies
+/// (e.g. Clash at 127.0.0.1:7890) that would intercept 172.16-31.x.x
+/// requests and return HTTP 502 Bad Gateway.
+fn pick_gateway_host(distro: &str, port: &str) -> String {
+    let candidates = [
+        read_gateway_host_override(),
+        if check_localhost_gateway(port) {
+            Some("127.0.0.1".to_string())
+        } else {
+            None
+        },
+        detect_wsl_ip(distro),
+    ];
+    first_some(&candidates).unwrap_or_else(|| "172.31.98.230".to_string())
 }
 
 // ── Gateway Process Management ──────────────────────────────────────
@@ -189,6 +240,7 @@ fn hermes_stop_gateway(distro: String) -> Result<String, String> {
 async fn hermes_check_gateway_health(url: String) -> Result<HermesResponse, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
+        .no_proxy()
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client
@@ -378,6 +430,7 @@ async fn hermes_proxy_get(
 ) -> Result<HermesResponse, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
+        .no_proxy()
         .build()
         .map_err(|e| e.to_string())?;
     let mut req = client.get(&url);
@@ -402,6 +455,7 @@ async fn hermes_proxy_post(
 ) -> Result<HermesResponse, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
+        .no_proxy()
         .build()
         .map_err(|e| e.to_string())?;
     let mut req = client.post(&url);
@@ -431,6 +485,7 @@ async fn hermes_proxy_post_stream(
 ) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
+        .no_proxy()
         .build()
         .map_err(|e| e.to_string())?;
     let mut req = client.post(&url);
@@ -790,6 +845,85 @@ mod tests {
                 serde_json::from_str(&std::fs::read_to_string(cfg).unwrap()).unwrap();
             assert_eq!(parsed, serde_json::json!({}));
         });
+    }
+
+    // ─────────────── read_gateway_host_override ───────────────
+
+    #[test]
+    fn read_gateway_host_override_returns_some_when_set() {
+        with_exe_config(|_cfg| {
+            write_config_json(&serde_json::json!({
+                "wsl_distro": "Ubuntu",
+                "gateway_host": "192.168.1.100",
+            }))
+            .unwrap();
+            assert_eq!(
+                read_gateway_host_override(),
+                Some("192.168.1.100".to_string())
+            );
+        });
+    }
+
+    #[test]
+    fn read_gateway_host_override_returns_none_when_missing() {
+        with_isolated_cwd(|_dir| {
+            assert_eq!(read_gateway_host_override(), None);
+        });
+    }
+
+    #[test]
+    fn read_gateway_host_override_returns_none_for_empty_string() {
+        with_exe_config(|_cfg| {
+            write_config_json(&serde_json::json!({"gateway_host": ""})).unwrap();
+            assert_eq!(read_gateway_host_override(), None);
+        });
+    }
+
+    #[test]
+    fn read_gateway_host_override_returns_none_for_whitespace_only() {
+        with_exe_config(|_cfg| {
+            write_config_json(&serde_json::json!({"gateway_host": "   "})).unwrap();
+            assert_eq!(read_gateway_host_override(), None);
+        });
+    }
+
+    #[test]
+    fn read_gateway_host_override_ignores_non_string_value() {
+        with_exe_config(|_cfg| {
+            write_config_json(&serde_json::json!({"gateway_host": 42})).unwrap();
+            assert_eq!(read_gateway_host_override(), None);
+        });
+    }
+
+    #[test]
+    fn read_gateway_host_override_trims_surrounding_whitespace() {
+        with_exe_config(|_cfg| {
+            write_config_json(&serde_json::json!({"gateway_host": "  10.0.0.1  "})).unwrap();
+            assert_eq!(
+                read_gateway_host_override(),
+                Some("10.0.0.1".to_string())
+            );
+        });
+    }
+
+    // ─────────────── first_some ───────────────
+
+    #[test]
+    fn first_some_returns_first_non_none() {
+        assert_eq!(
+            first_some(&[None, Some("a".to_string()), Some("b".to_string())]),
+            Some("a".to_string())
+        );
+    }
+
+    #[test]
+    fn first_some_returns_none_when_all_none() {
+        assert_eq!(first_some(&[None, None, None]), None);
+    }
+
+    #[test]
+    fn first_some_returns_none_for_empty_input() {
+        assert_eq!(first_some(&[]), None);
     }
 }
 
