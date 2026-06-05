@@ -175,16 +175,17 @@ fn hermes_check_gateway_status(distro: String) -> Result<String, String> {
 }
 
 /// Start Hermes Gateway in the specified WSL distro.
+///
+/// We delegate to `hermes gateway start` (which wraps `systemctl --user start`)
+/// instead of spawning the process directly. The hermes gateway runs under a
+/// systemd user service (`hermes-gateway.service`, `enabled`), so spawning a
+/// naked process would either (a) conflict with the service instance, or
+/// (b) be killed by systemd the next time it resyncs. Letting the CLI manage
+/// the service is the only correct path.
 #[tauri::command]
 fn hermes_start_gateway(distro: String) -> Result<String, String> {
     let output = std::process::Command::new("wsl")
-        .args([
-            "-d",
-            &distro,
-            "bash",
-            "-c",
-            "cd ~/.hermes && source hermes-venv/bin/activate && hermes gateway start",
-        ])
+        .args(["-d", &distro, "bash", "-c", "hermes gateway start"])
         .output()
         .map_err(|e| format!("启动命令执行失败: {}", e))?;
 
@@ -196,42 +197,23 @@ fn hermes_start_gateway(distro: String) -> Result<String, String> {
     }
 }
 
-/// Stop Hermes Gateway in the specified WSL distro (graceful → force kill).
+/// Stop Hermes Gateway in the specified WSL distro.
+///
+/// Uses `hermes gateway stop` (wraps `systemctl --user stop`). Direct `pkill`
+/// would only work for the brief moment between kill and systemd's automatic
+/// respawn — see hermes_start_gateway doc for the full story.
 #[tauri::command]
 fn hermes_stop_gateway(distro: String) -> Result<String, String> {
-    // First attempt: graceful kill
     let output = std::process::Command::new("wsl")
-        .args([
-            "-d",
-            &distro,
-            "bash",
-            "-c",
-            "pkill -f 'hermes.*gateway' 2>/dev/null; sleep 1; pgrep -f 'hermes.*gateway' >/dev/null 2>&1",
-        ])
+        .args(["-d", &distro, "bash", "-c", "hermes gateway stop"])
         .output()
         .map_err(|e| format!("停止命令执行失败: {}", e))?;
 
-    let still_running = output.status.success();
-    if !still_running {
-        return Ok("Gateway 已停止".to_string());
-    }
-
-    // Force kill fallback
-    let output = std::process::Command::new("wsl")
-        .args([
-            "-d",
-            &distro,
-            "bash",
-            "-c",
-            "kill -9 $(pgrep -f 'hermes.*gateway') 2>/dev/null || true",
-        ])
-        .output()
-        .map_err(|e| format!("强制停止失败: {}", e))?;
-
     if output.status.success() {
-        Ok("Gateway 已强制停止".to_string())
+        Ok("Gateway 已停止".to_string())
     } else {
-        Ok("Gateway 可能仍在运行，请手动检查".to_string())
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("Gateway 停止失败: {}", stderr.trim()))
     }
 }
 
@@ -378,40 +360,15 @@ fn hermes_find_bin(distro: String) -> String {
 
 // ── Gateway Management ────────────────────────────────────────────
 
-/// Restart Gateway: stop gracefully → wait → start.
+/// Restart Gateway via the hermes CLI (wraps `systemctl --user restart`).
+/// Also auto-refreshes the service unit definition if it's outdated
+/// (the `⚠ Installed gateway service definition is outdated` notice).
 #[tauri::command]
 fn hermes_restart_gateway(distro: String) -> Result<String, String> {
-    // Graceful stop
-    let _ = std::process::Command::new("wsl")
-        .args([
-            "-d",
-            &distro,
-            "bash",
-            "-c",
-            "pkill -f 'hermes.*gateway' 2>/dev/null || true",
-        ])
-        .status();
-
-    // Wait for process to fully exit
-    std::thread::sleep(std::time::Duration::from_secs(1));
-
-    // Force kill any remaining process
-    let _ = std::process::Command::new("wsl")
-        .args([
-            "-d",
-            &distro,
-            "bash",
-            "-c",
-            "kill -9 $(pgrep -f 'hermes.*gateway') 2>/dev/null || true",
-        ])
-        .status();
-
-    // Start with nohup (non-blocking)
     let output = std::process::Command::new("wsl")
-        .args(["-d", &distro, "bash", "-c",
-            "cd ~/.hermes && source hermes-venv/bin/activate && nohup hermes gateway start > /dev/null 2>&1 &"])
+        .args(["-d", &distro, "bash", "-c", "hermes gateway restart"])
         .output()
-        .map_err(|e| format!("重启 Gateway 失败: {}", e))?;
+        .map_err(|e| format!("重启命令执行失败: {}", e))?;
 
     if output.status.success() {
         Ok("Gateway 已重启".to_string())
@@ -979,69 +936,51 @@ pub fn run() {
                         }
                         "start_gateway" => {
                             let d = distro.clone();
-                            let result = std::process::Command::new("wsl")
-                                .args([
-                                    "-d",
-                                    &d,
-                                    "bash",
-                                    "-c",
-                                    "cd ~/.hermes && source hermes-venv/bin/activate && nohup hermes gateway start > /dev/null 2>&1 &",
-                                ])
-                                .spawn();
-                            match result {
-                                Ok(_) => {
-                                    let _ = app.emit("gateway-notification", serde_json::json!({
-                                        "type": "success",
-                                        "title": "Gateway 已启动",
-                                        "message": "Hermes Gateway 启动成功"
-                                    }));
-                                }
-                                Err(e) => {
-                                    let _ = app.emit("gateway-notification", serde_json::json!({
-                                        "type": "error",
-                                        "title": "启动失败",
-                                        "message": format!("Gateway 启动失败: {}", e)
-                                    }));
-                                }
-                            }
+                            let payload = match hermes_start_gateway(d) {
+                                Ok(msg) => serde_json::json!({
+                                    "type": "success",
+                                    "title": "Gateway 已启动",
+                                    "message": msg
+                                }),
+                                Err(e) => serde_json::json!({
+                                    "type": "error",
+                                    "title": "启动失败",
+                                    "message": e
+                                }),
+                            };
+                            let _ = app.emit("gateway-notification", payload);
                         }
                         "stop_gateway" => {
                             let d = distro.clone();
-                            // First try graceful stop
-                            let _ = std::process::Command::new("wsl")
-                                .args(["-d", &d, "bash", "-c",
-                                    "pkill -f 'hermes.*gateway' 2>/dev/null || true"])
-                                .status();
-                            // Force kill fallback
-                            let _ = std::process::Command::new("wsl")
-                                .args(["-d", &d, "bash", "-c",
-                                    "kill -9 $(pgrep -f 'hermes.*gateway') 2>/dev/null || true"])
-                                .status();
-                            let _ = app.emit("gateway-notification", serde_json::json!({
-                                "type": "info",
-                                "title": "Gateway 已停止",
-                                "message": "Hermes Gateway 已停止"
-                            }));
+                            let payload = match hermes_stop_gateway(d) {
+                                Ok(msg) => serde_json::json!({
+                                    "type": "info",
+                                    "title": "Gateway 已停止",
+                                    "message": msg
+                                }),
+                                Err(e) => serde_json::json!({
+                                    "type": "error",
+                                    "title": "停止失败",
+                                    "message": e
+                                }),
+                            };
+                            let _ = app.emit("gateway-notification", payload);
                         }
                         "restart_gateway" => {
                             let d = distro.clone();
-                            let result = hermes_restart_gateway(d);
-                            match result {
-                                Ok(msg) => {
-                                    let _ = app.emit("gateway-notification", serde_json::json!({
-                                        "type": "success",
-                                        "title": "Gateway 已重启",
-                                        "message": msg
-                                    }));
-                                }
-                                Err(e) => {
-                                    let _ = app.emit("gateway-notification", serde_json::json!({
-                                        "type": "error",
-                                        "title": "重启失败",
-                                        "message": e
-                                    }));
-                                }
-                            }
+                            let payload = match hermes_restart_gateway(d) {
+                                Ok(msg) => serde_json::json!({
+                                    "type": "success",
+                                    "title": "Gateway 已重启",
+                                    "message": msg
+                                }),
+                                Err(e) => serde_json::json!({
+                                    "type": "error",
+                                    "title": "重启失败",
+                                    "message": e
+                                }),
+                            };
+                            let _ = app.emit("gateway-notification", payload);
                         }
                         "quit" => {
                             app.exit(0);
