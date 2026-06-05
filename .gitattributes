@@ -1,0 +1,32 @@
+# Enforce consistent line endings across the repo.
+# This prevents future "LF vs CRLF" diffs (e.g. Cargo.toml reverting to LF
+# after every build, polluting commit history with whitespace-only diffs).
+#
+# Per-extension rules below were chosen to match what the repo already has
+# committed, so the initial adoption is a no-op content-wise.
+
+# TOML config: CRLF (matches Cargo.toml, package.json committed state)
+*.toml        text eol=crlf
+
+# Lock files: LF (large, content is opaque / generated)
+*.lock        text eol=lf
+
+# Docs: LF (markdown convention)
+*.md          text eol=lf
+
+# Windows scripts: CRLF (PowerShell/CMD require CRLF)
+*.ps1         text eol=crlf
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+
+# Shell / source code: LF (cross-platform convention)
+*.sh          text eol=lf
+*.py          text eol=lf
+*.ts          text eol=lf
+*.tsx         text eol=lf
+*.js          text eol=lf
+*.jsx         text eol=lf
+*.rs          text eol=lf
+*.json        text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
