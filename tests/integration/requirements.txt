@@ -1,0 +1,15 @@
+# Integration test requirements for hermes-tray.
+#
+# These tests hit a running hermes-agent-cn gateway (default 127.0.0.1:8642)
+# through plain HTTP.  They are NOT part of the bundled Tauri app, so the
+# runtime requirements live here rather than in the top-level package.json.
+#
+# Install into a virtualenv (any Python 3.10+ works):
+#
+#     python -m venv .venv-tests
+#     .venv-tests\Scripts\activate          # Windows
+#     source .venv-tests/bin/activate       # WSL / Linux / macOS
+#     pip install -r requirements.txt
+#
+pytest>=7.0
+httpx>=0.27

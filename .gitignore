@@ -45,3 +45,7 @@ src-tauri/target/release/bundle/
 .agent-teams/
 .atomcode/
 .mavis/
+
+# Python integration test artifacts
+tests/integration/__pycache__/
+tests/integration/.pytest_cache/
