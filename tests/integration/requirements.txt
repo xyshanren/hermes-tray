@@ -13,3 +13,15 @@
 #
 pytest>=7.0
 httpx>=0.27
+# `openai` is used to verify the gateway is wire-compatible with the
+# official OpenAI Python SDK.  hermes-tray doesn't ship with it (it uses
+# fetch), but the integration contract claims OpenAI-shape, so the suite
+# pulls it in to prove the claim.  Any 1.x or 2.x release works.
+openai>=1.0
+# `httpx-sse` is optional — the test suite has its own SSE parser because
+# hermes-agent-cn emits non-spec `event: hermes.tool.progress` lines
+# interleaved with the spec `data:` lines, and we want to assert the raw
+# shape rather than rely on a higher-level abstraction.  Kept here as a
+# hint for future contributors who want a quick out-of-the-box SSE
+# parser in their own tests.
+httpx-sse>=0.4
