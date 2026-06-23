@@ -11,6 +11,8 @@ use tauri::{
 };
 use tauri_plugin_shell::ShellExt;
 
+pub mod db;
+
 // 关于 std::process::Command 迁移:
 // 4 处 WSL 进程调用已迁到 tauri-plugin-shell (lib.rs 内 `app.shell().command("wsl")...`).
 // 改用 ShellExt 是为了让 capability 模型覆盖进程调用 (frontend 调用 shell 命令需 scope).
