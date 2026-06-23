@@ -35,6 +35,7 @@ pub fn init_db(app: &tauri::AppHandle) -> Result<DbPool, crate::db::DbError> {
 }
 
 /// Open the pool without a Tauri AppHandle. Used by tests + migration CLI.
+/// Runs migrations automatically so the DB is ready to use.
 pub fn open_pool(db_path: &Path) -> Result<DbPool, crate::db::DbError> {
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -49,9 +50,10 @@ pub fn open_pool(db_path: &Path) -> Result<DbPool, crate::db::DbError> {
              PRAGMA busy_timeout=5000;",
         )
     });
-    let pool = r2d2::Pool::builder()
-        .max_size(10)
-        .build(manager)?;
+    let pool = r2d2::Pool::builder().max_size(10).build(manager)?;
+    // Apply pending migrations. Idempotent — schema_version table records
+    // what's been applied so it's safe to call on every open.
+    crate::db::schema::run_migrations(&pool)?;
     Ok(pool)
 }
 

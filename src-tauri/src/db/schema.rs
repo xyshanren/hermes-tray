@@ -55,9 +55,17 @@ pub fn run_migrations(pool: &DbPool) -> DbResult<()> {
             let sql = fs::read_to_string(&path)
                 .map_err(|e| DbError::Migration(format!("read {path}: {e}")))?;
             log::info!("Applying migration v{version} from {path}");
-            conn.execute_batch(&sql).map_err(|e| {
-                DbError::Migration(format!("apply v{version} ({path}): {e}"))
-            })?;
+            conn.execute_batch(&sql)
+                .map_err(|e| DbError::Migration(format!("apply v{version} ({path}): {e}")))?;
+            // Record that this migration has been applied.
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            conn.execute(
+                "INSERT INTO schema_version (version, applied_at, comment) VALUES (?1, ?2, ?3)",
+                rusqlite::params![version, now, format!("migrations/{path}")],
+            )?;
         }
     }
 
@@ -70,8 +78,7 @@ pub fn run_migrations(pool: &DbPool) -> DbResult<()> {
 /// depend on the working directory. In tests we fall back to a known path.
 fn migrations_dir() -> std::path::PathBuf {
     // CARGO_MANIFEST_DIR points at src-tauri/ during `cargo test`
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .unwrap_or_else(|_| ".".to_string());
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     std::path::PathBuf::from(manifest_dir).join("migrations")
 }
 

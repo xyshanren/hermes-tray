@@ -1,7 +1,7 @@
 //! Config DAO — key-value store (replaces config.json).
 //! Implementation provided by builder in T-Q-S1.3.
 
-use crate::db::dao::{ConfigEntry, ConfigDAO};
+use crate::db::dao::{ConfigDAO, ConfigEntry};
 use crate::db::pool::DbPool;
 use crate::db::{DbError, DbResult};
 

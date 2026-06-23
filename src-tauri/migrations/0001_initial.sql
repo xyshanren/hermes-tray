@@ -4,14 +4,9 @@
 
 -- ============================================================================
 -- Schema version tracking
+-- (the `schema_version` table itself is created by `schema::run_migrations`
+-- before this script runs, so we just record v1 once it's applied.)
 -- ============================================================================
-CREATE TABLE schema_version (
-    version    INTEGER PRIMARY KEY,
-    applied_at INTEGER NOT NULL,
-    comment    TEXT
-);
-
-INSERT INTO schema_version VALUES (1, CAST(strftime('%s', 'now') AS INTEGER) * 1000, 'T-Q-S1 initial schema');
 
 -- ============================================================================
 -- Sessions: top-level conversation container
