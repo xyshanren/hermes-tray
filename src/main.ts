@@ -27,6 +27,38 @@ import { listen } from '@tauri-apps/api/event';
 
 const UNKNOWN_MODEL = '-';
 
+// ── Session / FTS5 types ──────────────────────────────────────────────────────
+
+interface Session {
+  id: string;
+  title: string;
+  persona_id: string | null;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+interface DbMessage {
+  id: string;
+  session_id: string;
+  role: string;
+  content: string;
+  tool_calls: string | null;
+  created_at: string;
+}
+
+interface SearchHit {
+  session_id: string;
+  session_title: string;
+  snippet: string;
+  rank: number;
+}
+
+// ── Session State ─────────────────────────────────────────────────────────────
+
+let currentSessionId: string | null = null;
+let sidebarVisible = false;
+
 interface HermesResponse {
   ok: boolean;
   status: number;
@@ -102,6 +134,166 @@ let chatForm: HTMLFormElement | null = null;
 
 let unlistenChunk: (() => void) | null = null;
 let unlistenDone: (() => void) | null = null;
+
+// ── Session Management ────────────────────────────────────────────────────────
+
+async function loadSessionList(): Promise<void> {
+  const listEl = document.getElementById('session-list');
+  if (!listEl) return;
+  try {
+    const sessions = await invoke<Session[]>('session_list', { limit: 50, offset: 0 });
+    listEl.innerHTML = '';
+    for (const s of sessions) {
+      const el = document.createElement('div');
+      el.className = `session-item${s.id === currentSessionId ? ' active' : ''}`;
+      el.dataset.sessionId = s.id;
+      el.innerHTML = `
+        <span class="session-title">${escapeHtml(s.title || '无标题会话')}</span>
+        <button class="session-delete" data-id="${s.id}" title="删除会话">×</button>`;
+      el.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).classList.contains('session-delete')) {
+          e.stopPropagation();
+          deleteSession((e.target as HTMLElement).dataset.id!);
+        } else {
+          selectSession(s.id);
+        }
+      });
+      listEl.appendChild(el);
+    }
+    if (sessions.length === 0) {
+      listEl.innerHTML = '<div class="session-empty">暂无会话记录</div>';
+    }
+  } catch (e) {
+    console.error('[Session] load error:', e);
+  }
+}
+
+async function selectSession(id: string): Promise<void> {
+  currentSessionId = id;
+  const messagesEl = document.getElementById('messages');
+  if (!messagesEl) return;
+  try {
+    const msgs = await invoke<DbMessage[]>('message_list', { sessionId: id, limit: 100, offset: 0 });
+    state.messages = msgs.map(m => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+      timestamp: new Date(m.created_at)
+    }));
+    messagesEl.innerHTML = '';
+    for (const m of state.messages) {
+      renderMessage(m);
+    }
+    if (state.messages.length === 0) {
+      messagesEl.innerHTML = '<div class="welcome-message"><p>👋 此会话暂无消息</p><p class="hint">在下方输入消息开始对话</p></div>';
+    }
+    await invoke('session_touch', { id });
+  } catch (e) {
+    console.error('[Session] select error:', e);
+    messagesEl.innerHTML = '<div class="welcome-message"><p>❌ 加载会话失败</p></div>';
+  }
+  // Highlight active session in list
+  document.querySelectorAll('.session-item').forEach(el => {
+    el.classList.toggle('active', (el as HTMLElement).dataset.sessionId === id);
+  });
+}
+
+async function createSession(): Promise<string | null> {
+  try {
+    const session = await invoke<Session>('session_create', { title: '新会话', personaId: null });
+    currentSessionId = session.id;
+    state.messages = [];
+    const messagesEl = document.getElementById('messages');
+    if (messagesEl) {
+      messagesEl.innerHTML = '<div class="welcome-message"><p>👋 新会话已开始</p><p class="hint">在下方输入消息开始对话</p></div>';
+    }
+    await loadSessionList();
+    return session.id;
+  } catch (e) {
+    showToast('创建会话失败', String(e), 'error');
+    return null;
+  }
+}
+
+async function deleteSession(id: string): Promise<void> {
+  if (!confirm('确定删除此会话？')) return;
+  try {
+    await invoke('session_delete', { id });
+    if (currentSessionId === id) {
+      currentSessionId = null;
+      state.messages = [];
+      const messagesEl = document.getElementById('messages');
+      if (messagesEl) {
+        messagesEl.innerHTML = '<div class="welcome-message"><p>👋 欢迎使用 Hermes Chat</p><p class="hint">在下方输入消息开始对话</p></div>';
+      }
+    }
+    await loadSessionList();
+    showToast('会话已删除', '', 'success');
+  } catch (e) {
+    showToast('删除失败', String(e), 'error');
+  }
+}
+
+function toggleSidebar(show?: boolean): void {
+  sidebarVisible = show !== undefined ? show : !sidebarVisible;
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar) sidebar.classList.toggle('hidden', !sidebarVisible);
+  const showBtn = document.getElementById('sidebar-show-btn');
+  if (showBtn) showBtn.style.display = sidebarVisible ? 'none' : '';
+}
+
+// ── Search Modal ──────────────────────────────────────────────────────────────
+
+function openSearchModal(): void {
+  const modal = document.getElementById('search-modal');
+  const input = document.getElementById('search-input') as HTMLInputElement;
+  const results = document.getElementById('search-results');
+  if (!modal || !input || !results) return;
+  modal.classList.remove('hidden');
+  input.value = '';
+  results.innerHTML = '';
+  input.focus();
+}
+
+function closeSearchModal(): void {
+  const modal = document.getElementById('search-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function runSearch(query: string): Promise<void> {
+  const results = document.getElementById('search-results');
+  if (!results) return;
+  if (!query.trim()) {
+    results.innerHTML = '';
+    return;
+  }
+  try {
+    const hits = await invoke<SearchHit[]>('session_search', { query: query.trim(), limit: 20 });
+    results.innerHTML = '';
+    if (hits.length === 0) {
+      results.innerHTML = '<div class="search-empty">未找到相关会话</div>';
+      return;
+    }
+    for (const hit of hits) {
+      const el = document.createElement('div');
+      el.className = 'search-result-item';
+      el.innerHTML = `<div class="search-result-title">${escapeHtml(hit.session_title)}</div><div class="search-result-snippet">${hit.snippet}</div>`;
+      el.addEventListener('click', async () => {
+        closeSearchModal();
+        if (!sidebarVisible) toggleSidebar(true);
+        await selectSession(hit.session_id);
+      });
+      results.appendChild(el);
+    }
+  } catch (e) {
+    results.innerHTML = `<div class="search-empty">搜索失败: ${e}</div>`;
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 
 window.addEventListener('DOMContentLoaded', async () => {
   // Resolve WSL2 gateway IP dynamically
@@ -247,6 +439,48 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // ── Session Sidebar ───────────────────────────────────────────────────────
+  const sidebarNewBtn = document.getElementById('sidebar-new-btn');
+  const sidebarSearchBtn = document.getElementById('sidebar-search-btn');
+  const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+  const sidebarShowBtn = document.getElementById('sidebar-show-btn');
+
+  sidebarNewBtn?.addEventListener('click', async () => {
+    await createSession();
+  });
+
+  sidebarSearchBtn?.addEventListener('click', openSearchModal);
+  sidebarToggleBtn?.addEventListener('click', () => toggleSidebar(false));
+  sidebarShowBtn?.addEventListener('click', () => toggleSidebar(true));
+
+  // Ctrl+K = search
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      openSearchModal();
+    }
+    if (e.key === 'Escape') {
+      closeSearchModal();
+    }
+  });
+
+  // Search modal
+  const searchModal = document.getElementById('search-modal')!;
+  const searchClose = document.getElementById('search-close')!;
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  searchClose.addEventListener('click', closeSearchModal);
+  searchModal.addEventListener('click', (e) => {
+    if (e.target === searchModal) closeSearchModal();
+  });
+  let searchDebounce: ReturnType<typeof setTimeout>;
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => runSearch(searchInput.value), 250);
+  });
+
+  // Load session list on startup
+  await loadSessionList();
+
   // Cleanup on unload
   window.addEventListener('unload', () => {
     unlistenChunk?.();
@@ -313,7 +547,25 @@ async function handleSubmit(e: Event) {
   messageInput.value = '';
   messageInput.dispatchEvent(new Event('input'));
   if (messageInput) messageInput.style.height = 'auto';
+
+  // Ensure we have an active session
+  if (!currentSessionId) {
+    currentSessionId = await createSession();
+    if (!currentSessionId) return;
+  }
+
   addMessage('user', content);
+  // Persist user message to DB
+  if (currentSessionId) {
+    invoke('message_append', {
+      sessionId: currentSessionId,
+      role: 'user',
+      content,
+      toolCalls: null,
+    }).catch(e => console.error('[DB] save user msg failed:', e));
+    invoke('session_touch', { id: currentSessionId }).catch(() => {});
+  }
+
   await sendMessage();
 }
 
@@ -393,6 +645,16 @@ function finishStream() {
       content: state.streamContent,
       timestamp: new Date(),
     });
+    // Persist assistant message to DB
+    if (currentSessionId) {
+      invoke('message_append', {
+        sessionId: currentSessionId,
+        role: 'assistant',
+        content: state.streamContent,
+        toolCalls: null,
+      }).catch(e => console.error('[DB] save assistant msg failed:', e));
+      invoke('session_touch', { id: currentSessionId }).catch(() => {});
+    }
   }
   state.isLoading = false;
   state.isStreaming = false;

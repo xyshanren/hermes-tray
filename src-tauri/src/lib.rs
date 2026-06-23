@@ -1,6 +1,12 @@
 // `mod tests` 在文件中间 (紧跟被测函数), `pub fn run()` 在它后面是常规 Tauri 模式.
-// 关掉这条 clippy lint, 不去为了 lint 把整文件 reorder.
 #![allow(clippy::items_after_test_module)]
+
+use db::{init_db, Db};
+
+pub use db::commands::{
+    message_append, message_delete, message_list, session_create, session_delete, session_get,
+    session_list, session_search, session_touch, session_update,
+};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -1146,6 +1152,12 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
+            // Initialize SQLite DB pool and manage it as Tauri state.
+            // DB is `%APPDATA%\com.hermes.tray\sessions.db`.
+            let db = init_db(app.handle()).expect("failed to initialize SQLite DB");
+            app.manage(Db::new(db));
+            log::info!("SQLite DB initialized at app_config_dir/sessions.db");
+
             // Get the main window
             let window = app.get_webview_window("main").unwrap();
 
@@ -1226,6 +1238,17 @@ pub fn run() {
             // S3 — Config commands
             hermes_get_config,
             hermes_save_config,
+            // T-Q-S2 — Session management (SQLite)
+            session_list,
+            session_get,
+            session_create,
+            session_update,
+            session_delete,
+            session_search,
+            session_touch,
+            message_append,
+            message_list,
+            message_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

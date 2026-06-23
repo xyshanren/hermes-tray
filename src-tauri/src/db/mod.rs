@@ -12,6 +12,7 @@
 //! db.message().append(session_id, role, content)?;
 //! ```
 
+pub mod commands;
 pub mod config;
 pub mod dao;
 pub mod feedback;
