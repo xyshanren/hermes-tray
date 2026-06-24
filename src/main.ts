@@ -24,6 +24,7 @@ marked.setOptions({
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { register } from '@tauri-apps/plugin-global-shortcut';
 
 const UNKNOWN_MODEL = '-';
 
@@ -573,10 +574,29 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Load session list on startup
   await loadSessionList();
 
+  // Register global shortcut: Ctrl+Shift+H — show window + focus input
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    await register('Ctrl+Shift+H', async () => {
+      const win = getCurrentWindow();
+      await win.show();
+      await win.setFocus();
+      messageInput?.focus();
+      if (!sidebarVisible) toggleSidebar(true);
+    });
+    console.log('[GlobalShortcut] Ctrl+Shift+H registered');
+  } catch (e) {
+    console.warn('[GlobalShortcut] Failed to register:', e);
+  }
+
   // Cleanup on unload
-  window.addEventListener('unload', () => {
+  window.addEventListener('unload', async () => {
     unlistenChunk?.();
     unlistenDone?.();
+    try {
+      const { unregister } = await import('@tauri-apps/plugin-global-shortcut');
+      await unregister('Ctrl+Shift+H');
+    } catch { /* ignore */ }
   });
 
   checkConnection();

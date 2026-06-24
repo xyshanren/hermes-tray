@@ -1151,6 +1151,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             // Initialize SQLite DB pool and manage it as Tauri state.
             // DB is `%APPDATA%\com.hermes.tray\sessions.db`.
