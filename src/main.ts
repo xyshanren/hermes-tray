@@ -137,36 +137,107 @@ let unlistenDone: (() => void) | null = null;
 
 // ── Session Management ────────────────────────────────────────────────────────
 
-async function loadSessionList(): Promise<void> {
+let sessionOffset = 0;
+const SESSION_PAGE = 50;
+
+async function loadSessionList(resetOffset = true): Promise<void> {
   const listEl = document.getElementById('session-list');
   if (!listEl) return;
+  if (resetOffset) sessionOffset = 0;
   try {
-    const sessions = await invoke<Session[]>('session_list', { limit: 50, offset: 0 });
-    listEl.innerHTML = '';
+    const sessions = await invoke<Session[]>('session_list', { limit: SESSION_PAGE, offset: sessionOffset });
+    if (resetOffset) listEl.innerHTML = '';
     for (const s of sessions) {
       const el = document.createElement('div');
       el.className = `session-item${s.id === currentSessionId ? ' active' : ''}`;
       el.dataset.sessionId = s.id;
-      el.innerHTML = `
-        <span class="session-title">${escapeHtml(s.title || '无标题会话')}</span>
-        <button class="session-delete" data-id="${s.id}" title="删除会话">×</button>`;
-      el.addEventListener('click', (e) => {
-        if ((e.target as HTMLElement).classList.contains('session-delete')) {
-          e.stopPropagation();
-          deleteSession((e.target as HTMLElement).dataset.id!);
-        } else {
-          selectSession(s.id);
-        }
+      const titleEl = document.createElement('span');
+      titleEl.className = 'session-title';
+      titleEl.textContent = s.title || '无标题会话';
+      titleEl.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        startRename(s.id, titleEl);
       });
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'session-delete';
+      deleteBtn.dataset.id = s.id;
+      deleteBtn.textContent = '×';
+      deleteBtn.title = '删除会话';
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteSession((e.target as HTMLElement).dataset.id!);
+      });
+      el.appendChild(titleEl);
+      el.appendChild(deleteBtn);
+      el.addEventListener('click', () => selectSession(s.id));
       listEl.appendChild(el);
     }
-    if (sessions.length === 0) {
+    // Append load-more button if we got a full page
+    const existingMore = listEl.querySelector('.session-load-more');
+    if (existingMore) existingMore.remove();
+    if (sessions.length === SESSION_PAGE) {
+      const moreBtn = document.createElement('button');
+      moreBtn.className = 'session-load-more';
+      moreBtn.textContent = '加载更多...';
+      moreBtn.addEventListener('click', async () => {
+        sessionOffset += SESSION_PAGE;
+        moreBtn.textContent = '加载中...';
+        moreBtn.disabled = true;
+        await loadSessionList(false);
+      });
+      listEl.appendChild(moreBtn);
+    }
+    if (resetOffset && listEl.children.length === 0) {
       listEl.innerHTML = '<div class="session-empty">暂无会话记录</div>';
     }
   } catch (e) {
     console.error('[Session] load error:', e);
   }
 }
+
+async function startRename(id: string, titleEl: HTMLElement): Promise<void> {
+  const current = titleEl.textContent || '';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'session-rename-input';
+  input.value = current;
+  input.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      await finishRename(id, input, current);
+    } else if (e.key === 'Escape') {
+      titleEl.textContent = current;
+      input.replaceWith(titleEl);
+    }
+  });
+  input.addEventListener('blur', async () => {
+    await finishRename(id, input, current);
+  });
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+async function finishRename(id: string, input: HTMLInputElement, _current: string): Promise<void> {
+  const newTitle = input.value.trim();
+  const titleSpan = document.createElement('span');
+  titleSpan.className = 'session-title';
+  titleSpan.textContent = newTitle || '无标题会话';
+  titleSpan.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    startRename(id, titleSpan);
+  });
+  input.replaceWith(titleSpan);
+  if (!newTitle) return;
+  try {
+    await invoke<Session>('session_update', { id, patch: { title: newTitle } });
+  } catch (e) {
+    showToast('重命名失败', String(e), 'error');
+  }
+}
+
+// Exposed for potential external use
+
 
 async function selectSession(id: string): Promise<void> {
   currentSessionId = id;
@@ -206,7 +277,7 @@ async function createSession(): Promise<string | null> {
     if (messagesEl) {
       messagesEl.innerHTML = '<div class="welcome-message"><p>👋 新会话已开始</p><p class="hint">在下方输入消息开始对话</p></div>';
     }
-    await loadSessionList();
+    await loadSessionList(true);
     return session.id;
   } catch (e) {
     showToast('创建会话失败', String(e), 'error');
