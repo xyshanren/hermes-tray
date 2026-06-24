@@ -48,6 +48,7 @@ interface DbMessage {
 }
 
 interface SearchHit {
+  message_id: string;
   session_id: string;
   session_title: string;
   snippet: string;
@@ -338,16 +339,28 @@ async function runSearch(query: string): Promise<void> {
     return;
   }
   try {
+    results.innerHTML = '<div class="search-empty">搜索中...</div>';
     const hits = await invoke<SearchHit[]>('session_search', { query: query.trim(), limit: 20 });
     results.innerHTML = '';
     if (hits.length === 0) {
-      results.innerHTML = '<div class="search-empty">未找到相关会话</div>';
+      results.innerHTML = `<div class="search-empty">未找到与「${escapeHtml(query.trim())}」相关的会话</div>`;
       return;
     }
+    const countDiv = document.createElement('div');
+    countDiv.className = 'search-count';
+    countDiv.textContent = `${hits.length} 个结果`;
+    results.appendChild(countDiv);
     for (const hit of hits) {
       const el = document.createElement('div');
       el.className = 'search-result-item';
-      el.innerHTML = `<div class="search-result-title">${escapeHtml(hit.session_title)}</div><div class="search-result-snippet">${hit.snippet}</div>`;
+      const titleDiv = document.createElement('div');
+      titleDiv.className = 'search-result-title';
+      titleDiv.textContent = hit.session_title || '无标题会话';
+      const snippetDiv = document.createElement('div');
+      snippetDiv.className = 'search-result-snippet';
+      snippetDiv.innerHTML = sanitizeSnippet(hit.snippet);
+      el.appendChild(titleDiv);
+      el.appendChild(snippetDiv);
       el.addEventListener('click', async () => {
         closeSearchModal();
         if (!sidebarVisible) toggleSidebar(true);
@@ -364,6 +377,14 @@ async function runSearch(query: string): Promise<void> {
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Strip dangerous HTML tags from FTS5 snippet (keeps <b> for highlighting)
+function sanitizeSnippet(s: string): string {
+  return s
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/\bon\w+\s*=/gi, ' data-ignored=')
+    .replace(/javascript:/gi, '');
 }
 
 window.addEventListener('DOMContentLoaded', async () => {

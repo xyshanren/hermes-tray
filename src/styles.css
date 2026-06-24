@@ -861,6 +861,20 @@ html, body {
   padding: 24px 0;
 }
 
+.search-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 0 4px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+/* FTS5 highlight — bold matched terms in search results */
+.search-result-snippet b {
+  font-weight: 700;
+  color: var(--primary);
+}
+
 /* Header — adjusted for sidebar toggle */
 .header {
   display: flex;

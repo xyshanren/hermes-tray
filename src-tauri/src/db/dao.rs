@@ -83,6 +83,7 @@ pub struct Feedback {
 pub struct SearchHit {
     pub message_id: String,
     pub session_id: String,
+    pub session_title: String,
     pub snippet: String,
     pub rank: f64,
 }

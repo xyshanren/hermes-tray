@@ -190,16 +190,16 @@ impl<'a> SessionDAO for SessionDao<'a> {
 
     fn search(&self, query: &str, limit: i64) -> DbResult<Vec<SearchHit>> {
         let conn = self.pool.get()?;
-        // FTS5: match against messages_fts, JOIN back to messages for ids.
-        // snippet(table, column_idx, open, close, ellipsis, token_count)
-        //   column 0 = content (only column the user can search).
+        // FTS5: match against messages_fts, JOIN back to messages + sessions for full info.
+        // snippet() returns content with <b>...</b> highlights around matched terms.
         // ORDER BY rank uses BM25 (smaller = better).
         let mut stmt = conn.prepare(
-            "SELECT m.id, m.session_id, \
+            "SELECT m.id, m.session_id, s.title, \
                     snippet(messages_fts, 0, '<b>', '</b>', '...', 32) AS snippet, \
                     rank \
              FROM messages_fts f \
              JOIN messages m ON f.rowid = m.rowid \
+             JOIN sessions s ON m.session_id = s.id \
              WHERE messages_fts MATCH ?1 \
              ORDER BY rank \
              LIMIT ?2",
@@ -209,8 +209,9 @@ impl<'a> SessionDAO for SessionDao<'a> {
                 Ok(SearchHit {
                     message_id: row.get(0)?,
                     session_id: row.get(1)?,
-                    snippet: row.get(2)?,
-                    rank: row.get(3)?,
+                    session_title: row.get(2)?,
+                    snippet: row.get(3)?,
+                    rank: row.get(4)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
