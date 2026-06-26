@@ -1181,10 +1181,21 @@ pub fn run() {
             // MEMORY.md "systemd service" entry for why tray control is
             // fundamentally a bad UX for systemd-managed services).
             let show_item = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
+            // T-Q-S6: 3 quick actions (新建会话 / 续上次 / 搜索). Each emits
+            // a `tray://*` event to the frontend, which owns the actual UX
+            // (createSession, loadLastSession, openSearchModal). The Rust side
+            // stays thin and event-based — single source of truth in main.ts.
+            let new_session_item = MenuItemBuilder::with_id("new_session", "新建会话").build(app)?;
+            let continue_last_item = MenuItemBuilder::with_id("continue_last", "续上次").build(app)?;
+            let search_item = MenuItemBuilder::with_id("search", "搜索").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
 
             let menu = MenuBuilder::new(app)
                 .item(&show_item)
+                .separator()
+                .item(&new_session_item)
+                .item(&continue_last_item)
+                .item(&search_item)
                 .separator()
                 .item(&quit_item)
                 .build()?;
@@ -1200,6 +1211,30 @@ pub fn run() {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
+                    }
+                    "new_session" => {
+                        // T-Q-S6: emit tray://new-session — frontend handles UX
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                        let _ = app.emit("tray://new-session", ());
+                    }
+                    "continue_last" => {
+                        // T-Q-S6: emit tray://continue-last — frontend loads most recent session
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                        let _ = app.emit("tray://continue-last", ());
+                    }
+                    "search" => {
+                        // T-Q-S6: emit tray://open-search — frontend opens FTS5 modal
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                        let _ = app.emit("tray://open-search", ());
                     }
                     "quit" => {
                         app.exit(0);

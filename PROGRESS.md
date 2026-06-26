@@ -24,11 +24,13 @@ hermes-tray/
 
 ### Open
 
-> **2026-06-04 同步说明 (T-Q2)**: 之前 5 项 Open 实际已在 S3-S4 完成 (Textarea 自动增高 / API Key 硬编码→设置页面 / 窗口位置持久化→tauri-plugin-window-state / 图标路径→已验证正确 / 权限列表→S4 标 done), 现清空. 唯一未完成项即 S5 的 Windows 端 build-test.bat.
+> **2026-06-26 同步说明**: v0.1.0 (S0-S5) 14 项全部 done + v0.1.1 (T-Q-NEW) 完成 + v2.0 路线图启动 (T-Q-S0~S5 done). 当前真正 open 的是 v2.1 进阶任务的下一站 + 用户侧验证.
 
 | # | 分类 | 文件 | 描述 | 目标 |
 |---|------|------|------|------|
-| 1 | 构建 | `build-test.bat` | Windows 环境运行 `build-test.bat`，将日志发回分析 | S5 |
+| 1 | 构建 | `build-test.bat` | Windows 环境运行 `build-test.bat`，将日志发回分析 | S5 (用户侧) |
+| 2 | 后端 托盘 | `src-tauri/src/lib.rs` | 托盘菜单加 3 项快速操作: 新建会话 / 续上次 / 搜索 | T-Q-S6 |
+| 3 | 后端 热键 | `src-tauri/src/lib.rs` | Quick capture: 全局热键直接开新会话输入框 (不只是唤起) | T-Q-S5 增强 |
 
 ### In Progress
 
@@ -36,7 +38,7 @@ hermes-tray/
 |---|------|------|------|------|
 | - |  |  | 目前暂无正在处理的任务。 |  |
 
-### Done
+### Done (v0.1.0 ~ v0.1.1)
 
 | # | 分类 | 文件 | 描述 | 目标 |
 |---|------|------|------|------|
@@ -54,6 +56,22 @@ hermes-tray/
 | 12 | 后端 新功能 | `src-tauri/src/lib.rs` | 托盘菜单新增"重启 Gateway"项。 | S2 |
 | 13 | 后端 通知 | `src-tauri/src/lib.rs` | 启停/重启操作后通过 `app.emit()` 发送通知事件。 | S2 |
 | 14 | 前端 通知 | `index.html` + `styles.css` + `main.ts` | 添加 Toast 通知组件（右下角滑入/3 色/3.5s 自动消失）。 | S2 |
+| 15 | 配置 修复 | `src-tauri/src/lib.rs` | `write_config_json` 改用 `app_config_dir()` (修 MSI Program Files 写失败) | T-Q-NEW (v0.1.1) |
+
+### Done (v2.0 路线图 T-Q-S0~S5)
+
+| # | 分类 | 文件 | 描述 | 目标 |
+|---|------|------|------|------|
+| 16 | 设计 文档 | `docs/T-Q-S0-design.md` | v2.0 存储架构: app_config_dir 迁移 + SQLite schema + DAO 接口 + T-Q-NEW 修方案 | T-Q-S0 |
+| 17 | 数据库 | `src-tauri/src/db/{schema,dao,pool,mod}.rs` | SQLite schema + DAO 骨架 + 连接池 | T-Q-S1.1 |
+| 18 | 数据库 | `src-tauri/src/db/{session,message}.rs` | session + message DAO + 10 集成测试 | T-Q-S1.2 |
+| 19 | 数据库 | `src-tauri/src/db/{persona,config,feedback}.rs` | persona + config + feedback DAO + 5 集成测试 | T-Q-S1.3 |
+| 20 | 前端 UI | `src-tauri/src/db/commands.rs` + `src/main.ts` + `index.html` + `styles.css` | session/message Tauri commands + sidebar UI + FTS5 搜索 modal (+681 行) | T-Q-S2 |
+| 21 | 前端 UI | `src/main.ts` | session 重命名 (双击) + 分页 load-more + 列表 reset | T-Q-S3 |
+| 22 | 后端 + 前端 | `src-tauri/src/db/{dao,session}.rs` + `src/main.ts` + `styles.css` | FTS5 搜索 UX: session_title join fix, <b> 高亮, loading/empty states (+45 行) | T-Q-S4 |
+| 23 | 后端 + 前端 | `src-tauri/src/lib.rs` + `src/main.ts` + `package.json` | 全局热键 Ctrl+Shift+H 唤起/聚焦窗口 (+22 main.ts) | T-Q-S5 |
+| 24 | 后端 托盘 | `src-tauri/src/lib.rs` | 托盘菜单加 3 项: 新建会话 / 续上次 / 搜索, emit `tray://*` 事件给前端 | T-Q-S6 |
+| 25 | 前端 事件 | `src/main.ts` | 3 个 tray:// 事件监听 + `loadLastSession()` (从 session_list 拿最近会话) | T-Q-S6 |
 
 ---
 
@@ -104,6 +122,40 @@ hermes-tray/
 - [x] `build-setup.bat` 同步更新路径检查
 - [x] `build-test.bat` 新增 Windows 构建测试脚本（含日志输出）
 - [ ] Windows 环境运行 `build-test.bat`，将日志发回分析
+
+### v0.1.1 — 配置路径修复 (T-Q-NEW)
+
+- [x] `write_config_json` 改用 `app_config_dir()` (Tauri 2 canonical path)
+- [x] 修 MSI Program Files 写配置失败 (silent failure)
+- [x] Legacy fallback: exe dir + CWD 读, 保证 v0.1.x 用户升级保留设置
+- [x] 首次写新路径时自动 backup 旧配置
+
+### v2.0 基础 (4 周) — T-Q-S0 ~ S4 — 2026-06-23 启动
+
+- [x] **T-Q-S0**: 设计文档 (`docs/T-Q-S0-design.md`, 455 行)
+- [x] **T-Q-S1.1**: SQLite schema + DAO 骨架 + 连接池 (`src-tauri/src/db/`)
+- [x] **T-Q-S1.2**: session + message DAO + **10 集成测试** (`tests/integration/`)
+- [x] **T-Q-S1.3**: persona + config + feedback DAO + **5 集成测试**
+- [x] **T-Q-S2**: session/message Tauri commands + sidebar UI + FTS5 搜索 modal (+681 行)
+- [x] **T-Q-S3**: session 重命名 (双击) + 分页 + 列表 reset
+- [x] **T-Q-S4**: FTS5 搜索 UX (highlight + loading/empty states)
+- **里程碑达成**: 用户能创建/管理/搜索 100+ 会话, 离线可用, 数据本地
+
+### v2.0 进阶 — T-Q-S5+
+
+- [x] **T-Q-S5**: 全局热键 Ctrl+Shift+H 唤起/聚焦窗口
+- [x] **T-Q-S6**: 托盘快速操作 (新建会话 / 续上次 / 搜索) — 1d ✅ 2026-06-26
+- [ ] **T-Q-S7**: 会话模板 + Persona 库 — 4d
+- [ ] **T-Q-S8**: 项目上下文感知 (CWD 扫描 + 注入) — 3d
+- [ ] **T-Q-S9**: Token / 成本追踪 — 3d
+- [ ] **T-Q-S10**: 导出/分享 (markdown + 分享链接) — 2d
+- [ ] **T-Q-S11**: 加密本地备份 (AES + 可选云同步) — 2d
+- [ ] **T-Q-S12**: 多模型编排 — 4d
+- [ ] **T-Q-S13**: 语音输入 — 3d
+- [ ] **T-Q-S14**: 图片拖拽 / OCR — 2d
+- [ ] **T-Q-S15**: 插件系统 — 5d
+
+**总计**: 4 阶段 12 周 15 任务 (估算)
 
 ---
 
@@ -178,3 +230,57 @@ hermes-tray/
 - **GitHub Actions CI**：
   - `ci.yml`：PR 检查（tsc → build → cargo check → clippy → fmt）
   - `release.yml`：打 tag `v*` 时触发，矩阵构建（Linux .deb + AppImage / macOS .dmg / Windows .msi），自动发布 Release
+
+### v0.1.1 (T-Q-NEW, 2026-06-23)
+
+- **`write_config_json` 路径修复**：
+  - `AppHandle::app_config_dir()` 替代 exe dir 写入 (Windows → `%APPDATA%\com.hermes.tray\`)
+  - 修 MSI Program Files 路径不可写问题
+  - Legacy fallback: 旧配置 (exe dir + CWD) 优先读, 首次写新路径时自动 backup
+
+### v2.0 (T-Q-S0 ~ S5, 2026-06-23+)
+
+- **T-Q-S0 — 存储架构设计**：
+  - `docs/T-Q-S0-design.md` (455 行): app_config_dir 迁移 + SQLite schema + DAO 接口 + T-Q-NEW 修方案
+  - 决策: SQLite (rusqlie) + DAO + 连接池; 离线优先, 加密备份预留接口
+- **T-Q-S1.1 — DB 骨架**：
+  - `src-tauri/src/db/{schema,dao,pool,mod}.rs`
+  - `schema.sql`: sessions / messages / personas / config / feedback 5 表
+  - 连接池: r2d2 风格
+- **T-Q-S1.2 — session + message DAO + 10 集成测试**:
+  - `src-tauri/src/db/{session,message}.rs`
+  - 10 tests PASS (CRUD + FTS5 搜索 + 边界)
+- **T-Q-S1.3 — persona + config + feedback DAO + 5 集成测试**:
+  - `src-tauri/src/db/{persona,config,feedback}.rs`
+  - 5 tests PASS
+- **T-Q-S2 — sessions 端到端** (+681 行):
+  - `src-tauri/src/db/commands.rs` 新增 4 个 Tauri commands
+  - `src/main.ts` sidebar UI (新会话/列表/搜索/删除/切换)
+  - `index.html` sidebar + FTS5 搜索 modal
+  - `styles.css` 完整 sidebar/modal 样式
+- **T-Q-S3 — session UX 增强**:
+  - 双击重命名 (inline edit)
+  - 分页 load-more (防止 100+ 会话一次加载卡)
+  - `loadSessionList` reset (新建后刷新列表)
+- **T-Q-S4 — FTS5 搜索 UX** (+45 行):
+  - `src-tauri/src/db/dao.rs` session_title join 修
+  - `<b>` 高亮渲染
+  - loading / empty states
+- **T-Q-S5 — 全局热键**:
+  - Ctrl+Shift+H 唤起/聚焦窗口 (从任何应用)
+  - 平台兼容性: Windows 钩子 + macOS / Linux 待 v2.1
+- **T-Q-S6 — 托盘快速操作** (2026-06-26, 1d):
+  - `src-tauri/src/lib.rs` 托盘菜单 3 项: 新建会话 / 续上次 / 搜索
+  - 每次点击: 唤起窗口 + emit `tray://*` 事件给前端
+  - `src/main.ts` 3 个监听: `createSession()` / `loadLastSession()` / `openSearchModal()`
+  - `loadLastSession()`: invoke `session_list` limit=1 拿最近会话, selectSession, 没历史时 toast 提示
+  - 设计原则: Rust 只 emit 事件, 前端是单一 UX 真相源 (避免逻辑分散在两处)
+
+### 测试覆盖统计 (v2.0 启动后)
+
+- v0.1.0 基线: 22 Rust (T-Q5) + 37 TS (T-Q6) = 59 tests
+- v2.0 新增: 10 (S1.2) + 5 (S1.3) = 15 tests
+- 合计: **74 tests, ~40% 覆盖率**
+- 待补: Tauri 命令单测 (mock + io::Result), HTTP 客户端 (reqwest mock)
+
+---

@@ -314,6 +314,24 @@ function toggleSidebar(show?: boolean): void {
   if (showBtn) showBtn.style.display = sidebarVisible ? 'none' : '';
 }
 
+// T-Q-S6: load the most recent non-empty session. Called by tray
+// "续上次" menu item. Shows a toast if there are no sessions.
+async function loadLastSession(): Promise<void> {
+  try {
+    // session_list is sorted by updated_at DESC (most recent first)
+    const sessions = await invoke<Session[]>('session_list', { limit: 1, offset: 0 });
+    if (sessions.length === 0) {
+      showToast('没有历史会话', '请先创建新会话', 'info');
+      return;
+    }
+    const last = sessions[0];
+    await selectSession(last.id);
+    showToast('已加载上次会话', last.title || '无标题会话', 'success');
+  } catch (e) {
+    showToast('加载失败', String(e), 'error');
+  }
+}
+
 // ── Search Modal ──────────────────────────────────────────────────────────────
 
 function openSearchModal(): void {
@@ -436,6 +454,19 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Listen for gateway notifications from tray menu
   await listen<{ type: string; title: string; message: string }>('gateway-notification', (event) => {
     showToast(event.payload.title, event.payload.message, event.payload.type as ToastType);
+  });
+
+  // ── T-Q-S6: Tray quick action listeners ──────────────────
+  // Rust side emits these when user clicks tray menu items
+  // (新建会话 / 续上次 / 搜索). Frontend owns the actual UX.
+  await listen('tray://new-session', () => {
+    void createSession();
+  });
+  await listen('tray://continue-last', () => {
+    void loadLastSession();
+  });
+  await listen('tray://open-search', () => {
+    openSearchModal();
   });
 
   // ── Settings Initialization ──────────────────
