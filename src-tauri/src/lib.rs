@@ -4,9 +4,11 @@
 use db::{init_db, Db};
 
 pub use db::commands::{
-    message_append, message_delete, message_list, session_create, session_delete, session_get,
-    session_list, session_search, session_touch, session_update,
+    db_config_get, db_config_set, message_append, message_delete, message_list, persona_create,
+    persona_delete, persona_get, persona_list, persona_update, session_create, session_delete,
+    session_get, session_list, session_search, session_touch, session_update,
 };
+pub use db::pool::seed_builtin_personas;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -1155,8 +1157,11 @@ pub fn run() {
         .setup(|app| {
             // Initialize SQLite DB pool and manage it as Tauri state.
             // DB is `%APPDATA%\com.hermes.tray\sessions.db`.
-            let db = init_db(app.handle()).expect("failed to initialize SQLite DB");
-            app.manage(Db::new(db));
+            let pool = init_db(app.handle()).expect("failed to initialize SQLite DB");
+            // T-Q-S7: seed builtin personas (default / code-reviewer / translator)
+            // on first init. Idempotent — re-running on an existing DB is a no-op.
+            seed_builtin_personas(&Db::new(pool.clone()));
+            app.manage(Db::new(pool));
             log::info!("SQLite DB initialized at app_config_dir/sessions.db");
 
             // Get the main window
@@ -1285,6 +1290,15 @@ pub fn run() {
             message_append,
             message_list,
             message_delete,
+            // T-Q-S7 — Persona library (also serves as session templates)
+            persona_list,
+            persona_get,
+            persona_create,
+            persona_update,
+            persona_delete,
+            // T-Q-S7 — DB-backed config (for default_persona_id + future prefs)
+            db_config_get,
+            db_config_set,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

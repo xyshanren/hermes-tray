@@ -56,10 +56,34 @@ interface SearchHit {
   rank: number;
 }
 
+// ── Persona types (T-Q-S7) ──────────────────────────────────────────────────────
+//
+// A persona = reusable assistant role. Carries system_prompt that gets
+// injected when a new session is created from it. Also serves as the
+// "session template" library — no separate templates table needed.
+
+interface Persona {
+  id: string;
+  name: string;
+  description: string;
+  system_prompt: string;
+  avatar: string;
+  created_at: string;
+  updated_at: string;
+  is_builtin: number; // 0 or 1 — SQLite boolean convention
+}
+
 // ── Session State ─────────────────────────────────────────────────────────────
 
 let currentSessionId: string | null = null;
 let sidebarVisible = false;
+
+// ── Persona state (T-Q-S7) ──────────────────────────────────────────────────────
+// `currentPersonaId` mirrors the persona picker in the header and is what
+// gets passed to `session_create` as `personaId`. Persisted to the DB
+// config table as `default_persona_id` so it survives app restarts.
+let currentPersonaId: string | null = null;
+let personasCache: Persona[] = [];
 
 interface HermesResponse {
   ok: boolean;
@@ -153,9 +177,13 @@ async function loadSessionList(resetOffset = true): Promise<void> {
       const el = document.createElement('div');
       el.className = `session-item${s.id === currentSessionId ? ' active' : ''}`;
       el.dataset.sessionId = s.id;
+      // T-Q-S7: prefix with persona avatar (if any) so the role is visible
+      // at a glance in the sidebar.
+      const persona = s.persona_id ? personasCache.find(p => p.id === s.persona_id) : null;
+      const avatar = persona?.avatar ?? '';
       const titleEl = document.createElement('span');
       titleEl.className = 'session-title';
-      titleEl.textContent = s.title || '无标题会话';
+      titleEl.textContent = (avatar ? avatar + ' ' : '') + (s.title || '无标题会话');
       titleEl.addEventListener('dblclick', (e) => {
         e.stopPropagation();
         startRename(s.id, titleEl);
@@ -272,12 +300,23 @@ async function selectSession(id: string): Promise<void> {
 
 async function createSession(): Promise<string | null> {
   try {
-    const session = await invoke<Session>('session_create', { title: '新会话', personaId: null });
+    // T-Q-S7: pass currentPersonaId to session_create. The session stores
+    // the persona id but does NOT inject the system_prompt at create time —
+    // system_prompt injection happens at send-message time (in the
+    // gateway/agent layer) so persona switches mid-session work.
+    const session = await invoke<Session>('session_create', {
+      title: '新会话',
+      personaId: currentPersonaId,
+    });
     currentSessionId = session.id;
     state.messages = [];
     const messagesEl = document.getElementById('messages');
     if (messagesEl) {
-      messagesEl.innerHTML = '<div class="welcome-message"><p>👋 新会话已开始</p><p class="hint">在下方输入消息开始对话</p></div>';
+      const persona = personasCache.find(p => p.id === currentPersonaId);
+      const hint = persona
+        ? `<p class="hint">当前 Persona: ${persona.avatar ?? ''} ${escapeHtml(persona.name)}</p>`
+        : '<p class="hint">在下方输入消息开始对话</p>';
+      messagesEl.innerHTML = `<div class="welcome-message"><p>👋 新会话已开始</p>${hint}</div>`;
     }
     await loadSessionList(true);
     return session.id;
@@ -330,6 +369,275 @@ async function loadLastSession(): Promise<void> {
   } catch (e) {
     showToast('加载失败', String(e), 'error');
   }
+}
+
+// ── Persona CRUD + state (T-Q-S7) ──────────────────────────────────────────────
+
+async function loadPersonas(): Promise<Persona[]> {
+  try {
+    personasCache = await invoke<Persona[]>('persona_list');
+  } catch (e) {
+    console.error('[Persona] list failed:', e);
+    personasCache = [];
+  }
+  return personasCache;
+}
+
+async function loadDefaultPersonaId(): Promise<string | null> {
+  try {
+    const entry = await invoke<{ key: string; value: string } | null>('db_config_get', { key: 'default_persona_id' });
+    return entry?.value ?? null;
+  } catch (e) {
+    console.warn('[Persona] default_persona_id not loaded:', e);
+    return null;
+  }
+}
+
+async function setDefaultPersonaId(id: string | null): Promise<void> {
+  try {
+    if (id === null) {
+      // We don't have a "delete key" command; setting to empty string is the
+      // closest analog. The picker treats empty/missing the same as "no default".
+      await invoke('db_config_set', { key: 'default_persona_id', value: '' });
+    } else {
+      await invoke('db_config_set', { key: 'default_persona_id', value: id });
+    }
+  } catch (e) {
+    console.warn('[Persona] default_persona_id not saved:', e);
+  }
+}
+
+function renderPersonaPicker(): void {
+  const select = document.getElementById('persona-picker') as HTMLSelectElement | null;
+  if (!select) return;
+  // Build options: first entry is "无 (default)", then each persona.
+  // Use avatar emoji + name for the dropdown label.
+  const opts: string[] = ['<option value="">— 无 (默认) —</option>'];
+  for (const p of personasCache) {
+    const label = p.avatar ? `${p.avatar} ${escapeHtml(p.name)}` : escapeHtml(p.name);
+    opts.push(`<option value="${escapeHtml(p.id)}">${label}</option>`);
+  }
+  select.innerHTML = opts.join('');
+  // Apply current selection; if currentPersonaId was deleted, fall back to empty.
+  const valid = personasCache.some(p => p.id === currentPersonaId);
+  select.value = valid && currentPersonaId ? currentPersonaId : '';
+  currentPersonaId = valid ? currentPersonaId : null;
+}
+
+async function onPersonaPickerChange(): Promise<void> {
+  const select = document.getElementById('persona-picker') as HTMLSelectElement | null;
+  if (!select) return;
+  const newId = select.value || null;
+  currentPersonaId = newId;
+  await setDefaultPersonaId(newId);
+  const persona = personasCache.find(p => p.id === newId);
+  showToast('已切换 Persona', persona ? `${persona.avatar ?? ''} ${persona.name}` : '默认 (无)', 'success');
+}
+
+async function createPersonaApi(name: string, description: string, system_prompt: string, avatar: string): Promise<Persona | null> {
+  const id = `persona:${crypto.randomUUID()}`;
+  const now = Date.now().toString();
+  const persona: Persona = {
+    id, name, description, system_prompt, avatar,
+    created_at: now, updated_at: now, is_builtin: 0,
+  };
+  try {
+    return await invoke<Persona>('persona_create', { persona });
+  } catch (e) {
+    showToast('创建 Persona 失败', String(e), 'error');
+    return null;
+  }
+}
+
+async function updatePersonaApi(persona: Persona): Promise<Persona | null> {
+  persona.updated_at = Date.now().toString();
+  try {
+    return await invoke<Persona>('persona_update', { persona });
+  } catch (e) {
+    showToast('更新 Persona 失败', String(e), 'error');
+    return null;
+  }
+}
+
+async function deletePersonaApi(id: string): Promise<boolean> {
+  if (id.startsWith('builtin:')) {
+    showToast('无法删除', '内置 Persona 不可删除', 'error');
+    return false;
+  }
+  if (!confirm('确定删除此 Persona？关联会话将保留但不再引用此角色。')) return false;
+  try {
+    await invoke('persona_delete', { id });
+    if (currentPersonaId === id) {
+      currentPersonaId = null;
+      await setDefaultPersonaId(null);
+    }
+    return true;
+  } catch (e) {
+    showToast('删除失败', String(e), 'error');
+    return false;
+  }
+}
+
+// ── Persona Modal (T-Q-S7) ─────────────────────────────────────────────────────
+//
+// 3-state modal: list view (default) → create form → edit form. Single
+// HTML container swapped between states. Builtin personas are read-only.
+
+let personaModalMode: 'list' | 'create' | 'edit' = 'list';
+let personaEditId: string | null = null;
+
+function openPersonaModal(): void {
+  const modal = document.getElementById('persona-modal');
+  if (!modal) return;
+  personaModalMode = 'list';
+  personaEditId = null;
+  renderPersonaModal();
+  modal.classList.remove('hidden');
+}
+
+function closePersonaModal(): void {
+  const modal = document.getElementById('persona-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function renderPersonaModal(): void {
+  const body = document.getElementById('persona-modal-body');
+  if (!body) return;
+  if (personaModalMode === 'list') {
+    body.innerHTML = renderPersonaListHtml();
+    wirePersonaListEvents();
+  } else if (personaModalMode === 'create') {
+    body.innerHTML = renderPersonaFormHtml(null);
+    wirePersonaFormEvents(null);
+  } else if (personaModalMode === 'edit' && personaEditId) {
+    const p = personasCache.find(x => x.id === personaEditId) ?? null;
+    body.innerHTML = renderPersonaFormHtml(p);
+    wirePersonaFormEvents(p);
+  }
+}
+
+function renderPersonaListHtml(): string {
+  const rows = personasCache.map(p => {
+    const builtin = p.is_builtin === 1;
+    const safeName = escapeHtml(p.name);
+    const safeAvatar = escapeHtml(p.avatar || '');
+    const safeDesc = escapeHtml(p.description || '(无描述)');
+    const safePrompt = escapeHtml((p.system_prompt || '').slice(0, 120));
+    const tag = builtin ? '<span class="persona-tag builtin">内置</span>' : '';
+    const actions = builtin
+      ? ''
+      : `<button class="persona-action-btn" data-action="edit" data-id="${escapeHtml(p.id)}">编辑</button>
+         <button class="persona-action-btn danger" data-action="delete" data-id="${escapeHtml(p.id)}">删除</button>`;
+    return `
+      <div class="persona-row" data-id="${escapeHtml(p.id)}">
+        <div class="persona-avatar">${safeAvatar || '👤'}</div>
+        <div class="persona-info">
+          <div class="persona-name">${safeName} ${tag}</div>
+          <div class="persona-desc">${safeDesc}</div>
+          <div class="persona-prompt-preview">${safePrompt}${(p.system_prompt || '').length > 120 ? '…' : ''}</div>
+        </div>
+        <div class="persona-actions">${actions}</div>
+      </div>`;
+  }).join('');
+  return `
+    <div class="persona-toolbar">
+      <button id="persona-new-btn" class="btn btn-primary">+ 新建 Persona</button>
+    </div>
+    <div class="persona-list">${rows || '<div class="persona-empty">暂无 Persona</div>'}</div>`;
+}
+
+function renderPersonaFormHtml(p: Persona | null): string {
+  const isEdit = p !== null;
+  const builtin = isEdit && p!.is_builtin === 1;
+  const name = isEdit ? p!.name : '';
+  const desc = isEdit ? p!.description : '';
+  const prompt = isEdit ? p!.system_prompt : '';
+  const avatar = isEdit ? p!.avatar : '👤';
+  // Builtin personas: name/avatar locked, description/prompt editable.
+  const fieldDisabled = (_n: string) => builtin ? `disabled title="内置 Persona 不可修改"` : '';
+  return `
+    <div class="persona-form">
+      <div class="form-group">
+        <label>头像 (Emoji)</label>
+        <input type="text" id="pf-avatar" maxlength="4" value="${escapeHtml(avatar)}" ${fieldDisabled('avatar')} />
+      </div>
+      <div class="form-group">
+        <label>名称 *</label>
+        <input type="text" id="pf-name" maxlength="60" value="${escapeHtml(name)}" ${fieldDisabled('name')} />
+      </div>
+      <div class="form-group">
+        <label>简介</label>
+        <input type="text" id="pf-desc" maxlength="200" value="${escapeHtml(desc)}" placeholder="一句话描述这个角色" />
+      </div>
+      <div class="form-group">
+        <label>系统提示词 *</label>
+        <textarea id="pf-prompt" rows="8" placeholder="定义助手的角色、风格、约束...">${escapeHtml(prompt)}</textarea>
+        <span class="form-hint">每次新建会话时自动注入到 system 消息</span>
+      </div>
+      <div class="persona-form-actions">
+        <button id="pf-cancel" class="btn btn-secondary">返回</button>
+        <button id="pf-save" class="btn btn-primary">${isEdit ? '保存' : '创建'}</button>
+      </div>
+    </div>`;
+}
+
+function wirePersonaListEvents(): void {
+  document.getElementById('persona-new-btn')?.addEventListener('click', () => {
+    personaModalMode = 'create';
+    renderPersonaModal();
+  });
+  document.querySelectorAll<HTMLElement>('.persona-action-btn').forEach(btn => {
+    const id = btn.dataset.id!;
+    const action = btn.dataset.action!;
+    btn.addEventListener('click', async () => {
+      if (action === 'edit') {
+        personaModalMode = 'edit';
+        personaEditId = id;
+        renderPersonaModal();
+      } else if (action === 'delete') {
+        if (await deletePersonaApi(id)) {
+          await loadPersonas();
+          renderPersonaPicker();
+          renderPersonaModal();
+        }
+      }
+    });
+  });
+}
+
+function wirePersonaFormEvents(p: Persona | null): void {
+  const isEdit = p !== null;
+  document.getElementById('pf-cancel')?.addEventListener('click', () => {
+    personaModalMode = 'list';
+    renderPersonaModal();
+  });
+  document.getElementById('pf-save')?.addEventListener('click', async () => {
+    const name = (document.getElementById('pf-name') as HTMLInputElement).value.trim();
+    const description = (document.getElementById('pf-desc') as HTMLInputElement).value.trim();
+    const system_prompt = (document.getElementById('pf-prompt') as HTMLTextAreaElement).value.trim();
+    const avatar = (document.getElementById('pf-avatar') as HTMLInputElement).value.trim() || '👤';
+    if (!name) { showToast('请填写名称', '', 'error'); return; }
+    if (!system_prompt) { showToast('请填写系统提示词', '', 'error'); return; }
+    if (isEdit && p) {
+      const updated = await updatePersonaApi({ ...p, name, description, system_prompt, avatar });
+      if (updated) {
+        await loadPersonas();
+        renderPersonaPicker();
+        personaModalMode = 'list';
+        renderPersonaModal();
+        showToast('已更新', updated.name, 'success');
+      }
+    } else {
+      const created = await createPersonaApi(name, description, system_prompt, avatar);
+      if (created) {
+        await loadPersonas();
+        renderPersonaPicker();
+        personaModalMode = 'list';
+        renderPersonaModal();
+        showToast('已创建', created.name, 'success');
+      }
+    }
+  });
 }
 
 // ── Search Modal ──────────────────────────────────────────────────────────────
@@ -604,6 +912,24 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Load session list on startup
   await loadSessionList();
+
+  // ── T-Q-S7: Persona init ─────────────────────────────
+  // Load builtin + custom personas, then restore the user's last
+  // selected default from the DB config. If the saved id no longer
+  // exists (e.g. deleted), the picker silently falls back to "无".
+  await loadPersonas();
+  currentPersonaId = await loadDefaultPersonaId();
+  renderPersonaPicker();
+  const personaPicker = document.getElementById('persona-picker') as HTMLSelectElement | null;
+  personaPicker?.addEventListener('change', () => { void onPersonaPickerChange(); });
+
+  // Manage button (next to picker) → open the persona library modal
+  document.getElementById('persona-manage-btn')?.addEventListener('click', () => openPersonaModal());
+  const personaModal = document.getElementById('persona-modal');
+  document.getElementById('persona-modal-close')?.addEventListener('click', closePersonaModal);
+  personaModal?.addEventListener('click', (e) => {
+    if (e.target === personaModal) closePersonaModal();
+  });
 
   // Register global shortcut: Ctrl+Shift+H — show window + focus input
   try {

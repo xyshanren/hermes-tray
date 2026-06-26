@@ -173,3 +173,110 @@ fn feedback_count_thumbs_separates_up_and_down() {
         .expect("count empty");
     assert_eq!((up_e, down_e), (0, 0));
 }
+
+// ── T-Q-S7 tests: seed_builtin_personas + default_persona_id persistence ──────
+//
+// Validates the integration between:
+//   - `BUILTIN_PERSONAS` constant (data shape)
+//   - `seed_builtin_personas` (idempotent insert)
+//   - ConfigDAO used by the Tauri commands `db_config_get` / `db_config_set`
+//     (default_persona_id persistence used by the persona picker on relaunch).
+//
+// Tauri command wrappers themselves are thin pass-throughs to the DAOs
+// and aren't directly callable from tests (they need `State<'_, Db>`).
+// Coverage at the DAO level is sufficient — frontend smoke tests would
+// exercise the command wiring.
+
+use hermes_tray_tauri_lib::db::pool::BUILTIN_PERSONAS;
+
+#[test]
+fn seed_builtin_personas_inserts_three_on_empty_db() {
+    let (_pool, db) = fresh_db();
+    hermes_tray_tauri_lib::db::pool::seed_builtin_personas(&db);
+
+    let list = db.persona().list().expect("list");
+    assert_eq!(list.len(), 3, "expected 3 builtin personas seeded");
+    let ids: Vec<&str> = list.iter().map(|p| p.id.as_str()).collect();
+    assert!(ids.contains(&"builtin:default"));
+    assert!(ids.contains(&"builtin:code-reviewer"));
+    assert!(ids.contains(&"builtin:translator"));
+    for p in &list {
+        assert!(p.is_builtin, "seeded personas should be marked builtin");
+        assert!(!p.system_prompt.is_empty(), "system_prompt should be non-empty");
+    }
+}
+
+#[test]
+fn seed_builtin_personas_is_idempotent() {
+    let (_pool, db) = fresh_db();
+    hermes_tray_tauri_lib::db::pool::seed_builtin_personas(&db);
+    // Second call: same DB, must not duplicate or overwrite.
+    hermes_tray_tauri_lib::db::pool::seed_builtin_personas(&db);
+    let list = db.persona().list().expect("list");
+    assert_eq!(list.len(), 3, "second seed must be a no-op");
+}
+
+#[test]
+fn seed_builtin_personas_does_not_clobber_user_persona() {
+    let (_pool, db) = fresh_db();
+    // User creates a persona with the same id as a builtin (e.g. via migration).
+    let p = make_persona("builtin:default", "User-edited Default", false);
+    db.persona().create(&p).expect("create");
+    // Seed runs — should respect existing row and not overwrite.
+    hermes_tray_tauri_lib::db::pool::seed_builtin_personas(&db);
+    let got = db.persona().get("builtin:default").expect("get");
+    assert_eq!(got.name, "User-edited Default", "user row must survive seed");
+}
+
+#[test]
+fn builtin_personas_constant_has_consistent_shape() {
+    // Sanity: every builtin entry has id / name / description / system_prompt
+    // / avatar (5-tuple) and uses the "builtin:" prefix on the id.
+    for (id, name, desc, prompt, avatar) in BUILTIN_PERSONAS {
+        assert!(id.starts_with("builtin:"), "id must use 'builtin:' prefix: {id}");
+        assert!(!name.is_empty());
+        assert!(!desc.is_empty());
+        assert!(!prompt.is_empty());
+        assert!(!avatar.is_empty());
+    }
+    // IDs must be unique (otherwise seed's WHERE NOT EXISTS guard breaks).
+    let mut ids: Vec<&str> = BUILTIN_PERSONAS.iter().map(|(id, ..)| *id).collect();
+    let total = ids.len();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), total, "builtin persona ids must be unique");
+}
+
+#[test]
+fn default_persona_id_round_trips_via_config_dao() {
+    // The Tauri commands `db_config_get` / `db_config_set` are thin
+    // pass-throughs to `ConfigDAO::get` / `set`. This test covers the
+    // end-to-end shape of what the frontend expects.
+    let (_pool, db) = fresh_db();
+
+    // 1. Initial state: missing key (matches `loadDefaultPersonaId()` in
+    //    main.ts which falls back to null).
+    let initial = db.config().get("default_persona_id").expect("get initial");
+    assert!(initial.is_none());
+
+    // 2. User picks a persona → set() writes a string value.
+    let v1 = db
+        .config()
+        .set("default_persona_id", "builtin:code-reviewer")
+        .expect("set 1");
+    assert_eq!(v1.value, "builtin:code-reviewer");
+    assert_eq!(v1.version, 1);
+
+    // 3. App relaunch → get() returns the saved value.
+    let saved = db.config().get("default_persona_id").expect("get saved");
+    let saved = saved.expect("value should exist after set");
+    assert_eq!(saved.value, "builtin:code-reviewer");
+
+    // 4. User picks a different persona → set() upserts and bumps version.
+    let v2 = db
+        .config()
+        .set("default_persona_id", "builtin:translator")
+        .expect("set 2");
+    assert_eq!(v2.version, 2, "version should bump on update");
+    assert_eq!(v2.value, "builtin:translator");
+}

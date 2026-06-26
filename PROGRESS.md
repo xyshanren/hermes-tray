@@ -145,7 +145,7 @@ hermes-tray/
 
 - [x] **T-Q-S5**: 全局热键 Ctrl+Shift+H 唤起/聚焦窗口
 - [x] **T-Q-S6**: 托盘快速操作 (新建会话 / 续上次 / 搜索) — 1d ✅ 2026-06-26
-- [ ] **T-Q-S7**: 会话模板 + Persona 库 — 4d
+- [x] **T-Q-S7**: Persona 库 + 默认 persona picker — 1d ✅ 2026-06-26
 - [ ] **T-Q-S8**: 项目上下文感知 (CWD 扫描 + 注入) — 3d
 - [ ] **T-Q-S9**: Token / 成本追踪 — 3d
 - [ ] **T-Q-S10**: 导出/分享 (markdown + 分享链接) — 2d
@@ -275,12 +275,22 @@ hermes-tray/
   - `src/main.ts` 3 个监听: `createSession()` / `loadLastSession()` / `openSearchModal()`
   - `loadLastSession()`: invoke `session_list` limit=1 拿最近会话, selectSession, 没历史时 toast 提示
   - 设计原则: Rust 只 emit 事件, 前端是单一 UX 真相源 (避免逻辑分散在两处)
+- **T-Q-S7 — Persona 库 + 默认 picker** (2026-06-26, 1d):
+  - 后端 5 个 persona Tauri commands (`persona_list/get/create/update/delete`) + 2 个 db_config commands
+  - 3 个 builtin personas 首次启动 seed (default / code-reviewer / translator), idempotent + 不覆盖用户同名 persona
+  - `BUILTIN_PERSONAS` 常量 + `seed_builtin_personas(&Db)` 函数 (在 `pool.rs`)
+  - 前端 header 加 persona picker (select) + 管理按钮 (齿轮) → 弹 persona library modal
+  - 3-state modal: list (CRUD) / create form / edit form, builtin 锁 name+avatar 但 prompt 可改
+  - `currentPersonaId` 状态, 切换时持久化到 `config.default_persona_id`, 重启自动恢复
+  - `createSession()` 传 `personaId`, 会话列表标题前缀 persona emoji (一眼看角色)
+  - 修复 T-Q-S1.3 遗留的 pre-existing test bug (`count_thumbs` 错传 `&empty_session`)
+  - 设计原则: persona = template + role in one, 不另起 templates 表
 
 ### 测试覆盖统计 (v2.0 启动后)
 
-- v0.1.0 基线: 22 Rust (T-Q5) + 37 TS (T-Q6) = 59 tests
-- v2.0 新增: 10 (S1.2) + 5 (S1.3) = 15 tests
-- 合计: **74 tests, ~40% 覆盖率**
+- v0.1.0 + T-Q9 基线: 55 Rust (T-Q5+T-Q9 stage 2) + 37 TS (T-Q6) = 92 tests
+- v2.0 新增: 10 (S1.2) + 5 (S1.3) + 5 (S7) = 20 tests
+- 合计: **75 Rust + 37 TS = 112 tests, ~42% 覆盖率**
 - 待补: Tauri 命令单测 (mock + io::Result), HTTP 客户端 (reqwest mock)
 
 ---

@@ -96,3 +96,68 @@ impl Db {
         crate::db::feedback::FeedbackDao::new(&self.pool)
     }
 }
+
+// ── Builtin personas (T-Q-S7) ───────────────────────────────────────────────────
+//
+// Seeded on first DB init so the persona picker is never empty. Each entry
+// is also a usable session template — the system_prompt is the assistant
+// brief for that role. Idempotent: skips if the persona id already exists
+// (so a user-installed persona with the same id is preserved).
+//
+// IDs are stable strings (not random uuids) so the frontend can refer to
+// them by name. Re-running on existing DBs is a no-op via the `WHERE NOT EXISTS`
+// guard.
+
+pub const BUILTIN_PERSONAS: &[(&str, &str, &str, &str, &str)] = &[
+    (
+        "builtin:default",
+        "通用助手",
+        "平衡的默认助手，适合日常问答与一般任务",
+        "你是一个有帮助、无害、诚实的助手。回答简洁准确，不确定时说不知道。",
+        "🤖",
+    ),
+    (
+        "builtin:code-reviewer",
+        "代码审查",
+        "Strict reviewer — finds bugs, security issues, and style problems",
+        "You are a senior code reviewer. For every code change: (1) list bugs by severity, (2) flag security issues, (3) suggest concrete refactors with diffs, (4) call out missing tests. Be terse, no flattery.",
+        "🔍",
+    ),
+    (
+        "builtin:translator",
+        "中英翻译",
+        "Bilingual translator — natural, idiomatic, preserves tone",
+        "你是中英双语翻译。在两种语言间做地道、保留原文语气和专业术语的翻译。直译优先于意译，但不译错。",
+        "🌐",
+    ),
+];
+
+/// Idempotent: insert any missing builtin personas. Called from `init_db`
+/// after migrations.
+pub fn seed_builtin_personas(db: &Db) {
+    for (id, name, description, system_prompt, avatar) in BUILTIN_PERSONAS {
+        let conn = match db.pool().get() {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let already: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM personas WHERE id = ?1)",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if already {
+            continue;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let _ = conn.execute(
+            "INSERT INTO personas (id, name, description, system_prompt, avatar, \
+             created_at, updated_at, is_builtin) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 1)",
+            rusqlite::params![id, name, description, system_prompt, avatar, now],
+        );
+    }
+}

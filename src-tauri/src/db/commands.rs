@@ -5,7 +5,7 @@
 
 use tauri::State;
 
-use crate::db::dao::{Message, MessageDAO, SearchHit, Session, SessionDAO, SessionPatch};
+use crate::db::dao::{ConfigDAO, ConfigEntry, Message, MessageDAO, Persona, PersonaDAO, SearchHit, Session, SessionDAO, SessionPatch};
 use crate::db::Db;
 
 // ── Session commands ──────────────────────────────────────────────────────────
@@ -91,4 +91,54 @@ pub fn message_list(
 #[tauri::command]
 pub fn message_delete(db: State<'_, Db>, id: &str) -> Result<(), String> {
     db.message().delete(id).map_err(|e| e.to_string())
+}
+
+// ── Persona commands (T-Q-S7) ────────────────────────────────────────────────────
+//
+// Personas = assistant role definitions. The same `personas` table also
+// serves as the "session template" library: a persona carries the
+// system_prompt that gets injected when a new session is created from it.
+// No separate templates table is needed — persona = template + role in
+// one. Frontend `persona` tab uses these to list/edit/apply.
+
+#[tauri::command]
+pub fn persona_list(db: State<'_, Db>) -> Result<Vec<Persona>, String> {
+    db.persona().list().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn persona_get(db: State<'_, Db>, id: &str) -> Result<Persona, String> {
+    db.persona().get(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn persona_create(db: State<'_, Db>, persona: Persona) -> Result<Persona, String> {
+    db.persona().create(&persona).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn persona_update(db: State<'_, Db>, persona: Persona) -> Result<Persona, String> {
+    db.persona().update(&persona).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn persona_delete(db: State<'_, Db>, id: &str) -> Result<(), String> {
+    db.persona().delete(id).map_err(|e| e.to_string())
+}
+
+// ── DB-backed config commands (T-Q-S7) ────────────────────────────────────────
+//
+// These read/write the `config` table (NOT the legacy `config.json` next
+// to the executable). Used for per-user prefs that need to survive across
+// sessions: `default_persona_id` (auto-apply to new sessions) and
+// `last_active_session_id` (restore on app launch).
+
+#[tauri::command]
+pub fn db_config_get(db: State<'_, Db>, key: &str) -> Result<Option<ConfigEntry>, String> {
+    db.config().get(key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn db_config_set(db: State<'_, Db>, key: &str, value: &str) -> Result<ConfigEntry, String> {
+    db.config().set(key, value).map_err(|e| e.to_string())
 }
