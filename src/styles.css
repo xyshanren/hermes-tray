@@ -1072,3 +1072,25 @@ html, body {
   opacity: 0.7;
   cursor: not-allowed;
 }
+
+/* ── Project badge in session list (T-Q-S8) ─────────────────────────────────── */
+.session-project {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 5px;
+  margin-left: 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 110px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.session-item {
+  /* allow project badge alongside title without wrapping */
+  flex-wrap: nowrap;
+}

@@ -25,6 +25,7 @@ marked.setOptions({
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { register } from '@tauri-apps/plugin-global-shortcut';
+import { composeSystemPrompt } from './systemPrompt';
 
 const UNKNOWN_MODEL = '-';
 
@@ -34,9 +35,37 @@ interface Session {
   id: string;
   title: string;
   persona_id: string | null;
+  project_dir: string | null;
+  project_context: string | null; // JSON-encoded ProjectContext (T-Q-S8)
   created_at: string;
   updated_at: string;
   message_count: number;
+}
+
+// ── Project context type (T-Q-S8) ──────────────────────────────────────────────
+//
+// Mirrors `db::project::ProjectContext` on the Rust side. The Rust side
+// returns this struct from the `project_scan` Tauri command; we JSON-
+// encode it for `session_create.project_context` so the cache lives in
+// the DB. `parseProjectContext` decodes the stored JSON when reading.
+
+interface ProjectContext {
+  project_dir: string;
+  name: string;
+  version: string | null;
+  description: string | null;
+  readme_excerpt: string | null;
+  languages: string[];
+  has_git: boolean;
+  git_remote: string | null;
+  files_scanned: string[];
+  summary_markdown: string;
+  scanned_at: number;
+}
+
+function parseProjectContext(json: string | null): ProjectContext | null {
+  if (!json) return null;
+  try { return JSON.parse(json) as ProjectContext; } catch { return null; }
 }
 
 interface DbMessage {
@@ -76,6 +105,7 @@ interface Persona {
 // ── Session State ─────────────────────────────────────────────────────────────
 
 let currentSessionId: string | null = null;
+let currentSession: Session | null = null; // T-Q-S8: full row for system-prompt composition
 let sidebarVisible = false;
 
 // ── Persona state (T-Q-S7) ──────────────────────────────────────────────────────
@@ -177,13 +207,14 @@ async function loadSessionList(resetOffset = true): Promise<void> {
       const el = document.createElement('div');
       el.className = `session-item${s.id === currentSessionId ? ' active' : ''}`;
       el.dataset.sessionId = s.id;
-      // T-Q-S7: prefix with persona avatar (if any) so the role is visible
-      // at a glance in the sidebar.
+      // T-Q-S7 + T-Q-S8: prefix with persona avatar (if any) and project
+      // badge (if any) so the role + project is visible at a glance.
       const persona = s.persona_id ? personasCache.find(p => p.id === s.persona_id) : null;
       const avatar = persona?.avatar ?? '';
+      const proj = parseProjectContext(s.project_context);
       const titleEl = document.createElement('span');
       titleEl.className = 'session-title';
-      titleEl.textContent = (avatar ? avatar + ' ' : '') + (s.title || '无标题会话');
+      titleEl.innerHTML = `${avatar ? `<span class="session-persona-emoji">${avatar}</span> ` : ''}${escapeHtml(s.title || '无标题会话')}`;
       titleEl.addEventListener('dblclick', (e) => {
         e.stopPropagation();
         startRename(s.id, titleEl);
@@ -198,6 +229,13 @@ async function loadSessionList(resetOffset = true): Promise<void> {
         deleteSession((e.target as HTMLElement).dataset.id!);
       });
       el.appendChild(titleEl);
+      if (proj) {
+        const projEl = document.createElement('span');
+        projEl.className = 'session-project';
+        projEl.title = proj.project_dir;
+        projEl.textContent = `📁 ${proj.name}`;
+        el.appendChild(projEl);
+      }
       el.appendChild(deleteBtn);
       el.addEventListener('click', () => selectSession(s.id));
       listEl.appendChild(el);
@@ -271,6 +309,14 @@ async function finishRename(id: string, input: HTMLInputElement, _current: strin
 
 async function selectSession(id: string): Promise<void> {
   currentSessionId = id;
+  // T-Q-S8: track the full session row so we can compose system prompts
+  // at send-message time without an extra DB round-trip.
+  try {
+    currentSession = await invoke<Session>('session_get', { id });
+  } catch (e) {
+    console.warn('[Session] failed to load row for system-prompt compose:', e);
+    currentSession = null;
+  }
   const messagesEl = document.getElementById('messages');
   if (!messagesEl) return;
   try {
@@ -300,22 +346,48 @@ async function selectSession(id: string): Promise<void> {
 
 async function createSession(): Promise<string | null> {
   try {
-    // T-Q-S7: pass currentPersonaId to session_create. The session stores
-    // the persona id but does NOT inject the system_prompt at create time —
-    // system_prompt injection happens at send-message time (in the
-    // gateway/agent layer) so persona switches mid-session work.
+    // T-Q-S8: if a default project path is configured, scan it and attach
+    // the result to the new session. The scan is best-effort — if it
+    // fails (path deleted, permission denied), we still create the
+    // session with project_dir = path but project_context = null.
+    let projectDir: string | null = null;
+    let projectContextJson: string | null = null;
+    if (defaultProjectPath) {
+      const ctx = await scanProject(defaultProjectPath);
+      if (ctx) {
+        projectDir = ctx.project_dir;
+        projectContextJson = JSON.stringify(ctx);
+      } else {
+        // Scan failed but user has a default set — still record the path
+        // so the user can see/fix it in the session row.
+        projectDir = defaultProjectPath;
+      }
+    }
+
+    // T-Q-S7 + T-Q-S8: pass currentPersonaId + project context. The
+    // session stores both fields; system-prompt injection happens at
+    // send-message time (gateway/agent layer) so persona switches
+    // mid-session work.
     const session = await invoke<Session>('session_create', {
       title: '新会话',
       personaId: currentPersonaId,
+      projectDir,
+      projectContext: projectContextJson,
     });
     currentSessionId = session.id;
+    currentSession = session;
     state.messages = [];
     const messagesEl = document.getElementById('messages');
     if (messagesEl) {
       const persona = personasCache.find(p => p.id === currentPersonaId);
-      const hint = persona
-        ? `<p class="hint">当前 Persona: ${persona.avatar ?? ''} ${escapeHtml(persona.name)}</p>`
-        : '<p class="hint">在下方输入消息开始对话</p>';
+      const proj = parseProjectContext(session.project_context);
+      const personaHint = persona
+        ? `<p class="hint">Persona: ${persona.avatar ?? ''} ${escapeHtml(persona.name)}</p>`
+        : '';
+      const projectHint = proj
+        ? `<p class="hint">项目: ${escapeHtml(proj.name)}${proj.version ? ` v${escapeHtml(proj.version)}` : ''} (${escapeHtml(proj.project_dir)})</p>`
+        : (projectDir ? `<p class="hint">项目路径已设置但扫描失败: ${escapeHtml(projectDir)}</p>` : '');
+      const hint = personaHint + projectHint || '<p class="hint">在下方输入消息开始对话</p>';
       messagesEl.innerHTML = `<div class="welcome-message"><p>👋 新会话已开始</p>${hint}</div>`;
     }
     await loadSessionList(true);
@@ -332,6 +404,7 @@ async function deleteSession(id: string): Promise<void> {
     await invoke('session_delete', { id });
     if (currentSessionId === id) {
       currentSessionId = null;
+      currentSession = null;
       state.messages = [];
       const messagesEl = document.getElementById('messages');
       if (messagesEl) {
@@ -477,6 +550,60 @@ async function deletePersonaApi(id: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Compose the system prompt for the current session (T-Q-S7 + T-Q-S8).
+ *
+ * Combines the session's persona (looked up from `personasCache`) with
+ * the session's cached project context (parsed from `project_context`).
+ * Returns null when neither is present — the caller should NOT inject
+ * a system message in that case.
+ */
+async function buildCurrentSystemPrompt(): Promise<string | null> {
+  const persona = currentSession?.persona_id
+    ? personasCache.find(p => p.id === currentSession!.persona_id) ?? null
+    : null;
+  const project = parseProjectContext(currentSession?.project_context ?? null);
+  return composeSystemPrompt(persona, project);
+}
+
+// ── Project context (T-Q-S8) ───────────────────────────────────────────────────
+//
+// default_project_path is a setting: when the user clicks "new session",
+// we scan this path and attach the resulting ProjectContext to the new
+// session. Stored in the `config` table (not config.json) so it
+// survives app restarts and is queryable from Rust.
+
+async function loadDefaultProjectPath(): Promise<string | null> {
+  try {
+    const entry = await invoke<{ key: string; value: string } | null>('db_config_get', { key: 'default_project_path' });
+    const v = entry?.value?.trim() ?? '';
+    return v.length > 0 ? v : null;
+  } catch (e) {
+    console.warn('[Project] default_project_path not loaded:', e);
+    return null;
+  }
+}
+
+async function setDefaultProjectPath(path: string | null): Promise<void> {
+  try {
+    await invoke('db_config_set', { key: 'default_project_path', value: path ?? '' });
+  } catch (e) {
+    console.warn('[Project] default_project_path not saved:', e);
+  }
+}
+
+/** Scan a path on the Rust side. Returns null on failure (and shows a toast). */
+async function scanProject(path: string): Promise<ProjectContext | null> {
+  try {
+    return await invoke<ProjectContext>('project_scan', { path });
+  } catch (e) {
+    showToast('项目扫描失败', `${path}: ${e}`, 'error');
+    return null;
+  }
+}
+
+let defaultProjectPath: string | null = null;
 
 // ── Persona Modal (T-Q-S7) ─────────────────────────────────────────────────────
 //
@@ -787,6 +914,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const wslDistroSelect = document.getElementById('setting-wsl-distro') as HTMLSelectElement;
   const portInput = document.getElementById('setting-port') as HTMLInputElement;
   const apiKeyInput = document.getElementById('setting-api-key') as HTMLInputElement;
+  const defaultProjectPathInput = document.getElementById('setting-default-project-path') as HTMLInputElement;
 
   // Open settings
   settingsBtn.addEventListener('click', () => openSettings());
@@ -837,6 +965,16 @@ window.addEventListener('DOMContentLoaded', async () => {
         apiKeyInput.value = config.api_key;
       }
     } catch { /* no config yet */ }
+
+    // T-Q-S8: load default_project_path from the DB-backed config table
+    // (separate from the legacy config.json shown above).
+    try {
+      const entry = await invoke<{ key: string; value: string } | null>('db_config_get', { key: 'default_project_path' });
+      if (entry?.value) {
+        defaultProjectPathInput.value = entry.value;
+        defaultProjectPath = entry.value;
+      }
+    } catch { /* key not set yet */ }
   }
 
   async function saveSettings() {
@@ -851,6 +989,14 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     try {
       await invoke('hermes_save_config', { updates });
+
+      // T-Q-S8: save default_project_path to the DB-backed config table.
+      // Save as empty string when the input is blank so subsequent loads
+      // can distinguish "user cleared it" from "not set yet".
+      const newDefaultPath = defaultProjectPathInput.value.trim();
+      await setDefaultProjectPath(newDefaultPath.length > 0 ? newDefaultPath : null);
+      defaultProjectPath = newDefaultPath.length > 0 ? newDefaultPath : null;
+
       showToast('设置已保存', '配置已更新，部分设置可能需要重启后生效', 'success');
       closeSettings();
 
@@ -930,6 +1076,12 @@ window.addEventListener('DOMContentLoaded', async () => {
   personaModal?.addEventListener('click', (e) => {
     if (e.target === personaModal) closePersonaModal();
   });
+
+  // ── T-Q-S8: default project path init ────────────────────
+  // Restore the user's saved project path so new sessions auto-attach
+  // the project context. If the saved path no longer exists, the scan
+  // will fail at createSession time and the user will see a toast.
+  defaultProjectPath = await loadDefaultProjectPath();
 
   // Register global shortcut: Ctrl+Shift+H — show window + focus input
   try {
@@ -1142,10 +1294,18 @@ async function sendMessage() {
   state.streamElement = createStreamMessage();
 
   try {
-    const apiMessages = state.messages
+    // T-Q-S7 + T-Q-S8: prepend a system message that combines the session's
+    // persona system_prompt with the cached project context summary.
+    // Compose is a pure function in src/systemPrompt.ts (covered by
+    // 12 unit tests); here we just wire the inputs.
+    const systemContent = await buildCurrentSystemPrompt();
+    const userMessages = state.messages
       .filter(m => m.role !== 'system')
       .slice(-10)
       .map(m => ({ role: m.role, content: m.content }));
+    const apiMessages = systemContent === null
+      ? userMessages
+      : [{ role: 'system' as const, content: systemContent }, ...userMessages];
 
     // Use streaming — response is empty, chunks via events
     const model = state.currentModel !== UNKNOWN_MODEL ? state.currentModel : CONFIG.defaultModel;

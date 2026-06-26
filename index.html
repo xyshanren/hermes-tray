@@ -143,6 +143,11 @@
               <input type="password" id="setting-api-key" placeholder="输入 API Key" />
               <span class="form-hint">用于与 Hermes Gateway 通信的 API 密钥</span>
             </div>
+            <div class="form-group">
+              <label for="setting-default-project-path">默认项目路径 (T-Q-S8)</label>
+              <input type="text" id="setting-default-project-path" placeholder="例如 F:\work\workspace\MiniMax\hermes-tray 或 /home/user/proj" />
+              <span class="form-hint">新建会话时自动扫描此目录的 README + manifest + git 信息，注入到 system prompt。留空则不附加项目上下文。</span>
+            </div>
           </div>
           <div class="modal-footer">
             <button id="settings-cancel" class="btn btn-secondary">取消</button>

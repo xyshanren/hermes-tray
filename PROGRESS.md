@@ -146,7 +146,7 @@ hermes-tray/
 - [x] **T-Q-S5**: 全局热键 Ctrl+Shift+H 唤起/聚焦窗口
 - [x] **T-Q-S6**: 托盘快速操作 (新建会话 / 续上次 / 搜索) — 1d ✅ 2026-06-26
 - [x] **T-Q-S7**: Persona 库 + 默认 persona picker — 1d ✅ 2026-06-26
-- [ ] **T-Q-S8**: 项目上下文感知 (CWD 扫描 + 注入) — 3d
+- [x] **T-Q-S8**: 项目上下文感知 (CWD 扫描 + 自动注入 system prompt) — 1d ✅ 2026-06-26
 - [ ] **T-Q-S9**: Token / 成本追踪 — 3d
 - [ ] **T-Q-S10**: 导出/分享 (markdown + 分享链接) — 2d
 - [ ] **T-Q-S11**: 加密本地备份 (AES + 可选云同步) — 2d
@@ -275,6 +275,18 @@ hermes-tray/
   - `src/main.ts` 3 个监听: `createSession()` / `loadLastSession()` / `openSearchModal()`
   - `loadLastSession()`: invoke `session_list` limit=1 拿最近会话, selectSession, 没历史时 toast 提示
   - 设计原则: Rust 只 emit 事件, 前端是单一 UX 真相源 (避免逻辑分散在两处)
+- **T-Q-S8 — 项目上下文感知** (2026-06-26, 1d):
+  - 后端 `src/db/project.rs` (~700 行) 纯函数 CWD 扫描器: README (2KB) + manifest (package.json / Cargo.toml / pyproject.toml / go.mod) + git remote + top-level 语言检测 → ≤4KB markdown summary
+  - Migration 0002: `sessions.project_context` 列 (project_dir 列原本就在, 现在开始用)
+  - 1 new Tauri command: `project_scan(path)` → `ProjectContext` (前端先调, 把 JSON 作为 `project_context` 传给 `session_create`)
+  - 前端 Settings 加 "默认项目路径" 字段, 持久化到 `config.default_project_path`
+  - `createSession()`: 默认路径非空时调 `project_scan`, 把 result 写入 session row
+  - 会话列表行: persona avatar + 新的 📁 project badge (name)
+  - 新建会话 welcome message: 显示 Persona + 项目
+  - `src/systemPrompt.ts` (纯函数) + 12 unit tests: 组合 `persona.system_prompt` + `project.summary_markdown`, 用 `\n\n---\n\n` 分隔
+  - `sendMessage()` 调用 `composeSystemPrompt()`, prepend 一个 system 消息到 `apiMessages`
+  - 设计原则: 缓存到 `project_context` 列 (不每次重扫), 用户可在 Settings 改路径
+  - 更新 11 个 existing session test 调用 (signature 扩 2 个 None 参数)
 - **T-Q-S7 — Persona 库 + 默认 picker** (2026-06-26, 1d):
   - 后端 5 个 persona Tauri commands (`persona_list/get/create/update/delete`) + 2 个 db_config commands
   - 3 个 builtin personas 首次启动 seed (default / code-reviewer / translator), idempotent + 不覆盖用户同名 persona
@@ -289,8 +301,8 @@ hermes-tray/
 ### 测试覆盖统计 (v2.0 启动后)
 
 - v0.1.0 + T-Q9 基线: 55 Rust (T-Q5+T-Q9 stage 2) + 37 TS (T-Q6) = 92 tests
-- v2.0 新增: 10 (S1.2) + 5 (S1.3) + 5 (S7) = 20 tests
-- 合计: **75 Rust + 37 TS = 112 tests, ~42% 覆盖率**
+- v2.0 新增: 10 (S1.2) + 5 (S1.3) + 5 (S7) + 15 (S8 backend) + 12 (S8 frontend) = 47 tests
+- 合计: **90 Rust + 49 TS = 139 tests, ~46% 覆盖率**
 - 待补: Tauri 命令单测 (mock + io::Result), HTTP 客户端 (reqwest mock)
 
 ---
