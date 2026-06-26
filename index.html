@@ -14,6 +14,11 @@
         <div class="sidebar-header">
           <span class="sidebar-title">会话</span>
           <div class="sidebar-actions">
+            <button id="sidebar-stats-btn" class="sidebar-icon-btn" title="Token / 成本统计 (T-Q-S9)">
+              <svg viewBox="0 0 24 24" width="16" height="16">
+                <path fill="currentColor" d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/>
+              </svg>
+            </button>
             <button id="sidebar-search-btn" class="sidebar-icon-btn" title="搜索 (Ctrl+K)">
               <svg viewBox="0 0 24 24" width="16" height="16">
                 <path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
@@ -164,6 +169,17 @@
             <button id="persona-modal-close" class="modal-close-btn">&times;</button>
           </div>
           <div id="persona-modal-body" class="modal-body"></div>
+        </div>
+      </div>
+
+      <!-- Token / Cost Stats Modal (T-Q-S9) -->
+      <div id="stats-modal" class="modal-overlay hidden">
+        <div class="modal modal-stats">
+          <div class="modal-header">
+            <h2>📊 Token 用量与成本</h2>
+            <button id="stats-modal-close" class="modal-close-btn">&times;</button>
+          </div>
+          <div id="stats-modal-body" class="modal-body"></div>
         </div>
       </div>
   </body>

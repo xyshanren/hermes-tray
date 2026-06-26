@@ -7,6 +7,7 @@ use tauri::State;
 
 use crate::db::dao::{ConfigDAO, ConfigEntry, Message, MessageDAO, Persona, PersonaDAO, ProjectContext, SearchHit, Session, SessionDAO, SessionPatch};
 use crate::db::project::scan_project;
+use crate::db::token::{cost_for_model, DailyBucket, ModelBucket, TokenStats};
 use crate::db::Db;
 
 // ── Session commands ──────────────────────────────────────────────────────────
@@ -76,6 +77,166 @@ pub fn session_touch(db: State<'_, Db>, id: &str) -> Result<(), String> {
 #[tauri::command]
 pub fn project_scan(path: String) -> Result<ProjectContext, String> {
     scan_project(std::path::Path::new(&path))
+}
+
+// ── Token stats command (T-Q-S9) ──────────────────────────────────────────────
+//
+// Aggregates per-day + per-model token counts and computes cost
+// projections. Period argument controls the date range:
+//   - "day"   — last 24h
+//   - "week"  — last 7 days
+//   - "month" — last 30 days
+//   - "all"   — since DB creation
+//
+// We use local-time YYYY-MM-DD buckets (UTC for simplicity, since the
+// hermes-tray runs on a single user machine and the user is unlikely
+// to care about TZ-perfect charts). The frontend can re-bucket
+// client-side if it wants per-TZ.
+//
+// User-role messages count as input tokens; assistant-role as output
+// tokens. This matches OpenAI/Anthropic's billing convention.
+
+#[tauri::command]
+pub fn token_stats(db: State<'_, Db>, period: String) -> Result<TokenStats, String> {
+    compute_token_stats(&db, &period)
+}
+
+fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let start_ms = match period {
+        "day" => now_ms - 24 * 60 * 60 * 1000,
+        "week" => now_ms - 7 * 24 * 60 * 60 * 1000,
+        "month" => now_ms - 30 * 24 * 60 * 60 * 1000,
+        "all" | _ => 0,
+    };
+    let period_label = match period {
+        "day" => "day",
+        "week" => "week",
+        "month" => "month",
+        _ => "all",
+    };
+
+    let conn = db.pool().get().map_err(|e| e.to_string())?;
+
+    // Per-day + per-role aggregation. We bucket by UTC date
+    // (created_at / 86400000 since epoch).
+    let mut daily_map: std::collections::BTreeMap<String, (i64, i64)> = std::collections::BTreeMap::new();
+    let mut by_model: std::collections::HashMap<String, (i64, i64, i64)> = std::collections::HashMap::new();
+    let mut total_input: i64 = 0;
+    let mut total_output: i64 = 0;
+    let mut total_msgs: i64 = 0;
+    let mut total_sessions: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.session_id, m.role, m.tokens, m.created_at, COALESCE(s.model, 'unknown') \
+             FROM messages m \
+             LEFT JOIN sessions s ON s.id = m.session_id \
+             WHERE m.created_at >= ?1",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([start_ms], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    for row in rows {
+        let (session_id, role, tokens, created_at, model) = row.map_err(|e| e.to_string())?;
+        // UTC date bucket. Unix epoch days = created_at / 86_400_000.
+        let day_unix = created_at / 86_400_000;
+        let date = unix_days_to_ymd(day_unix);
+
+        let (mut in_t, mut out_t) = daily_map.get(&date).copied().unwrap_or((0, 0));
+        if role == "user" {
+            in_t += tokens;
+        } else if role == "assistant" {
+            out_t += tokens;
+        }
+        daily_map.insert(date, (in_t, out_t));
+
+        if role == "user" {
+            total_input += tokens;
+        } else if role == "assistant" {
+            total_output += tokens;
+        }
+        total_msgs += 1;
+        total_sessions.insert(session_id);
+
+        let entry = by_model.entry(model).or_insert((0, 0, 0));
+        if role == "user" {
+            entry.0 += tokens;
+        } else {
+            entry.1 += tokens;
+        }
+        entry.2 += 1;
+    }
+
+    // Convert to sorted Vec<DailyBucket> and add cost.
+    let daily: Vec<DailyBucket> = daily_map
+        .into_iter()
+        .map(|(date, (in_t, out_t))| DailyBucket {
+            date,
+            input_tokens: in_t,
+            output_tokens: out_t,
+            cost: cost_for_model("all", in_t, out_t), // aggregated cost uses default
+        })
+        .collect();
+
+    // Per-model breakdown — costs differ per model, so each bucket
+    // uses its own pricing.
+    let mut by_model_vec: Vec<ModelBucket> = by_model
+        .into_iter()
+        .map(|(model, (in_t, out_t, count))| ModelBucket {
+            cost: cost_for_model(&model, in_t, out_t),
+            input_tokens: in_t,
+            output_tokens: out_t,
+            model,
+            message_count: count,
+        })
+        .collect();
+    by_model_vec.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap_or(std::cmp::Ordering::Equal));
+
+    let total_cost = by_model_vec.iter().map(|m| m.cost).sum();
+
+    Ok(TokenStats {
+        period: period_label.to_string(),
+        start_unix_ms: start_ms,
+        end_unix_ms: now_ms,
+        total_input_tokens: total_input,
+        total_output_tokens: total_output,
+        total_cost,
+        total_messages: total_msgs,
+        total_sessions: total_sessions.len() as i64,
+        daily,
+        by_model: by_model_vec,
+    })
+}
+
+/// Convert Unix days (days since 1970-01-01) to YYYY-MM-DD. Used for
+/// the chart's X-axis labels. Pure function for testability.
+fn unix_days_to_ymd(days: i64) -> String {
+    // Civil-from-days algorithm (Howard Hinnant, public domain).
+    // https://howardhinnant.github.io/date_algorithms.html
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // [0, 399]
+    let y = (yoe as i64) + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{:04}-{:02}-{:02}", y, m, d)
 }
 
 // ── Message commands ────────────────────────────────────────────────────────────

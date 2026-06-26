@@ -162,7 +162,9 @@ fn message_append_then_get_round_trips() {
     assert_eq!(msg.session_id, s.id);
     assert_eq!(msg.role, "user");
     assert_eq!(msg.content, "hello world");
-    assert_eq!(msg.tokens, 0);
+    // T-Q-S9: token count is now auto-estimated via char/4 heuristic.
+    // "hello world" is 11 chars -> 11/4 = 2.
+    assert_eq!(msg.tokens, 2);
 
     let fetched = dao.message().get(&msg.id).expect("get");
     assert_eq!(fetched.content, "hello world");

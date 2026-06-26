@@ -26,6 +26,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { register } from '@tauri-apps/plugin-global-shortcut';
 import { composeSystemPrompt } from './systemPrompt';
+import { layoutChart, formatTokens, formatCost, DEFAULT_CHART_LAYOUT, type DailyBucketLike } from './tokenChart';
 
 const UNKNOWN_MODEL = '-';
 
@@ -40,6 +41,8 @@ interface Session {
   created_at: string;
   updated_at: string;
   message_count: number;
+  total_tokens: number; // T-Q-S9: aggregate token count
+  model: string | null; // T-Q-S9: per-session model
 }
 
 // ── Project context type (T-Q-S8) ──────────────────────────────────────────────
@@ -66,6 +69,39 @@ interface ProjectContext {
 function parseProjectContext(json: string | null): ProjectContext | null {
   if (!json) return null;
   try { return JSON.parse(json) as ProjectContext; } catch { return null; }
+}
+
+// ── Token stats types (T-Q-S9) ─────────────────────────────────────────────────
+//
+// Mirrors `db::token::{TokenStats, DailyBucket, ModelBucket}`. Rust
+// side computes aggregates via SQL; we just render.
+
+interface DailyBucket {
+  date: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost: number;
+}
+
+interface ModelBucket {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost: number;
+  message_count: number;
+}
+
+interface TokenStats {
+  period: string;
+  start_unix_ms: number;
+  end_unix_ms: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost: number;
+  total_messages: number;
+  total_sessions: number;
+  daily: DailyBucket[];
+  by_model: ModelBucket[];
 }
 
 interface DbMessage {
@@ -196,6 +232,67 @@ let unlistenDone: (() => void) | null = null;
 let sessionOffset = 0;
 const SESSION_PAGE = 50;
 
+/**
+ * T-Q-S9: refresh just the sidebar row for the current session.
+ * Used after each message send so the token badge stays live.
+ * Falls back to a full list reload if the row can't be located.
+ */
+async function refreshCurrentSessionRow(): Promise<void> {
+  if (!currentSessionId) return;
+  try {
+    const fresh = await invoke<Session>('session_get', { id: currentSessionId });
+    currentSession = fresh;
+    const row = document.querySelector<HTMLElement>(`.session-item[data-session-id="${currentSessionId}"]`);
+    if (row) {
+      // Re-render the title text + token badge in place. We rebuild
+      // title (with persona avatar) and the badges from scratch.
+      const persona = fresh.persona_id ? personasCache.find(p => p.id === fresh.persona_id) : null;
+      const avatar = persona?.avatar ?? '';
+      const titleText = `${avatar ? avatar + ' ' : ''}${fresh.title || '无标题会话'}`;
+      const titleEl = row.querySelector<HTMLElement>('.session-title');
+      if (titleEl) titleEl.textContent = titleText;
+      // Update or insert token badge.
+      let tokEl = row.querySelector<HTMLElement>('.session-tokens');
+      if (fresh.total_tokens && fresh.total_tokens > 0) {
+        if (!tokEl) {
+          tokEl = document.createElement('span');
+          tokEl.className = 'session-tokens';
+          const deleteBtn = row.querySelector('.session-delete');
+          if (deleteBtn) row.insertBefore(tokEl, deleteBtn);
+          else row.appendChild(tokEl);
+        }
+        tokEl.title = `总 token: ${fresh.total_tokens}`;
+        tokEl.textContent = `${formatTokens(fresh.total_tokens)} tok`;
+      } else if (tokEl) {
+        tokEl.remove();
+      }
+      // Update or insert project badge.
+      const proj = parseProjectContext(fresh.project_context);
+      let projEl = row.querySelector<HTMLElement>('.session-project');
+      if (proj) {
+        if (!projEl) {
+          projEl = document.createElement('span');
+          projEl.className = 'session-project';
+          const tokEl2 = row.querySelector('.session-tokens');
+          if (tokEl2) row.insertBefore(projEl, tokEl2);
+          else {
+            const deleteBtn = row.querySelector('.session-delete');
+            if (deleteBtn) row.insertBefore(projEl, deleteBtn);
+            else row.appendChild(projEl);
+          }
+        }
+        projEl.title = proj.project_dir;
+        projEl.textContent = `📁 ${proj.name}`;
+      } else if (projEl) {
+        projEl.remove();
+      }
+    }
+  } catch (e) {
+    console.warn('[Session] refresh failed, falling back to full list:', e);
+    await loadSessionList();
+  }
+}
+
 async function loadSessionList(resetOffset = true): Promise<void> {
   const listEl = document.getElementById('session-list');
   if (!listEl) return;
@@ -235,6 +332,14 @@ async function loadSessionList(resetOffset = true): Promise<void> {
         projEl.title = proj.project_dir;
         projEl.textContent = `📁 ${proj.name}`;
         el.appendChild(projEl);
+      }
+      // T-Q-S9: compact token badge (only show if > 0)
+      if (s.total_tokens && s.total_tokens > 0) {
+        const tokEl = document.createElement('span');
+        tokEl.className = 'session-tokens';
+        tokEl.title = `总 token: ${s.total_tokens}`;
+        tokEl.textContent = `${formatTokens(s.total_tokens)} tok`;
+        el.appendChild(tokEl);
       }
       el.appendChild(deleteBtn);
       el.addEventListener('click', () => selectSession(s.id));
@@ -604,6 +709,138 @@ async function scanProject(path: string): Promise<ProjectContext | null> {
 }
 
 let defaultProjectPath: string | null = null;
+
+// ── Token stats (T-Q-S9) ──────────────────────────────────────────────────────
+
+type StatsPeriod = 'day' | 'week' | 'month' | 'all';
+let currentStats: TokenStats | null = null;
+let currentStatsPeriod: StatsPeriod = 'week';
+
+async function loadTokenStats(period: StatsPeriod): Promise<TokenStats | null> {
+  try {
+    currentStats = await invoke<TokenStats>('token_stats', { period });
+    currentStatsPeriod = period;
+    return currentStats;
+  } catch (e) {
+    showToast('加载统计失败', String(e), 'error');
+    return null;
+  }
+}
+
+function openStatsModal(): void {
+  const modal = document.getElementById('stats-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  void loadTokenStats(currentStatsPeriod).then(() => renderStatsModal());
+}
+
+function closeStatsModal(): void {
+  const modal = document.getElementById('stats-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function renderStatsModal(): void {
+  const body = document.getElementById('stats-modal-body');
+  if (!body) return;
+  if (!currentStats) {
+    body.innerHTML = '<div class="stats-empty">暂无数据</div>';
+    return;
+  }
+  const s = currentStats;
+  body.innerHTML = `
+    <div class="stats-period-tabs">
+      ${(['day', 'week', 'month', 'all'] as const).map(p =>
+        `<button class="stats-period-btn ${p === currentStatsPeriod ? 'active' : ''}" data-period="${p}">${
+          p === 'day' ? '今日' : p === 'week' ? '本周' : p === 'month' ? '本月' : '全部'
+        }</button>`
+      ).join('')}
+    </div>
+    <div class="stats-totals">
+      <div class="stats-totals-cell">
+        <div class="stats-totals-label">总 Token</div>
+        <div class="stats-totals-value">${formatTokens(s.total_input_tokens + s.total_output_tokens)}</div>
+        <div class="stats-totals-sub">↑ ${formatTokens(s.total_input_tokens)} / ↓ ${formatTokens(s.total_output_tokens)}</div>
+      </div>
+      <div class="stats-totals-cell">
+        <div class="stats-totals-label">预估成本</div>
+        <div class="stats-totals-value">${formatCost(s.total_cost)}</div>
+        <div class="stats-totals-sub">基于 ${s.by_model.length} 个模型</div>
+      </div>
+      <div class="stats-totals-cell">
+        <div class="stats-totals-label">消息 / 会话</div>
+        <div class="stats-totals-value">${s.total_messages}</div>
+        <div class="stats-totals-sub">${s.total_sessions} 个会话</div>
+      </div>
+    </div>
+    <div class="stats-chart-section">
+      <h3>每日 Token 用量</h3>
+      ${renderChartSvg(s.daily)}
+    </div>
+    <div class="stats-models-section">
+      <h3>按模型分列</h3>
+      <table class="stats-models-table">
+        <thead><tr><th>模型</th><th>消息</th><th>Input</th><th>Output</th><th>成本</th></tr></thead>
+        <tbody>
+          ${s.by_model.length === 0
+            ? '<tr><td colspan="5" class="stats-empty">暂无数据</td></tr>'
+            : s.by_model.map(m => `<tr>
+                <td>${escapeHtml(m.model)}</td>
+                <td>${m.message_count}</td>
+                <td>${formatTokens(m.input_tokens)}</td>
+                <td>${formatTokens(m.output_tokens)}</td>
+                <td>${formatCost(m.cost)}</td>
+              </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  // Period tab click handlers.
+  body.querySelectorAll<HTMLButtonElement>('.stats-period-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = btn.dataset.period as StatsPeriod;
+      void loadTokenStats(p).then(() => renderStatsModal());
+    });
+  });
+}
+
+function renderChartSvg(daily: DailyBucket[]): string {
+  if (daily.length === 0) {
+    return '<div class="stats-empty">本周期内无消息</div>';
+  }
+  const { layout, points } = layoutChart(daily as DailyBucketLike[], DEFAULT_CHART_LAYOUT);
+  // Y-axis tick lines: 0, 1/4, 1/2, 3/4, max.
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => {
+    const yVal = layout.yMax * f;
+    const yPx = layout.padding.top + (layout.height - layout.padding.top - layout.padding.bottom) * (1 - f);
+    return `<line x1="${layout.padding.left}" y1="${yPx.toFixed(1)}" x2="${layout.width - layout.padding.right}" y2="${yPx.toFixed(1)}" stroke="var(--border)" stroke-dasharray="2 3" />
+            <text x="${layout.padding.left - 6}" y="${(yPx + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--text-muted)">${formatTokens(yVal)}</text>`;
+  }).join('');
+  // Bars: input (bottom) + output (stacked on top).
+  const bars = points.map((p, idx) => {
+    const inY = layout.height - layout.padding.bottom - p.inputH;
+    const outY = inY - p.outputH;
+    const innerW = layout.width - layout.padding.left - layout.padding.right;
+    const barW = Math.max(2, Math.min(40, (innerW / points.length) * 0.7));
+    const x = p.x;
+    const src = daily[idx];
+    return `<g>
+      <rect x="${x.toFixed(1)}" y="${inY.toFixed(1)}" width="${barW.toFixed(1)}" height="${p.inputH.toFixed(1)}" fill="var(--primary)" opacity="0.85">
+        <title>${p.date}: ${formatTokens(p.total)} (input ${formatTokens(src.input_tokens)} / output ${formatTokens(src.output_tokens)})</title>
+      </rect>
+      <rect x="${x.toFixed(1)}" y="${outY.toFixed(1)}" width="${barW.toFixed(1)}" height="${p.outputH.toFixed(1)}" fill="var(--primary)" opacity="0.45">
+      </rect>
+      <text x="${(x + barW / 2).toFixed(1)}" y="${(layout.height - layout.padding.bottom + 12).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text-muted)">${p.date.slice(5)}</text>
+    </g>`;
+  }).join('');
+  // Legend.
+  const legend = `<g transform="translate(${layout.padding.left}, 4)">
+    <rect width="10" height="10" fill="var(--primary)" opacity="0.85" />
+    <text x="14" y="9" font-size="11" fill="var(--text-secondary)">Input</text>
+    <rect x="60" width="10" height="10" fill="var(--primary)" opacity="0.45" />
+    <text x="74" y="9" font-size="11" fill="var(--text-secondary)">Output</text>
+  </g>`;
+  return `<svg viewBox="0 0 ${layout.width} ${layout.height}" class="stats-chart" preserveAspectRatio="xMidYMid meet">${ticks}${bars}${legend}</svg>`;
+}
 
 // ── Persona Modal (T-Q-S7) ─────────────────────────────────────────────────────
 //
@@ -1083,6 +1320,14 @@ window.addEventListener('DOMContentLoaded', async () => {
   // will fail at createSession time and the user will see a toast.
   defaultProjectPath = await loadDefaultProjectPath();
 
+  // ── T-Q-S9: stats modal wiring ───────────────────
+  const statsModal = document.getElementById('stats-modal');
+  document.getElementById('stats-modal-close')?.addEventListener('click', closeStatsModal);
+  statsModal?.addEventListener('click', (e) => {
+    if (e.target === statsModal) closeStatsModal();
+  });
+  document.getElementById('sidebar-stats-btn')?.addEventListener('click', () => openStatsModal());
+
   // Register global shortcut: Ctrl+Shift+H — show window + focus input
   try {
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
@@ -1185,6 +1430,10 @@ async function handleSubmit(e: Event) {
       toolCalls: null,
     }).catch(e => console.error('[DB] save user msg failed:', e));
     invoke('session_touch', { id: currentSessionId }).catch(() => {});
+    // T-Q-S9: refresh session list so the token badge in the sidebar
+    // updates after each send. We only re-fetch the current row to
+    // avoid a full list reload.
+    void refreshCurrentSessionRow();
   }
 
   await sendMessage();
@@ -1266,16 +1515,19 @@ function finishStream() {
       content: state.streamContent,
       timestamp: new Date(),
     });
-    // Persist assistant message to DB
-    if (currentSessionId) {
-      invoke('message_append', {
-        sessionId: currentSessionId,
-        role: 'assistant',
-        content: state.streamContent,
-        toolCalls: null,
-      }).catch(e => console.error('[DB] save assistant msg failed:', e));
-      invoke('session_touch', { id: currentSessionId }).catch(() => {});
-    }
+      // Persist assistant message to DB
+      if (currentSessionId) {
+        invoke('message_append', {
+          sessionId: currentSessionId,
+          role: 'assistant',
+          content: state.streamContent,
+          toolCalls: null,
+        }).catch(e => console.error('[DB] save assistant msg failed:', e));
+        invoke('session_touch', { id: currentSessionId }).catch(() => {});
+        // T-Q-S9: refresh sidebar row so the token badge updates after
+        // each assistant reply. The user sees their spend climbing live.
+        void refreshCurrentSessionRow();
+      }
   }
   state.isLoading = false;
   state.isStreaming = false;

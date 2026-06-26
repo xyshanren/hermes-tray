@@ -22,12 +22,14 @@ pub mod pool;
 pub mod project;
 pub mod schema;
 pub mod session;
+pub mod token;
 
 pub use dao::{
     ConfigDAO, FeedbackDAO, MessageDAO, PersonaDAO, ProjectContext, SearchHit, Session,
     SessionDAO, SessionPatch,
 };
 pub use pool::{init_db, Db, DbPool};
+pub use token::{cost_for_model, estimate_tokens, lookup_pricing, DailyBucket, ModelBucket, ModelPricing, TokenStats};
 
 /// Centralized error type for the DB layer.
 ///
