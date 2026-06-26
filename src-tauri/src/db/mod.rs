@@ -19,11 +19,13 @@ pub mod feedback;
 pub mod message;
 pub mod persona;
 pub mod pool;
+pub mod project;
 pub mod schema;
 pub mod session;
 
 pub use dao::{
-    ConfigDAO, FeedbackDAO, MessageDAO, PersonaDAO, SearchHit, Session, SessionDAO, SessionPatch,
+    ConfigDAO, FeedbackDAO, MessageDAO, PersonaDAO, ProjectContext, SearchHit, Session,
+    SessionDAO, SessionPatch,
 };
 pub use pool::{init_db, Db, DbPool};
 

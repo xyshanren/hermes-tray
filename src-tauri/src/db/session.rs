@@ -43,20 +43,21 @@ impl<'a> SessionDao<'a> {
             title: row.get(1)?,
             persona_id: row.get(2)?,
             project_dir: row.get(3)?,
-            created_at: row.get(4)?,
-            updated_at: row.get(5)?,
-            last_msg_at: row.get(6)?,
-            msg_count: row.get(7)?,
-            total_tokens: row.get(8)?,
-            model: row.get(9)?,
-            metadata: row.get(10)?,
+            project_context: row.get(4)?,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
+            last_msg_at: row.get(7)?,
+            msg_count: row.get(8)?,
+            total_tokens: row.get(9)?,
+            model: row.get(10)?,
+            metadata: row.get(11)?,
         })
     }
 
     /// Shared SELECT column list for the sessions table.
     /// Used by list / get / create / update so the column order stays in lockstep.
     const SELECT_COLUMNS: &'static str =
-        "id, title, persona_id, project_dir, created_at, updated_at, \
+        "id, title, persona_id, project_dir, project_context, created_at, updated_at, \
          last_msg_at, msg_count, total_tokens, model, metadata";
 }
 
@@ -88,14 +89,21 @@ impl<'a> SessionDAO for SessionDao<'a> {
         session.ok_or_else(|| DbError::NotFound(format!("session id={id}")))
     }
 
-    fn create(&self, title: &str, persona_id: Option<&str>) -> DbResult<Session> {
+    fn create(
+        &self,
+        title: &str,
+        persona_id: Option<&str>,
+        project_dir: Option<&str>,
+        project_context: Option<&str>,
+    ) -> DbResult<Session> {
         let conn = self.pool.get()?;
         let id = Self::new_id();
         let now = Self::unix_ms_now();
         conn.execute(
-            "INSERT INTO sessions (id, title, persona_id, project_dir, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, NULL, ?4, ?4)",
-            params![id, title, persona_id, now],
+            "INSERT INTO sessions \
+             (id, title, persona_id, project_dir, project_context, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+            params![id, title, persona_id, project_dir, project_context, now],
         )?;
         self.get(&id)
     }
@@ -123,6 +131,13 @@ impl<'a> SessionDAO for SessionDao<'a> {
         }
         if let Some(v) = &patch.project_dir {
             sets.push(format!("project_dir = ?{}", bind_values.len() + 1));
+            match v {
+                Some(s) => bind_values.push(Box::new(s.clone())),
+                None => bind_values.push(Box::new(rusqlite::types::Null)),
+            }
+        }
+        if let Some(v) = &patch.project_context {
+            sets.push(format!("project_context = ?{}", bind_values.len() + 1));
             match v {
                 Some(s) => bind_values.push(Box::new(s.clone())),
                 None => bind_values.push(Box::new(rusqlite::types::Null)),

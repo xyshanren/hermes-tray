@@ -15,7 +15,7 @@ use std::fs;
 use crate::db::pool::DbPool;
 use crate::db::{DbError, DbResult};
 
-const CURRENT_SCHEMA_VERSION: i64 = 1;
+const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 /// Apply all pending migrations. Idempotent — safe to call on every startup.
 pub fn run_migrations(pool: &DbPool) -> DbResult<()> {

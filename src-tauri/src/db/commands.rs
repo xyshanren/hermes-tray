@@ -5,7 +5,8 @@
 
 use tauri::State;
 
-use crate::db::dao::{ConfigDAO, ConfigEntry, Message, MessageDAO, Persona, PersonaDAO, SearchHit, Session, SessionDAO, SessionPatch};
+use crate::db::dao::{ConfigDAO, ConfigEntry, Message, MessageDAO, Persona, PersonaDAO, ProjectContext, SearchHit, Session, SessionDAO, SessionPatch};
+use crate::db::project::scan_project;
 use crate::db::Db;
 
 // ── Session commands ──────────────────────────────────────────────────────────
@@ -25,9 +26,14 @@ pub fn session_create(
     db: State<'_, Db>,
     title: &str,
     persona_id: Option<&str>,
+    // T-Q-S8: project context. Both fields are coupled — frontend should
+    // call `project_scan` first, then pass the JSON result as
+    // `project_context`. Pass `project_dir: null` for project-less sessions.
+    project_dir: Option<&str>,
+    project_context: Option<&str>,
 ) -> Result<Session, String> {
     db.session()
-        .create(title, persona_id)
+        .create(title, persona_id, project_dir, project_context)
         .map_err(|e| e.to_string())
 }
 
@@ -59,6 +65,17 @@ pub fn session_search(
 #[tauri::command]
 pub fn session_touch(db: State<'_, Db>, id: &str) -> Result<(), String> {
     db.session().touch(id).map_err(|e| e.to_string())
+}
+
+// ── Project scan command (T-Q-S8) ─────────────────────────────────────────────
+//
+// Standalone, no DB access. Frontend invokes this BEFORE `session_create`
+// so it can pass the JSON result as `project_context`. The result is
+// not persisted by this command — that's `session_create`'s job.
+
+#[tauri::command]
+pub fn project_scan(path: String) -> Result<ProjectContext, String> {
+    scan_project(std::path::Path::new(&path))
 }
 
 // ── Message commands ────────────────────────────────────────────────────────────

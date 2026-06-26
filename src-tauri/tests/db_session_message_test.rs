@@ -29,7 +29,7 @@ fn fresh_db() -> (
 #[test]
 fn session_create_then_get_round_trips() {
     let (_pool, dao) = fresh_db();
-    let created = dao.session().create("My Session", None).expect("create");
+    let created = dao.session().create("My Session", None, None, None).expect("create");
     assert_eq!(created.title, "My Session");
     assert_eq!(created.persona_id, None);
     assert_eq!(created.msg_count, 0);
@@ -46,7 +46,7 @@ fn session_list_paginates() {
 
     let mut ids = Vec::new();
     for i in 0..3 {
-        let s = dao.session().create(&format!("s{i}"), None).unwrap();
+        let s = dao.session().create(&format!("s{i}"), None, None, None).unwrap();
         ids.push(s.id);
     }
 
@@ -67,7 +67,7 @@ fn session_list_paginates() {
 fn session_update_partial_title_only() {
     let (_pool, dao) = fresh_db();
 
-    let created = dao.session().create("Initial", None).unwrap();
+    let created = dao.session().create("Initial", None, None, None).unwrap();
     let updated = dao
         .session()
         .update(
@@ -86,7 +86,7 @@ fn session_update_partial_title_only() {
 fn session_update_can_clear_nullable_field() {
     let (_pool, dao) = fresh_db();
 
-    let created = dao.session().create("Has Persona", None).unwrap();
+    let created = dao.session().create("Has Persona", None, None, None).unwrap();
     assert_eq!(created.persona_id, None);
 
     // project_dir is the easiest nullable field to test the Some(None) clear
@@ -123,7 +123,7 @@ fn session_update_can_clear_nullable_field() {
 fn session_delete_cascades_to_messages() {
     let (_pool, dao) = fresh_db();
 
-    let session = dao.session().create("to-delete", None).unwrap();
+    let session = dao.session().create("to-delete", None, None, None).unwrap();
     let msg = dao
         .message()
         .append(&session.id, "user", "hi", None)
@@ -153,7 +153,7 @@ fn session_delete_cascades_to_messages() {
 #[test]
 fn message_append_then_get_round_trips() {
     let (_pool, dao) = fresh_db();
-    let s = dao.session().create("test", None).unwrap();
+    let s = dao.session().create("test", None, None, None).unwrap();
 
     let msg = dao
         .message()
@@ -171,7 +171,7 @@ fn message_append_then_get_round_trips() {
 #[test]
 fn message_list_by_session_orders_by_created_at() {
     let (_pool, dao) = fresh_db();
-    let s = dao.session().create("test", None).unwrap();
+    let s = dao.session().create("test", None, None, None).unwrap();
 
     let m1 = dao.message().append(&s.id, "user", "first", None).unwrap();
     let m2 = dao
@@ -203,7 +203,7 @@ fn message_list_by_session_orders_by_created_at() {
 #[test]
 fn message_count_tokens_sums_correctly() {
     let (pool, dao) = fresh_db();
-    let s = dao.session().create("test", None).unwrap();
+    let s = dao.session().create("test", None, None, None).unwrap();
 
     // Manually append with custom token counts via raw UPDATE since
     // MessageDAO::append hardcodes tokens=0. We use a transaction-free
@@ -227,7 +227,7 @@ fn message_count_tokens_sums_correctly() {
 #[test]
 fn message_invalid_role_rejected() {
     let (_pool, dao) = fresh_db();
-    let s = dao.session().create("test", None).unwrap();
+    let s = dao.session().create("test", None, None, None).unwrap();
 
     let err = dao
         .message()
@@ -242,7 +242,7 @@ fn message_invalid_role_rejected() {
 #[test]
 fn message_delete_decrements_msg_count() {
     let (_pool, dao) = fresh_db();
-    let s = dao.session().create("test", None).unwrap();
+    let s = dao.session().create("test", None, None, None).unwrap();
     let m = dao.message().append(&s.id, "user", "x", None).unwrap();
 
     // After append, msg_count should be 1.

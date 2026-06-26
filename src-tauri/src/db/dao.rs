@@ -23,6 +23,7 @@ pub struct Session {
     pub title: String,
     pub persona_id: Option<String>,
     pub project_dir: Option<String>,
+    pub project_context: Option<String>, // JSON-encoded ProjectContext
     pub created_at: i64,
     pub updated_at: i64,
     pub last_msg_at: Option<i64>,
@@ -67,6 +68,12 @@ pub struct ConfigEntry {
     pub version: i64,
 }
 
+/// Project context snapshot produced by `project::scan_project` and
+/// persisted into `sessions.project_context` (JSON-encoded). The actual
+/// type lives in [`crate::db::project::ProjectContext`] — re-exported
+/// here so DAO consumers don't need a second import.
+pub use crate::db::project::ProjectContext;
+
 /// User feedback (thumbs + comment).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Feedback {
@@ -98,6 +105,7 @@ pub struct SessionPatch {
     pub title: Option<String>,
     pub persona_id: Option<Option<String>>, // Some(Some(x)) = set, Some(None) = clear, None = no change
     pub project_dir: Option<Option<String>>,
+    pub project_context: Option<Option<String>>, // Some(Some(json)) = set, Some(None) = clear
     pub model: Option<Option<String>>,
     pub metadata: Option<String>,
 }
@@ -110,7 +118,17 @@ pub struct SessionPatch {
 pub trait SessionDAO: Send + Sync {
     fn list(&self, limit: i64, offset: i64) -> DbResult<Vec<Session>>;
     fn get(&self, id: &str) -> DbResult<Session>;
-    fn create(&self, title: &str, persona_id: Option<&str>) -> DbResult<Session>;
+    /// Create a session. `project_dir` is the user-picked path (None for
+    /// project-less sessions). `project_context` is the pre-computed JSON
+    /// snapshot from `project::scan_project`; pass None if the user
+    /// didn't pick a project or scan failed.
+    fn create(
+        &self,
+        title: &str,
+        persona_id: Option<&str>,
+        project_dir: Option<&str>,
+        project_context: Option<&str>,
+    ) -> DbResult<Session>;
     fn update(&self, id: &str, patch: SessionPatch) -> DbResult<Session>;
     fn delete(&self, id: &str) -> DbResult<()>;
     fn search(&self, query: &str, limit: i64) -> DbResult<Vec<SearchHit>>;
@@ -175,6 +193,7 @@ mod tests {
             title: "Test".to_string(),
             persona_id: Some("p1".to_string()),
             project_dir: None,
+            project_context: None,
             created_at: 1_700_000_000_000,
             updated_at: 1_700_000_001_000,
             last_msg_at: Some(1_700_000_001_000),

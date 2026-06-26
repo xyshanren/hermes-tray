@@ -5,8 +5,8 @@ use db::{init_db, Db};
 
 pub use db::commands::{
     db_config_get, db_config_set, message_append, message_delete, message_list, persona_create,
-    persona_delete, persona_get, persona_list, persona_update, session_create, session_delete,
-    session_get, session_list, session_search, session_touch, session_update,
+    persona_delete, persona_get, persona_list, persona_update, project_scan, session_create,
+    session_delete, session_get, session_list, session_search, session_touch, session_update,
 };
 pub use db::pool::seed_builtin_personas;
 
@@ -1299,6 +1299,10 @@ pub fn run() {
             // T-Q-S7 — DB-backed config (for default_persona_id + future prefs)
             db_config_get,
             db_config_set,
+            // T-Q-S8 — Project context scanner (CWD → ProjectContext JSON for
+            // system-prompt injection). Frontend calls this before
+            // session_create and passes the result as `project_context`.
+            project_scan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

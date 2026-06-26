@@ -134,7 +134,7 @@ fn config_list_all_returns_sorted() {
 fn feedback_count_thumbs_separates_up_and_down() {
     let (_pool, dao) = fresh_db();
     // Need a real session for FK.
-    let session = dao.session().create("for-feedback", None).unwrap();
+    let session = dao.session().create("for-feedback", None, None, None).unwrap();
 
     // Submit 2 up + 3 down.
     for _ in 0..2 {
@@ -166,7 +166,7 @@ fn feedback_count_thumbs_separates_up_and_down() {
     assert_eq!(all.len(), 5);
 
     // Session with no feedback returns (0, 0).
-    let empty_session = dao.session().create("no-feedback", None).unwrap();
+    let empty_session = dao.session().create("no-feedback", None, None, None).unwrap();
     let (up_e, down_e) = dao
         .feedback()
         .count_thumbs(&empty_session.id)
