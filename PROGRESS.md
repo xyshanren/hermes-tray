@@ -151,13 +151,19 @@ hermes-tray/
 - [x] **T-Q-S10**: 导出/分享 (markdown + 分享链接) — 1d ✅ 2026-06-26
 - [x] **v0.1.2 tag** (commit `16fe742` at `f0526f2`) — release notes 落在 `docs/RELEASE_v0.1.2.md` — 2026-06-26
 - [x] **T-Q-S11**: 加密本地备份 (AES-256-GCM + Argon2id) — 1d ✅ 2026-06-26
-- [ ] **T-Q-S12**: 多模型编排 — 4d
-- [ ] **T-Q-S12**: 多模型编排 — 4d
-- [ ] **T-Q-S13**: 语音输入 — 3d
-- [ ] **T-Q-S14**: 图片拖拽 / OCR — 2d
-- [ ] **T-Q-S15**: 插件系统 — 5d
+- [x] **T-Q-S12-light**: 模型选择器 + Persona.model 字段 — 1d ✅ 2026-06-26
+- [x] **T-Q-S13**: 语音输入 (客户端录音 + 后端 STT) — 1d ✅ 2026-06-26
+- [x] **T-Q-S14**: 图片拖拽上传 — 1d ✅ 2026-06-26
+- [~] **T-Q-S12-agent / S13-agent / S14-agent**: 后端配套 (STT 端点 / vision 路由 / cost metadata) — ⏸️ 等待 `hermes-agent-cn/NEEDS_BACKLOG.md` Phase 1-3
+- [❌] **T-Q-S15**: 插件系统 — **dropped**, 已迁到 hermes-agent (已有 `plugins.py` 框架, 不该在 tray 重做)
 
-**总计**: 4 阶段 12 周 15 任务 (估算)
+**总计**: 12 个 tray-side task 全 done, 3 个 agent-side 配套待执行, 1 个 dropped.
+
+**S12-S15 重新对边界 (2026-06-26)**:
+- S12: tray 只发 model **名字**, 路由/重试/熔断在 hermes-agent (SmartRouter, fallback_config.py, plugins middleware)
+- S13: tray 只**捕获**音频, STT (Whisper 等) 全部在 hermes-agent
+- S14: tray 只**捕获**图片 base64, vision 解析 + token 估算在 hermes-agent
+- S15: 删除. 插件/middleware 框架 (`plugins.py`) 早就在 hermes-agent, tray 做是重新发明
 
 ---
 

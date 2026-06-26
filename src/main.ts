@@ -24,7 +24,8 @@ marked.setOptions({
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { register } from '@tauri-apps/plugin-global-shortcut';
+import { register, unregister } from '@tauri-apps/plugin-global-shortcut';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { composeSystemPrompt } from './systemPrompt';
 import { layoutChart, formatTokens, formatCost, DEFAULT_CHART_LAYOUT, type DailyBucketLike } from './tokenChart';
 
@@ -1973,7 +1974,6 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Register global shortcut: Ctrl+Shift+H — show window + focus input
   try {
-    const { getCurrentWindow } = await import('@tauri-apps/api/window');
     await register('Ctrl+Shift+H', async () => {
       const win = getCurrentWindow();
       await win.show();
@@ -1991,7 +1991,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     unlistenChunk?.();
     unlistenDone?.();
     try {
-      const { unregister } = await import('@tauri-apps/plugin-global-shortcut');
       await unregister('Ctrl+Shift+H');
     } catch { /* ignore */ }
   });

@@ -820,15 +820,6 @@ mod tests {
         restore_exe_config(&cfg, backup);
     }
 
-    /// 把 exe dir 的 config.json 交给 `f` 任意读写, 退出时恢复.
-    /// CWD 不动.
-    fn with_exe_config<F: FnOnce(&Path)>(f: F) {
-        let _guard = IO_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let (cfg, backup) = take_exe_config_path();
-        f(&cfg);
-        restore_exe_config(&cfg, backup);
-    }
-
     // ─────────────── read_wsl_distro_from (pure helper) ───────────────
 
     #[test]
