@@ -1109,6 +1109,27 @@ html, body {
   flex-shrink: 0;
 }
 
+/* T-Q-S10: per-session action buttons (export, etc.) */
+.session-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 0 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.session-item:hover .session-action-btn {
+  opacity: 1;
+}
+.session-action-btn:hover {
+  color: var(--primary);
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+
 /* ── Stats modal (T-Q-S9) ─────────────────────────────────────────────── */
 .modal-stats {
   width: 720px;

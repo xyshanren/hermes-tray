@@ -232,6 +232,127 @@ let unlistenDone: (() => void) | null = null;
 let sessionOffset = 0;
 const SESSION_PAGE = 50;
 
+// ── Session export + share (T-Q-S10) ───────────────────────────────────────────
+//
+// Frontend calls `export_session_markdown` / `export_session_json`
+// (Rust commands in `db::export`) and then either:
+//   - writes the markdown to clipboard via `navigator.clipboard.writeText`
+//   - encodes the JSON as a base64url URL fragment for sharing
+//
+// The share link is `https://<host>/<path>#share=<base64url(JSON.stringify(...))>`.
+// Self-contained (no server), no signature in MVP (acceptable for
+// personal use; future T-Q-S10.x could add HMAC).
+
+async function copySessionAsMarkdown(sessionId: string): Promise<void> {
+  try {
+    const md = await invoke<string>('export_session_markdown', { sessionId });
+    await navigator.clipboard.writeText(md);
+    showToast('已复制', `Markdown ${md.length} 字符到剪贴板`, 'success');
+  } catch (e) {
+    showToast('导出失败', String(e), 'error');
+  }
+}
+
+/**
+ * Build a self-contained share link. The session's full state
+ * (title, messages, persona, project) is encoded in the URL fragment
+ * so the receiving end can preview the import without any server.
+ *
+ * `window.location.href + '#share=' + base64url(JSON.stringify(doc))`
+ */
+async function copySessionShareLink(sessionId: string): Promise<void> {
+  try {
+    const json = await invoke<unknown>('export_session_json', { sessionId });
+    const text = JSON.stringify(json);
+    const encoded = base64UrlEncode(text);
+    const url = `${window.location.origin}${window.location.pathname}#share=${encoded}`;
+    await navigator.clipboard.writeText(url);
+    showToast('分享链接已复制', `${url.length} 字符 — 接收方打开即可导入`, 'success');
+  } catch (e) {
+    showToast('生成链接失败', String(e), 'error');
+  }
+}
+
+/** URL-safe base64 (no padding, `-_` instead of `+/`). */
+function base64UrlEncode(s: string): string {
+  // btoa is only available for ASCII; we UTF-8-encode first.
+  const bytes = new TextEncoder().encode(s);
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+function base64UrlDecode(s: string): string {
+  let b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4 !== 0) b64 += '=';
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * T-Q-S10: import flow. On app launch, if the URL has a #share=
+ * fragment, decode the base64url-encoded JSON and offer to import
+ * the session into the local DB. We do not auto-import — the user
+ * confirms via a toast action.
+ *
+ * For MVP we only show a preview toast ("Found a shared session
+ * from <title>. Click to import.") and a confirmation flow.
+ */
+async function maybeImportFromHash(): Promise<void> {
+  const hash = window.location.hash;
+  const m = hash.match(/^#share=(.+)$/);
+  if (!m) return;
+  const encoded = m[1];
+  try {
+    const json = base64UrlDecode(encoded);
+    const doc = JSON.parse(json) as {
+      version: number;
+      session: { id: string; title: string };
+      messages: Array<{ role: string; content: string }>;
+    };
+    if (doc.version !== 1) {
+      showToast('分享链接版本不支持', `version=${doc.version}`, 'error');
+      return;
+    }
+    const msgCount = doc.messages?.length ?? 0;
+    if (confirm(`导入分享的会话？\n\n标题: ${doc.session.title}\n消息数: ${msgCount}\n\n点击确定导入到本地，取消则忽略。`)) {
+      // Re-import: for MVP, we just create a new local session and
+      // append the messages. The persona/project from the share
+      // document are dropped (different local IDs would be needed).
+      const newSession = await invoke<Session>('session_create', {
+        title: `[分享] ${doc.session.title}`,
+        personaId: null,
+        projectDir: null,
+        projectContext: null,
+      });
+      for (const m2 of doc.messages) {
+        await invoke('message_append', {
+          sessionId: newSession.id,
+          role: m2.role,
+          content: m2.content,
+          toolCalls: null,
+        });
+      }
+      // Clear the hash to prevent re-import on next reload.
+      history.replaceState(null, '', window.location.pathname);
+      showToast('已导入', `${msgCount} 条消息 → ${newSession.id}`, 'success');
+      await loadSessionList(true);
+      await selectSession(newSession.id);
+    } else {
+      // User declined — clear hash so the dialog doesn't reappear.
+      history.replaceState(null, '', window.location.pathname);
+    }
+  } catch (e) {
+    showToast('分享链接解析失败', String(e), 'error');
+    history.replaceState(null, '', window.location.pathname);
+  }
+}
+
 /**
  * T-Q-S9: refresh just the sidebar row for the current session.
  * Used after each message send so the token badge stays live.
@@ -341,6 +462,16 @@ async function loadSessionList(resetOffset = true): Promise<void> {
         tokEl.textContent = `${formatTokens(s.total_tokens)} tok`;
         el.appendChild(tokEl);
       }
+      // T-Q-S10: export button (copy as markdown to clipboard)
+      const exportBtn = document.createElement('button');
+      exportBtn.className = 'session-action-btn';
+      exportBtn.title = '复制为 Markdown';
+      exportBtn.textContent = '📤';
+      exportBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        void copySessionAsMarkdown(s.id);
+      });
+      el.appendChild(exportBtn);
       el.appendChild(deleteBtn);
       el.addEventListener('click', () => selectSession(s.id));
       listEl.appendChild(el);
@@ -1327,6 +1458,20 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (e.target === statsModal) closeStatsModal();
   });
   document.getElementById('sidebar-stats-btn')?.addEventListener('click', () => openStatsModal());
+
+  // ── T-Q-S10: share link button + import from URL hash ─────────
+  // The share button copies a self-contained URL to the clipboard.
+  // On app launch, if the URL has #share=<base64url-json>, show an
+  // import confirmation modal.
+  document.getElementById('share-link-btn')?.addEventListener('click', () => {
+    if (currentSessionId) {
+      void copySessionShareLink(currentSessionId);
+    } else {
+      showToast('没有当前会话', '请先创建或选择一个会话', 'info');
+    }
+  });
+  // Check URL hash on startup for a pending share import.
+  void maybeImportFromHash();
 
   // Register global shortcut: Ctrl+Shift+H — show window + focus input
   try {

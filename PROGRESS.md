@@ -147,8 +147,8 @@ hermes-tray/
 - [x] **T-Q-S6**: 托盘快速操作 (新建会话 / 续上次 / 搜索) — 1d ✅ 2026-06-26
 - [x] **T-Q-S7**: Persona 库 + 默认 persona picker — 1d ✅ 2026-06-26
 - [x] **T-Q-S8**: 项目上下文感知 (CWD 扫描 + 自动注入 system prompt) — 1d ✅ 2026-06-26
-- [ ] **T-Q-S9**: Token / 成本追踪 — 3d
-- [ ] **T-Q-S10**: 导出/分享 (markdown + 分享链接) — 2d
+- [x] **T-Q-S9**: Token / 成本追踪 + 图表 — 1d ✅ 2026-06-26
+- [x] **T-Q-S10**: 导出/分享 (markdown + 分享链接) — 1d ✅ 2026-06-26
 - [ ] **T-Q-S11**: 加密本地备份 (AES + 可选云同步) — 2d
 - [ ] **T-Q-S12**: 多模型编排 — 4d
 - [ ] **T-Q-S13**: 语音输入 — 3d
@@ -275,6 +275,22 @@ hermes-tray/
   - `src/main.ts` 3 个监听: `createSession()` / `loadLastSession()` / `openSearchModal()`
   - `loadLastSession()`: invoke `session_list` limit=1 拿最近会话, selectSession, 没历史时 toast 提示
   - 设计原则: Rust 只 emit 事件, 前端是单一 UX 真相源 (避免逻辑分散在两处)
+- **T-Q-S9 — Token / 成本追踪** (2026-06-26, 1d, originally 3d):
+  - 后端 `src/db/token.rs` (~370 行, 11 unit tests): `estimate_tokens()` (char/4 heuristic) + `cost_for_model()` (10 个模型定价表) + `TokenStats` (per-day + per-model 聚合)
+  - 1 new Tauri command: `token_stats(period: "day"|"week"|"month"|"all")` → `TokenStats` struct (totals + daily[] + by_model[])
+  - `MessageDAO::append` auto-estimates tokens + bumps `sessions.total_tokens` 原子性. `delete` 也 decrement. Pre-existing 1 test (`msg.tokens == 0`) 改成 `== 2` (hello world = 11 chars/4)
+  - 前端 `src/tokenChart.ts` (纯函数, 13 unit tests): `layoutChart` (SVG-ready) + `formatTokens` (1.23k/12.3k/1.50M) + `formatCost` ($0.0012 / $1.50)
+  - 新 "📊" stats 按钮 (sidebar header) → 4-period tab + 3 big tiles (tokens / cost / msg·session) + SVG stacked bar chart + per-model cost table
+  - Session list 加 compact "X tok" badge, 通过 `refreshCurrentSessionRow()` 在每次 send 后 live update
+  - 设计原则: char/4 heuristic 是 projection (不是真账单); gateway 真正的 usage capture 是 future T-Q-S9.x
+- **T-Q-S10 — 导出/分享** (2026-06-26, 1d, originally 2d):
+  - 后端 `src/db/export.rs` (~370 行, 12 unit tests): `to_markdown()` + `to_json()` + `ExportPersona/Project/Session` structs. ISO-8601 UTC 时间格式化
+  - 2 new Tauri commands: `export_session_markdown(session_id) -> String` + `export_session_json(session_id) -> Value`. 共用 `load_export_bundle()` 拉 session + messages + persona + project
+  - 前端: 每个 session row 加 "📤" 按钮 (hover 显示) → 调用 `export_session_markdown` 复制到剪贴板 + toast
+  - Chat header 加 share button (3 节点链接 icon) → `export_session_json` + base64url encode → 完整 URL 复制到剪贴板
+  - App 启动时检查 `location.hash` 是否含 `#share=...` → 显示 confirm dialog → 创建新 local session + append messages → 自动 clear hash
+  - 12 unit tests 覆盖 base64url encode/decode + URL fragment 解析 + JSON 完整 round-trip (含 emoji, 中文, multi-line)
+  - 设计原则: share link self-contained (no server), no HMAC (MVP personal-use), drop persona/project in import (不同 local IDs)
 - **T-Q-S8 — 项目上下文感知** (2026-06-26, 1d):
   - 后端 `src/db/project.rs` (~700 行) 纯函数 CWD 扫描器: README (2KB) + manifest (package.json / Cargo.toml / pyproject.toml / go.mod) + git remote + top-level 语言检测 → ≤4KB markdown summary
   - Migration 0002: `sessions.project_context` 列 (project_dir 列原本就在, 现在开始用)
@@ -301,8 +317,8 @@ hermes-tray/
 ### 测试覆盖统计 (v2.0 启动后)
 
 - v0.1.0 + T-Q9 基线: 55 Rust (T-Q5+T-Q9 stage 2) + 37 TS (T-Q6) = 92 tests
-- v2.0 新增: 10 (S1.2) + 5 (S1.3) + 5 (S7) + 15 (S8 backend) + 12 (S8 frontend) = 47 tests
-- 合计: **90 Rust + 49 TS = 139 tests, ~46% 覆盖率**
+- v2.0 新增: 10 (S1.2) + 5 (S1.3) + 5 (S7) + 15 (S8 backend) + 12 (S8 frontend) + 11 (S9 backend) + 13 (S9 frontend) + 12 (S10 backend) + 12 (S10 frontend) = 95 tests
+- 合计: **113 Rust + 74 TS = 187 tests, ~48% 覆盖率**
 - 待补: Tauri 命令单测 (mock + io::Result), HTTP 客户端 (reqwest mock)
 
 ---

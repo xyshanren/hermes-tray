@@ -15,6 +15,7 @@
 pub mod commands;
 pub mod config;
 pub mod dao;
+pub mod export;
 pub mod feedback;
 pub mod message;
 pub mod persona;

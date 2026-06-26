@@ -6,6 +6,7 @@
 use tauri::State;
 
 use crate::db::dao::{ConfigDAO, ConfigEntry, Message, MessageDAO, Persona, PersonaDAO, ProjectContext, SearchHit, Session, SessionDAO, SessionPatch};
+use crate::db::export::{to_json, to_markdown, ExportPersona, ExportProject, ExportSession};
 use crate::db::project::scan_project;
 use crate::db::token::{cost_for_model, DailyBucket, ModelBucket, TokenStats};
 use crate::db::Db;
@@ -219,6 +220,87 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
         daily,
         by_model: by_model_vec,
     })
+}
+
+// ── Session export commands (T-Q-S10) ─────────────────────────────────────────
+//
+// Render a session to a portable markdown / JSON document. Pure: we
+// re-read session + messages from the DB and pass them through the
+// `export` module's pure functions. The frontend handles the actual
+// copy-to-clipboard / download / share-link.
+
+#[tauri::command]
+pub fn export_session_markdown(db: State<'_, Db>, session_id: &str) -> Result<String, String> {
+    let (session_export, persona, project, messages) = load_export_bundle(&db, session_id)?;
+    Ok(to_markdown(&session_export, persona.as_ref(), project.as_ref(), &messages))
+}
+
+#[tauri::command]
+pub fn export_session_json(
+    db: State<'_, Db>,
+    session_id: &str,
+) -> Result<serde_json::Value, String> {
+    let (session_export, persona, project, messages) = load_export_bundle(&db, session_id)?;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    Ok(to_json(
+        &session_export,
+        persona.as_ref(),
+        project.as_ref(),
+        &messages,
+        now_ms,
+    ))
+}
+
+/// Shared lookup: session + (optional) persona + (optional) project + messages.
+/// Used by both `export_session_markdown` and `export_session_json`.
+fn load_export_bundle(
+    db: &Db,
+    session_id: &str,
+) -> Result<
+    (
+        ExportSession,
+        Option<ExportPersona>,
+        Option<ExportProject>,
+        Vec<Message>,
+    ),
+    String,
+> {
+    // Session
+    let s = db.session().get(session_id).map_err(|e| e.to_string())?;
+    // Messages — no pagination; the export wants the full conversation.
+    // Sessions with thousands of messages will produce a large output;
+    // we accept that for MVP and document the limit.
+    let messages = db
+        .message()
+        .list_by_session(session_id, 1_000_000, 0)
+        .map_err(|e| e.to_string())?;
+    // Persona (optional)
+    let persona = s
+        .persona_id
+        .as_deref()
+        .and_then(|pid| db.persona().get(pid).ok())
+        .map(|p| ExportPersona { name: p.name, system_prompt: p.system_prompt });
+    // Project (optional) — parse the cached JSON for name + version + path.
+    let project = s
+        .project_context
+        .as_deref()
+        .and_then(|json| serde_json::from_str::<ProjectContext>(json).ok())
+        .map(|p| ExportProject {
+            name: p.name,
+            version: p.version,
+            path: p.project_dir,
+        });
+    let export_session = ExportSession {
+        id: s.id,
+        title: s.title,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
+        model: s.model,
+    };
+    Ok((export_session, persona, project, messages))
 }
 
 /// Convert Unix days (days since 1970-01-01) to YYYY-MM-DD. Used for
