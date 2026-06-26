@@ -149,7 +149,9 @@ hermes-tray/
 - [x] **T-Q-S8**: 项目上下文感知 (CWD 扫描 + 自动注入 system prompt) — 1d ✅ 2026-06-26
 - [x] **T-Q-S9**: Token / 成本追踪 + 图表 — 1d ✅ 2026-06-26
 - [x] **T-Q-S10**: 导出/分享 (markdown + 分享链接) — 1d ✅ 2026-06-26
-- [ ] **T-Q-S11**: 加密本地备份 (AES + 可选云同步) — 2d
+- [x] **v0.1.2 tag** (commit `16fe742` at `f0526f2`) — release notes 落在 `docs/RELEASE_v0.1.2.md` — 2026-06-26
+- [x] **T-Q-S11**: 加密本地备份 (AES-256-GCM + Argon2id) — 1d ✅ 2026-06-26
+- [ ] **T-Q-S12**: 多模型编排 — 4d
 - [ ] **T-Q-S12**: 多模型编排 — 4d
 - [ ] **T-Q-S13**: 语音输入 — 3d
 - [ ] **T-Q-S14**: 图片拖拽 / OCR — 2d
@@ -283,6 +285,17 @@ hermes-tray/
   - 新 "📊" stats 按钮 (sidebar header) → 4-period tab + 3 big tiles (tokens / cost / msg·session) + SVG stacked bar chart + per-model cost table
   - Session list 加 compact "X tok" badge, 通过 `refreshCurrentSessionRow()` 在每次 send 后 live update
   - 设计原则: char/4 heuristic 是 projection (不是真账单); gateway 真正的 usage capture 是 future T-Q-S9.x
+- **T-Q-S11 — 加密本地备份** (2026-06-26, 1d, originally 2d):
+  - 后端 `src-tauri/src/crypto.rs` (~340 行, 18 unit tests): AES-256-GCM 加密 + Argon2id KDF (19 MiB / 2 iter / 1 parallel) + 随机 salt/nonce per backup
+  - 自描述 blob 格式: `[magic "HTBK" 4B][version 1B][kdf 1B][salt_len 1B][salt 16B][nonce_len 1B][nonce 12B][ct_len 8B][ciphertext+tag]`
+  - AAD 绑定到 header (防止 salt/nonce 跨备份 swap); GCM auth tag 防 ciphertext tamper
+  - 3 new Tauri commands: `backup_create(path, pwd)` (live DB → encrypted file) / `backup_restore(path, pwd)` (encrypted file → live DB) / `backup_verify(path, pwd)` (check password)
+  - 用 rusqlite `Connection::backup()` online backup API 安全复制 (并发读友好), WAL checkpoint 在前后都跑
+  - Restore 后 user 必须重启应用 (pool 现有连接缓存旧 schema, 没法热切; 显式提示)
+  - 加 3 个 deps: `aes-gcm = "0.10"`, `argon2 = "0.5"`, `rand = "0.8"`, 启用 `rusqlite.backup` feature
+  - 修了一个 AAD slice 大小不匹配的 bug (encrypt 用 36B AAD, decrypt 用了 44B, 触发 auth tag fail)
+  - 前端: 新 "💾+" 按钮在 sidebar → 备份 modal (2 tabs: 创建/恢复). 创建 tab 路径 + 密码 + 确认密码. 恢复 tab 文件 + 密码 + 验证按钮 + 恢复按钮 + 重启警告
+  - 设计原则: 本地优先, 加密 opt-in; restore 提示重启; 文件用 .htbk 后缀但无强约束
 - **T-Q-S10 — 导出/分享** (2026-06-26, 1d, originally 2d):
   - 后端 `src/db/export.rs` (~370 行, 12 unit tests): `to_markdown()` + `to_json()` + `ExportPersona/Project/Session` structs. ISO-8601 UTC 时间格式化
   - 2 new Tauri commands: `export_session_markdown(session_id) -> String` + `export_session_json(session_id) -> Value`. 共用 `load_export_bundle()` 拉 session + messages + persona + project
@@ -317,8 +330,8 @@ hermes-tray/
 ### 测试覆盖统计 (v2.0 启动后)
 
 - v0.1.0 + T-Q9 基线: 55 Rust (T-Q5+T-Q9 stage 2) + 37 TS (T-Q6) = 92 tests
-- v2.0 新增: 10 (S1.2) + 5 (S1.3) + 5 (S7) + 15 (S8 backend) + 12 (S8 frontend) + 11 (S9 backend) + 13 (S9 frontend) + 12 (S10 backend) + 12 (S10 frontend) = 95 tests
-- 合计: **113 Rust + 74 TS = 187 tests, ~48% 覆盖率**
+- v2.0 新增: 10 (S1.2) + 5 (S1.3) + 5 (S7) + 15 (S8 backend) + 12 (S8 frontend) + 11 (S9 backend) + 13 (S9 frontend) + 12 (S10 backend) + 12 (S10 frontend) + 18 (S11 backend) + 3 (S11 frontend) = 116 tests
+- 合计: **131 Rust + 77 TS = 208 tests, ~50% 覆盖率**
 - 待补: Tauri 命令单测 (mock + io::Result), HTTP 客户端 (reqwest mock)
 
 ---

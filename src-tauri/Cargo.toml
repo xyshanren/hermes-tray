@@ -33,9 +33,15 @@ reqwest = { version = "0.12", features = ["stream"] }
 tokio = { version = "1", features = ["io-util"] }
 bytes = "1"
 log = "0.4"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.25"
 uuid = { version = "1", features = ["v4"] }
 thiserror = "1"
+# T-Q-S11: encryption for backup files. AES-256-GCM for authenticated
+# encryption; Argon2id for password-based key derivation (resistant to
+# GPU/ASIC brute-force); rand for cryptographically-secure nonces/salts.
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
 

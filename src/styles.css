@@ -1233,3 +1233,49 @@ html, body {
   padding: 32px 0;
   font-size: 13px;
 }
+
+/* ── Backup modal (T-Q-S11) ─────────────────────────────────────────────── */
+.modal-backup {
+  width: 520px;
+  max-width: 92vw;
+}
+.backup-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.backup-tab {
+  background: none;
+  border: none;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.backup-tab:hover {
+  color: var(--text-primary);
+}
+.backup-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+.backup-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.backup-warning {
+  margin-top: 16px;
+  padding: 10px 12px;
+  background: rgba(255, 152, 0, 0.1);
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}

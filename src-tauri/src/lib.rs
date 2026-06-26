@@ -2,6 +2,7 @@
 #![allow(clippy::items_after_test_module)]
 
 use db::{init_db, Db};
+use crypto::{create_backup as crypto_create_backup, restore_backup as crypto_restore_backup, verify_password as crypto_verify_password};
 
 pub use db::commands::{
     db_config_get, db_config_set, export_session_json, export_session_markdown, message_append,
@@ -16,10 +17,11 @@ use std::collections::HashMap;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager,
+    Emitter, Manager, State,
 };
 use tauri_plugin_shell::ShellExt;
 
+pub mod crypto;
 pub mod db;
 
 // 关于 std::process::Command 迁移:
@@ -553,6 +555,131 @@ async fn hermes_proxy_post_stream(
     }
     let _ = window.emit("hermes-stream-done", ());
     Ok(())
+}
+
+// ── Backup commands (T-Q-S11) ────────────────────────────────────────────
+//
+// Encrypted local backup of `sessions.db`. The user picks an output
+// path + password; we copy the live DB via SQLite's online backup
+// API (safe with concurrent readers), encrypt with AES-256-GCM, and
+// write a self-describing blob. Restore does the inverse, then
+// requires an app restart (existing pool connections hold cached
+// state that won't see the new file content until they're recycled).
+
+#[tauri::command]
+fn backup_create(
+    app: tauri::AppHandle,
+    db: State<'_, Db>,
+    output_path: String,
+    password: String,
+) -> Result<BackupInfo, String> {
+    let db_path = resolve_config_dir(&app).join("sessions.db");
+    if !db_path.exists() {
+        return Err(format!("DB not found: {}", db_path.display()));
+    }
+    // 1. Safely copy live DB to a temp file using SQLite's online
+    //    backup API. This works even with concurrent readers.
+    let temp_path = db_path.with_extension("db.backup.tmp");
+    {
+        let conn = db.pool().get().map_err(|e| e.to_string())?;
+        // Run a WAL checkpoint so the -wal file is merged into the
+        // main DB before we copy. Reduces chance of inconsistency.
+        let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+        // The rusqlite API: conn.backup(path) opens a dest Connection
+        // and copies pages incrementally. Safe + atomic.
+        let mut dest = rusqlite::Connection::open(&temp_path)
+            .map_err(|e| format!("open temp: {e}"))?;
+        let backup = rusqlite::backup::Backup::new(&conn, &mut dest)
+            .map_err(|e| format!("backup new: {e}"))?;
+        backup
+            .run_to_completion(5, std::time::Duration::from_millis(50), None)
+            .map_err(|e| format!("backup run: {e}"))?;
+    }
+    // 2. Read the temp file + encrypt.
+    let plaintext = std::fs::read(&temp_path)
+        .map_err(|e| format!("read temp: {e}"))?;
+    let blob = crypto_create_backup(&plaintext, &password)?;
+    // 3. Write the encrypted blob to the user's chosen output path.
+    std::fs::write(&output_path, &blob)
+        .map_err(|e| format!("write output: {e}"))?;
+    // 4. Cleanup temp file.
+    let _ = std::fs::remove_file(&temp_path);
+
+    Ok(BackupInfo {
+        output_path,
+        plaintext_bytes: plaintext.len(),
+        encrypted_bytes: blob.len(),
+    })
+}
+
+#[tauri::command]
+fn backup_restore(
+    app: tauri::AppHandle,
+    db: State<'_, Db>,
+    input_path: String,
+    password: String,
+) -> Result<RestoreInfo, String> {
+    let blob = std::fs::read(&input_path)
+        .map_err(|e| format!("read input: {e}"))?;
+    let plaintext = crypto_restore_backup(&blob, &password)?;
+    let db_path = resolve_config_dir(&app).join("sessions.db");
+    // Write to a temp file alongside the live DB, then use SQLite's
+    // backup API to overwrite the live DB from the temp source. This
+    // is the safe way to swap a SQLite file while the pool has open
+    // connections — direct file-replace would corrupt the WAL.
+    let temp_path = db_path.with_extension("db.restore.tmp");
+    std::fs::write(&temp_path, &plaintext)
+        .map_err(|e| format!("write temp: {e}"))?;
+    {
+        // Open the temp as a Connection (this is the SOURCE of the
+        // restore), then back up into the live DB connection (the
+        // DESTINATION). The live DB connection is in the pool, so we
+        // have to be careful — only one connection is checked out at
+        // a time, and we release it at the end of this scope.
+        let src_conn = rusqlite::Connection::open(&temp_path)
+            .map_err(|e| format!("open temp: {e}"))?;
+        let mut dest_conn = db.pool().get().map_err(|e| e.to_string())?;
+        // Close any WAL on the dest first to ensure clean overwrite.
+        let _ = dest_conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+        let backup = rusqlite::backup::Backup::new(&src_conn, &mut dest_conn)
+            .map_err(|e| format!("backup new: {e}"))?;
+        backup
+            .run_to_completion(5, std::time::Duration::from_millis(50), None)
+            .map_err(|e| format!("backup run: {e}"))?;
+    }
+    // Cleanup temp + emit restart-required notice. The pool's existing
+    // connections still cache the old schema/data — the user must
+    // restart the app to pick up the restored state.
+    let _ = std::fs::remove_file(&temp_path);
+
+    Ok(RestoreInfo {
+        input_path,
+        plaintext_bytes: plaintext.len(),
+        requires_restart: true,
+    })
+}
+
+#[tauri::command]
+fn backup_verify(input_path: String, password: String) -> Result<bool, String> {
+    let blob = std::fs::read(&input_path).map_err(|e| format!("read: {e}"))?;
+    Ok(crypto_verify_password(&blob, &password))
+}
+
+#[derive(serde::Serialize)]
+struct BackupInfo {
+    output_path: String,
+    plaintext_bytes: usize,
+    encrypted_bytes: usize,
+}
+
+#[derive(serde::Serialize)]
+struct RestoreInfo {
+    input_path: String,
+    plaintext_bytes: usize,
+    /// True: the user should restart the app to load the restored
+    /// state. The pool's existing connections still hold cached
+    /// schema/data from before the restore.
+    requires_restart: bool,
 }
 
 // ── Application Entry Point ─────────────────────────────────────────
@@ -1311,6 +1438,11 @@ pub fn run() {
             // file save, and share-link generation in the frontend).
             export_session_markdown,
             export_session_json,
+            // T-Q-S11 — Encrypted local backup (AES-256-GCM + Argon2id KDF).
+            // The output file is self-describing and password-protected.
+            backup_create,
+            backup_restore,
+            backup_verify,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
