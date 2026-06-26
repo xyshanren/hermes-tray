@@ -26,6 +26,7 @@ fn make_persona(id: &str, name: &str, builtin: bool) -> Persona {
         description: Some(format!("desc for {name}")),
         system_prompt: format!("system prompt for {name}"),
         avatar: Some("🦀".to_string()),
+        model: None, // T-Q-S12-light: opt-in model override
         created_at: 0,
         updated_at: 0,
         is_builtin: builtin,
@@ -226,6 +227,51 @@ fn seed_builtin_personas_does_not_clobber_user_persona() {
     hermes_tray_tauri_lib::db::pool::seed_builtin_personas(&db);
     let got = db.persona().get("builtin:default").expect("get");
     assert_eq!(got.name, "User-edited Default", "user row must survive seed");
+}
+
+// T-Q-S12-light: persona.model override round-trip.
+#[test]
+fn persona_model_round_trips() {
+    let (_pool, db) = fresh_db();
+    let p = Persona {
+        id: "p-model".to_string(),
+        name: "Modeled".to_string(),
+        description: None,
+        system_prompt: "x".to_string(),
+        avatar: None,
+        model: Some("gpt-4o-mini".to_string()),
+        created_at: 0,
+        updated_at: 0,
+        is_builtin: false,
+    };
+    db.persona().create(&p).expect("create");
+    let got = db.persona().get("p-model").expect("get");
+    assert_eq!(got.model.as_deref(), Some("gpt-4o-mini"));
+
+    // Update the model.
+    let mut updated = got;
+    updated.model = Some("deepseek-chat".to_string());
+    let result = db.persona().update(&updated).expect("update");
+    assert_eq!(result.model.as_deref(), Some("deepseek-chat"));
+
+    // Clear the model (None).
+    let mut cleared = result;
+    cleared.model = None;
+    let result = db.persona().update(&cleared).expect("update");
+    assert_eq!(result.model, None);
+}
+
+#[test]
+fn persona_model_survives_seed_for_builtin() {
+    // Builtin personas seeded with model=None should stay that way
+    // even after a re-seed.
+    let (_pool, db) = fresh_db();
+    hermes_tray_tauri_lib::db::pool::seed_builtin_personas(&db);
+    let builtin = db.persona().get("builtin:default").expect("get");
+    assert!(builtin.model.is_none());
+    hermes_tray_tauri_lib::db::pool::seed_builtin_personas(&db);
+    let builtin2 = db.persona().get("builtin:default").expect("get again");
+    assert!(builtin2.model.is_none());
 }
 
 #[test]

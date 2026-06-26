@@ -682,6 +682,88 @@ struct RestoreInfo {
     requires_restart: bool,
 }
 
+// ── Audio transcription proxy (T-Q-S13) ────────────────────────────────────
+//
+// hermes-agent exposes an OpenAI-compatible `/v1/audio/transcriptions`
+// endpoint. We proxy the multipart upload from the tray (which only
+// sees base64-encoded bytes from MediaRecorder) so CORS / multipart
+// construction stays server-side.
+
+#[derive(serde::Deserialize)]
+struct TranscribeArgs {
+    /// Full URL of the gateway's `/v1/audio/transcriptions` endpoint.
+    /// Frontend resolves this (it has the RESOLVED_GATEWAY_URL state).
+    url: String,
+    /// base64-encoded audio bytes (any format MediaRecorder produces
+    /// — webm/opus on Chrome, wav on Safari, etc.).
+    audio_base64: String,
+    /// Original MIME type, e.g. `audio/webm;codecs=opus`.
+    mime_type: String,
+}
+
+#[tauri::command]
+async fn hermes_proxy_transcribe(
+    args: TranscribeArgs,
+    headers: HashMap<String, String>,
+) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&args.audio_base64)
+        .map_err(|e| format!("base64 decode: {e}"))?;
+    // Pick a file extension that matches the MIME type. hermes-agent
+    // (and OpenAI's API) infer the format from this; common values:
+    //   audio/webm;codecs=opus   -> webm
+    //   audio/ogg;codecs=opus    -> ogg
+    //   audio/wav                -> wav
+    //   audio/mpeg               -> mp3
+    //   audio/mp4                -> mp4
+    let ext = if args.mime_type.contains("webm") {
+        "webm"
+    } else if args.mime_type.contains("ogg") {
+        "ogg"
+    } else if args.mime_type.contains("wav") {
+        "wav"
+    } else if args.mime_type.contains("mpeg") {
+        "mp3"
+    } else if args.mime_type.contains("mp4") {
+        "mp4"
+    } else {
+        // Fallback: just call it .bin and hope the gateway figures it out.
+        "bin"
+    };
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name(format!("recording.{ext}"))
+        .mime_str(&args.mime_type)
+        .map_err(|e| format!("mime: {e}"))?;
+    let form = reqwest::multipart::Form::new()
+        .text("model", "whisper-1")
+        .part("file", part);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .no_proxy()
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut req = client.post(&args.url);
+    for (k, v) in &headers {
+        req = req.header(k, v);
+    }
+    let resp = req
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| format!("transcribe send: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}: {}", resp.status().as_u16(),
+            resp.text().await.unwrap_or_default()));
+    }
+    let body: serde_json::Value = resp.json().await
+        .map_err(|e| format!("parse JSON: {e}"))?;
+    body.get("text")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "response missing 'text' field".to_string())
+}
+
 // ── Application Entry Point ─────────────────────────────────────────
 
 /// 单元测试: 覆盖文件 IO 类纯函数 (config.json 读写 / WSL distro 解析).
@@ -1397,6 +1479,8 @@ pub fn run() {
             hermes_proxy_get,
             hermes_proxy_post,
             hermes_proxy_post_stream,
+            // T-Q-S13 — Audio transcription proxy (mic → /v1/audio/transcriptions)
+            hermes_proxy_transcribe,
             // S1 — Gateway status (read-only)
             hermes_check_gateway_status,
             hermes_check_gateway_health,

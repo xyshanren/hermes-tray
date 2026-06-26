@@ -28,18 +28,19 @@ impl<'a> PersonaDao<'a> {
     }
 
     const SELECT_COLUMNS: &'static str =
-        "id, name, description, system_prompt, avatar, created_at, updated_at, is_builtin";
+        "id, name, description, system_prompt, avatar, model, created_at, updated_at, is_builtin";
 
     fn row_to_persona(row: &Row<'_>) -> rusqlite::Result<Persona> {
-        let is_builtin_int: i64 = row.get(7)?;
+        let is_builtin_int: i64 = row.get(8)?;
         Ok(Persona {
             id: row.get(0)?,
             name: row.get(1)?,
             description: row.get(2)?,
             system_prompt: row.get(3)?,
             avatar: row.get(4)?,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
+            model: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
             is_builtin: is_builtin_int != 0,
         })
     }
@@ -75,14 +76,16 @@ impl<'a> PersonaDAO for PersonaDao<'a> {
         let conn = self.pool.get()?;
         let now = Self::unix_ms_now();
         conn.execute(
-            "INSERT INTO personas (id, name, description, system_prompt, avatar, created_at, updated_at, is_builtin) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7)",
+            "INSERT INTO personas \
+             (id, name, description, system_prompt, avatar, model, created_at, updated_at, is_builtin) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)",
             rusqlite::params![
                 persona.id,
                 persona.name,
                 persona.description,
                 persona.system_prompt,
                 persona.avatar,
+                persona.model,
                 now,
                 persona.is_builtin as i64,
             ],
@@ -94,13 +97,15 @@ impl<'a> PersonaDAO for PersonaDao<'a> {
         let conn = self.pool.get()?;
         let now = Self::unix_ms_now();
         let changed = conn.execute(
-            "UPDATE personas SET name = ?1, description = ?2, system_prompt = ?3, avatar = ?4, updated_at = ?5 \
-             WHERE id = ?6",
+            "UPDATE personas SET name = ?1, description = ?2, system_prompt = ?3, \
+             avatar = ?4, model = ?5, updated_at = ?6 \
+             WHERE id = ?7",
             rusqlite::params![
                 persona.name,
                 persona.description,
                 persona.system_prompt,
                 persona.avatar,
+                persona.model,
                 now,
                 persona.id,
             ],

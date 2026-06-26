@@ -45,6 +45,29 @@ interface Session {
   model: string | null; // T-Q-S9: per-session model
 }
 
+/**
+ * T-Q-S12-light: pick the `model` field to send in a chat completion
+ * request. Priority chain (highest first):
+ *   1. persona.model — pinned model on the active persona
+ *   2. currentModel — set by /v1/models response or user override
+ *   3. defaultModel — user-saved in settings (DB config key)
+ *   4. legacyDefault — hardcoded legacy fallback
+ *
+ * `currentModel` is the sentinel `UNKNOWN_MODEL` ("-") when the
+ * gateway hasn't reported any. Pure function for testability.
+ */
+export function pickModelForRequest(
+  persona: { model: string | null } | null,
+  currentModel: string,
+  defaultModel: string | null,
+  legacyDefault: string,
+): string {
+  if (persona?.model) return persona.model;
+  if (currentModel && currentModel !== '-') return currentModel;
+  if (defaultModel) return defaultModel;
+  return legacyDefault;
+}
+
 // ── Project context type (T-Q-S8) ──────────────────────────────────────────────
 //
 // Mirrors `db::project::ProjectContext` on the Rust side. The Rust side
@@ -130,9 +153,13 @@ interface SearchHit {
 interface Persona {
   id: string;
   name: string;
-  description: string;
+  description: string | null;
   system_prompt: string;
   avatar: string;
+  // T-Q-S12-light: optional model name. When this persona is selected,
+  // the chat sends requests with `model: <this>`. `null` means
+  // "fall back to the global default model".
+  model: string | null;
   created_at: string;
   updated_at: string;
   is_builtin: number; // 0 or 1 — SQLite boolean convention
@@ -184,8 +211,28 @@ async function hermesPostStream(path: string, body: object): Promise<void> {
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
+  /** Text-only content for rendering + DB persistence. For multimodal
+   * user messages, this is the visible text portion; the images are
+   * reconstructed from the `attachments` field (if any) at send time. */
   content: string;
+  /** T-Q-S14: image attachments sent alongside this message. Persisted
+   * to DB only as part of the `metadata` blob (we keep a thin index
+   * of names + types in `Message.metadata` so reloads can show what
+   * was attached without the bytes). */
+  attachments?: PendingAttachment[];
   timestamp: Date;
+}
+
+/** T-Q-S14: a single image attachment waiting to be sent. */
+interface PendingAttachment {
+  /** data: URL (base64-encoded) ready for OpenAI `image_url.url`. */
+  dataUrl: string;
+  /** Original filename for display. */
+  name: string;
+  /** MIME type, e.g. `image/png`. */
+  type: string;
+  /** Byte size — displayed alongside the thumbnail. */
+  size: number;
 }
 
 interface ChatState {
@@ -716,6 +763,39 @@ async function setDefaultPersonaId(id: string | null): Promise<void> {
   }
 }
 
+// T-Q-S12-light: default model fallback. Used when no persona.model
+// is set. Persists across restarts; per-session overrides take
+// precedence (state.currentModel).
+async function loadDefaultModel(): Promise<string | null> {
+  try {
+    const entry = await invoke<{ key: string; value: string } | null>('db_config_get', { key: 'default_model' });
+    const v = entry?.value?.trim() ?? '';
+    return v.length > 0 ? v : null;
+  } catch (e) {
+    console.warn('[Model] default_model not loaded:', e);
+    return null;
+  }
+}
+
+async function setDefaultModel(name: string | null): Promise<void> {
+  try {
+    await invoke('db_config_set', { key: 'default_model', value: name ?? '' });
+  } catch (e) {
+    console.warn('[Model] default_model not saved:', e);
+  }
+}
+
+let defaultModel: string | null = null;
+
+// T-Q-S14: image attachments waiting to be sent. Cleared on each send.
+let pendingAttachments: PendingAttachment[] = [];
+
+// T-Q-S13: voice recording state. We keep the MediaRecorder here
+// (outside the function) so a stop click can reach it.
+let mediaRecorder: MediaRecorder | null = null;
+let recordingStream: MediaStream | null = null;
+let recordingChunks: Blob[] = [];
+
 function renderPersonaPicker(): void {
   const select = document.getElementById('persona-picker') as HTMLSelectElement | null;
   if (!select) return;
@@ -743,11 +823,11 @@ async function onPersonaPickerChange(): Promise<void> {
   showToast('已切换 Persona', persona ? `${persona.avatar ?? ''} ${persona.name}` : '默认 (无)', 'success');
 }
 
-async function createPersonaApi(name: string, description: string, system_prompt: string, avatar: string): Promise<Persona | null> {
+async function createPersonaApi(name: string, description: string, system_prompt: string, avatar: string, model: string | null): Promise<Persona | null> {
   const id = `persona:${crypto.randomUUID()}`;
   const now = Date.now().toString();
   const persona: Persona = {
-    id, name, description, system_prompt, avatar,
+    id, name, description, system_prompt, avatar, model,
     created_at: now, updated_at: now, is_builtin: 0,
   };
   try {
@@ -1069,6 +1149,229 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(2)} MB`;
 }
 
+// ── Image attachments (T-Q-S14) ──────────────────────────────────────────────────
+
+const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024; // 10 MB per image
+const ATTACHMENT_MAX_COUNT = 4; // per single message
+
+/** Convert a File to a data URL + extract metadata. */
+function fileToAttachment(file: File): Promise<PendingAttachment> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      reject(new Error(`不是图片: ${file.name} (${file.type || 'unknown'})`));
+      return;
+    }
+    if (file.size > ATTACHMENT_MAX_BYTES) {
+      reject(new Error(
+        `图片太大: ${file.name} (${formatBytes(file.size)} > ${formatBytes(ATTACHMENT_MAX_BYTES)})`,
+      ));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      if (typeof dataUrl !== 'string') {
+        reject(new Error('FileReader 返回非字符串结果'));
+        return;
+      }
+      resolve({
+        dataUrl,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      });
+    };
+    reader.onerror = () => reject(new Error(`读取失败: ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function addAttachments(files: FileList | File[]): Promise<void> {
+  const list = Array.from(files);
+  if (pendingAttachments.length + list.length > ATTACHMENT_MAX_COUNT) {
+    showToast('太多附件', `每次消息最多 ${ATTACHMENT_MAX_COUNT} 张`, 'error');
+    return;
+  }
+  const results: PendingAttachment[] = [];
+  for (const f of list) {
+    try {
+      results.push(await fileToAttachment(f));
+    } catch (e) {
+      showToast('附件失败', String(e), 'error');
+    }
+  }
+  pendingAttachments = [...pendingAttachments, ...results];
+  renderAttachmentPreviews();
+}
+
+function removeAttachment(idx: number): void {
+  pendingAttachments = pendingAttachments.filter((_, i) => i !== idx);
+  renderAttachmentPreviews();
+}
+
+function renderAttachmentPreviews(): void {
+  const container = document.getElementById('attachment-previews');
+  if (!container) return;
+  if (pendingAttachments.length === 0) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+  container.classList.remove('hidden');
+  container.innerHTML = pendingAttachments.map((a, i) => `
+    <div class="attachment-thumb" data-idx="${i}">
+      <img src="${escapeHtml(a.dataUrl)}" alt="${escapeHtml(a.name)}" />
+      <button class="attachment-remove" data-idx="${i}" title="移除">×</button>
+      <div class="attachment-meta">
+        <div class="attachment-name">${escapeHtml(a.name)}</div>
+        <div class="attachment-size">${formatBytes(a.size)}</div>
+      </div>
+    </div>
+  `).join('');
+  container.querySelectorAll<HTMLButtonElement>('.attachment-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.idx);
+      removeAttachment(idx);
+    });
+  });
+}
+
+/**
+ * Build the OpenAI-compatible multimodal content array for the API.
+ * Pure function so we can unit-test it.
+ *
+ * - text-only: returns the same string (cheap path)
+ * - text + 1+ images: returns an array with a text part + image_url parts
+ * - images only (empty text): returns an array with only image parts
+ */
+export function buildMultimodalContent(
+  text: string,
+  attachments: PendingAttachment[],
+): string | Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }> {
+  if (attachments.length === 0) return text;
+  const parts: Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }> = [];
+  if (text.length > 0) parts.push({ type: 'text', text });
+  for (const a of attachments) {
+    parts.push({ type: 'image_url', image_url: { url: a.dataUrl } });
+  }
+  return parts;
+}
+
+// ── Voice input (T-Q-S13) ───────────────────────────────────────────────────────
+//
+// Web Audio API + MediaRecorder. Records from the default mic, then
+// hands the audio bytes to the Rust `hermes_proxy_transcribe` Tauri
+// command which uploads them to hermes-agent's
+// /v1/audio/transcriptions endpoint (OpenAI Whisper-compatible).
+// We never see the STT model — hermes-agent does the recognition.
+
+const VOICE_MAX_MS = 60_000; // 1 min cap to keep uploads sane
+
+async function startRecording(): Promise<void> {
+  const micBtn = document.getElementById('mic-btn');
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      showToast('不支持录音', '当前环境无麦克风 API (需 HTTPS 或 localhost)', 'error');
+      return;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Pick the best MIME type the browser supports. webm/opus is the
+    // Chrome / Tauri-WebView2 default; Safari prefers mp4. The Rust
+    // side derives the right file extension from the MIME type.
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/mp4',
+      'audio/wav',
+    ];
+    const mimeType = candidates.find(t => MediaRecorder.isTypeSupported(t)) ?? '';
+    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    recordingStream = stream;
+    recordingChunks = [];
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) recordingChunks.push(e.data);
+    };
+    mediaRecorder.onstop = () => {
+      void onRecordingComplete();
+    };
+    mediaRecorder.start(100); // emit a chunk every 100ms
+    micBtn?.classList.add('recording');
+    showToast('开始录音', '再次点击麦克风停止 (上限 1 分钟)', 'info');
+    // Auto-stop after VOICE_MAX_MS as a safety net.
+    setTimeout(() => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        stopRecording();
+      }
+    }, VOICE_MAX_MS);
+  } catch (e) {
+    showToast('麦克风权限被拒', String(e), 'error');
+  }
+}
+
+function stopRecording(): void {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+  }
+  if (recordingStream) {
+    recordingStream.getTracks().forEach(t => t.stop());
+    recordingStream = null;
+  }
+  document.getElementById('mic-btn')?.classList.remove('recording');
+}
+
+async function onRecordingComplete(): Promise<void> {
+  const blob = new Blob(recordingChunks, {
+    type: mediaRecorder?.mimeType ?? 'audio/webm',
+  });
+  recordingChunks = [];
+  if (blob.size === 0) {
+    showToast('录音为空', '没有捕获到音频数据', 'error');
+    return;
+  }
+  // Convert to base64 in chunks to avoid call-stack overflow on
+  // large recordings (Tauri IPC has a 1MB-ish soft limit on
+  // single-string args, though it auto-chunks; base64 inflates
+  // 33% so 1.5MB audio → 2MB base64).
+  const arrayBuf = await blob.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuf);
+  let binary = '';
+  const CHUNK = 0x8000; // 32 KB
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(
+      null,
+      Array.from(bytes.subarray(i, Math.min(i + CHUNK, bytes.length))),
+    );
+  }
+  const audioBase64 = btoa(binary);
+  const url = `${RESOLVED_GATEWAY_URL}/v1/audio/transcriptions`;
+  try {
+    const text = await invoke<string>('hermes_proxy_transcribe', {
+      args: {
+        url,
+        audioBase64,
+        mimeType: blob.type,
+      },
+      headers: { 'Authorization': `Bearer ${API_KEY}` },
+    });
+    if (!text) {
+      showToast('转写为空', '识别结果为空字符串', 'info');
+      return;
+    }
+    // Fill the message input with the transcript. Append if there's
+    // already text, otherwise replace.
+    if (messageInput) {
+      const current = messageInput.value.trim();
+      messageInput.value = current ? `${current} ${text}` : text;
+      messageInput.dispatchEvent(new Event('input'));
+      messageInput.focus();
+    }
+    showToast('已转写', `${text.length} 字符 — 检查后发送`, 'success');
+  } catch (e) {
+    showToast('转写失败', String(e), 'error');
+  }
+}
+
 // ── Persona Modal (T-Q-S7) ─────────────────────────────────────────────────────
 //
 // 3-state modal: list view (default) → create form → edit form. Single
@@ -1141,10 +1444,11 @@ function renderPersonaFormHtml(p: Persona | null): string {
   const isEdit = p !== null;
   const builtin = isEdit && p!.is_builtin === 1;
   const name = isEdit ? p!.name : '';
-  const desc = isEdit ? p!.description : '';
+  const desc = isEdit ? p!.description || '' : '';
   const prompt = isEdit ? p!.system_prompt : '';
-  const avatar = isEdit ? p!.avatar : '👤';
-  // Builtin personas: name/avatar locked, description/prompt editable.
+  const avatar = isEdit ? p!.avatar || '👤' : '👤';
+  const model = isEdit ? p!.model || '' : '';
+  // Builtin personas: name/avatar locked, description/prompt/model editable.
   const fieldDisabled = (_n: string) => builtin ? `disabled title="内置 Persona 不可修改"` : '';
   return `
     <div class="persona-form">
@@ -1164,6 +1468,11 @@ function renderPersonaFormHtml(p: Persona | null): string {
         <label>系统提示词 *</label>
         <textarea id="pf-prompt" rows="8" placeholder="定义助手的角色、风格、约束...">${escapeHtml(prompt)}</textarea>
         <span class="form-hint">每次新建会话时自动注入到 system 消息</span>
+      </div>
+      <div class="form-group">
+        <label>绑定 Model (T-Q-S12-light)</label>
+        <input type="text" id="pf-model" maxlength="80" value="${escapeHtml(model)}" placeholder="例如 gpt-4o-mini / deepseek-chat (留空 = 用默认)" />
+        <span class="form-hint">选这个 Persona 时, 对话会用这个 model 名发请求. 留空则用全局默认.</span>
       </div>
       <div class="persona-form-actions">
         <button id="pf-cancel" class="btn btn-secondary">返回</button>
@@ -1207,10 +1516,12 @@ function wirePersonaFormEvents(p: Persona | null): void {
     const description = (document.getElementById('pf-desc') as HTMLInputElement).value.trim();
     const system_prompt = (document.getElementById('pf-prompt') as HTMLTextAreaElement).value.trim();
     const avatar = (document.getElementById('pf-avatar') as HTMLInputElement).value.trim() || '👤';
+    const modelRaw = (document.getElementById('pf-model') as HTMLInputElement | null)?.value.trim() ?? '';
+    const model = modelRaw.length > 0 ? modelRaw : null;
     if (!name) { showToast('请填写名称', '', 'error'); return; }
     if (!system_prompt) { showToast('请填写系统提示词', '', 'error'); return; }
     if (isEdit && p) {
-      const updated = await updatePersonaApi({ ...p, name, description, system_prompt, avatar });
+      const updated = await updatePersonaApi({ ...p, name, description, system_prompt, avatar, model });
       if (updated) {
         await loadPersonas();
         renderPersonaPicker();
@@ -1219,7 +1530,7 @@ function wirePersonaFormEvents(p: Persona | null): void {
         showToast('已更新', updated.name, 'success');
       }
     } else {
-      const created = await createPersonaApi(name, description, system_prompt, avatar);
+      const created = await createPersonaApi(name, description, system_prompt, avatar, model);
       if (created) {
         await loadPersonas();
         renderPersonaPicker();
@@ -1339,6 +1650,59 @@ window.addEventListener('DOMContentLoaded', async () => {
   chatForm = document.getElementById('chat-form') as HTMLFormElement;
 
   chatForm?.addEventListener('submit', handleSubmit);
+
+  // T-Q-S13: mic button — toggle recording. While recording, the
+  // button pulses red. On stop, the audio blob is sent to hermes-agent
+  // for transcription; the text fills the message input.
+  const micBtn = document.getElementById('mic-btn');
+  micBtn?.addEventListener('click', () => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      stopRecording();
+    } else {
+      void startRecording();
+    }
+  });
+
+  // T-Q-S14: attach button + drag/drop handlers. We listen on the
+  // form (not the textarea) so a drop anywhere in the input area
+  // works. preventDefault on dragenter/over is required to enable
+  // the drop event; we toggle a CSS class for a visual highlight.
+  const attachBtn = document.getElementById('attach-btn');
+  const attachFileInput = document.getElementById('attach-file-input') as HTMLInputElement | null;
+  attachBtn?.addEventListener('click', () => attachFileInput?.click());
+  attachFileInput?.addEventListener('change', () => {
+    if (attachFileInput.files && attachFileInput.files.length > 0) {
+      void addAttachments(attachFileInput.files);
+      attachFileInput.value = ''; // reset so re-picking same file works
+    }
+  });
+  let dragCounter = 0;
+  chatForm?.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragCounter++;
+    chatForm?.classList.add('dragging');
+  });
+  chatForm?.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  });
+  chatForm?.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter <= 0) {
+      chatForm?.classList.remove('dragging');
+      dragCounter = 0;
+    }
+  });
+  chatForm?.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    chatForm?.classList.remove('dragging');
+    const dt = (e as DragEvent).dataTransfer;
+    if (dt?.files && dt.files.length > 0) {
+      void addAttachments(dt.files);
+    }
+  });
   messageInput?.addEventListener('input', handleInput);
   messageInput?.addEventListener('keydown', handleKeydown);
 
@@ -1379,6 +1743,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const portInput = document.getElementById('setting-port') as HTMLInputElement;
   const apiKeyInput = document.getElementById('setting-api-key') as HTMLInputElement;
   const defaultProjectPathInput = document.getElementById('setting-default-project-path') as HTMLInputElement;
+  const defaultModelInput = document.getElementById('setting-default-model') as HTMLInputElement;
 
   // Open settings
   settingsBtn.addEventListener('click', () => openSettings());
@@ -1439,6 +1804,15 @@ window.addEventListener('DOMContentLoaded', async () => {
         defaultProjectPath = entry.value;
       }
     } catch { /* key not set yet */ }
+
+    // T-Q-S12-light: load default_model from the DB-backed config table.
+    try {
+      const entry = await invoke<{ key: string; value: string } | null>('db_config_get', { key: 'default_model' });
+      if (entry?.value) {
+        defaultModelInput.value = entry.value;
+        defaultModel = entry.value;
+      }
+    } catch { /* key not set yet */ }
   }
 
   async function saveSettings() {
@@ -1460,6 +1834,11 @@ window.addEventListener('DOMContentLoaded', async () => {
       const newDefaultPath = defaultProjectPathInput.value.trim();
       await setDefaultProjectPath(newDefaultPath.length > 0 ? newDefaultPath : null);
       defaultProjectPath = newDefaultPath.length > 0 ? newDefaultPath : null;
+
+      // T-Q-S12-light: save default_model.
+      const newDefaultModel = defaultModelInput.value.trim();
+      await setDefaultModel(newDefaultModel.length > 0 ? newDefaultModel : null);
+      defaultModel = newDefaultModel.length > 0 ? newDefaultModel : null;
 
       showToast('设置已保存', '配置已更新，部分设置可能需要重启后生效', 'success');
       closeSettings();
@@ -1546,6 +1925,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   // the project context. If the saved path no longer exists, the scan
   // will fail at createSession time and the user will see a toast.
   defaultProjectPath = await loadDefaultProjectPath();
+
+  // ── T-Q-S12-light: default model init ────────────────────
+  defaultModel = await loadDefaultModel();
 
   // ── T-Q-S9: stats modal wiring ───────────────────
   const statsModal = document.getElementById('stats-modal');
@@ -1670,10 +2052,14 @@ async function handleSubmit(e: Event) {
   e.preventDefault();
   if (!messageInput || state.isLoading) return;
   const content = messageInput.value.trim();
-  if (!content) return;
+  // T-Q-S14: allow send if attachments are present even when text is empty.
+  if (!content && pendingAttachments.length === 0) return;
+  const attachmentsAtSend = pendingAttachments;
   messageInput.value = '';
   messageInput.dispatchEvent(new Event('input'));
   if (messageInput) messageInput.style.height = 'auto';
+  pendingAttachments = [];
+  renderAttachmentPreviews();
 
   // Ensure we have an active session
   if (!currentSessionId) {
@@ -1681,14 +2067,20 @@ async function handleSubmit(e: Event) {
     if (!currentSessionId) return;
   }
 
-  addMessage('user', content);
-  // Persist user message to DB
+  addMessage('user', content, attachmentsAtSend);
+  // Persist user message to DB (text only — images go in metadata for size).
   if (currentSessionId) {
+    const metadata = attachmentsAtSend.length > 0
+      ? JSON.stringify({
+          attachments: attachmentsAtSend.map(a => ({ name: a.name, type: a.type, size: a.size })),
+        })
+      : null;
     invoke('message_append', {
       sessionId: currentSessionId,
       role: 'user',
       content,
       toolCalls: null,
+      metadata,
     }).catch(e => console.error('[DB] save user msg failed:', e));
     invoke('session_touch', { id: currentSessionId }).catch(() => {});
     // T-Q-S9: refresh session list so the token badge in the sidebar
@@ -1700,9 +2092,11 @@ async function handleSubmit(e: Event) {
   await sendMessage();
 }
 
-function addMessage(role: 'user' | 'assistant', content: string) {
-  state.messages.push({ role, content, timestamp: new Date() });
-  renderMessage({ role, content, timestamp: new Date() });
+function addMessage(role: 'user' | 'assistant', content: string, attachments?: PendingAttachment[]) {
+  const msg: Message = { role, content, timestamp: new Date() };
+  if (attachments && attachments.length > 0) msg.attachments = attachments;
+  state.messages.push(msg);
+  renderMessage(msg);
   scrollToBottom();
 }
 
@@ -1812,16 +2206,37 @@ async function sendMessage() {
     // Compose is a pure function in src/systemPrompt.ts (covered by
     // 12 unit tests); here we just wire the inputs.
     const systemContent = await buildCurrentSystemPrompt();
-    const userMessages = state.messages
+    // T-Q-S14: build multimodal content for the last user message if
+    // it has attachments. Older messages in the window are sent as
+    // text (their attachments are not re-attached — hermes-agent
+    // would need to re-read them from storage, out of MVP scope).
+    const recent = state.messages
       .filter(m => m.role !== 'system')
-      .slice(-10)
-      .map(m => ({ role: m.role, content: m.content }));
+      .slice(-10);
+    // Find the last user message in the window. We only attach images
+    // to the most recent user turn — older ones are sent as text only.
+    let lastUserIdx = -1;
+    for (let i = recent.length - 1; i >= 0; i--) {
+      if (recent[i].role === 'user') { lastUserIdx = i; break; }
+    }
+    const userMessages = recent.map((m, i) => ({
+      role: m.role,
+      content: (i === lastUserIdx && m.attachments && m.attachments.length > 0)
+        ? buildMultimodalContent(m.content, m.attachments)
+        : m.content,
+    }));
     const apiMessages = systemContent === null
       ? userMessages
       : [{ role: 'system' as const, content: systemContent }, ...userMessages];
 
     // Use streaming — response is empty, chunks via events
-    const model = state.currentModel !== UNKNOWN_MODEL ? state.currentModel : CONFIG.defaultModel;
+    // T-Q-S12-light: model priority chain. See `pickModelForRequest`
+    // for the pure function and its tests. hermes-agent handles
+    // routing/retries; tray just sends the name.
+    const persona = currentSession?.persona_id
+      ? personasCache.find(p => p.id === currentSession!.persona_id) ?? null
+      : null;
+    const model = pickModelForRequest(persona, state.currentModel, defaultModel, CONFIG.defaultModel);
     await hermesPostStream('/v1/chat/completions', {
       model,
       messages: apiMessages,

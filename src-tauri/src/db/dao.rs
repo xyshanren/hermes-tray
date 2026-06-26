@@ -54,6 +54,11 @@ pub struct Persona {
     pub description: Option<String>,
     pub system_prompt: String,
     pub avatar: Option<String>,
+    /// T-Q-S12-light: optional model override. When the user picks
+    /// this persona, the chat sends requests with `model: <this>`.
+    /// `None` means "use the global default" (user's preference in
+    /// config or what the gateway reports via /v1/models).
+    pub model: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     pub is_builtin: bool,
