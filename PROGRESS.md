@@ -5,18 +5,29 @@
 ```
 hermes-tray/
 ├── src/                    # Tauri 前端 (TypeScript + HTML + CSS)
-│   ├── main.ts             # 前端逻辑 (连接/流式/AI 聊天)
+│   ├── main.ts             # 前端逻辑 (连接/流式/AI 聊天/Sidebar/Persona/Token/导出)
 │   ├── styles.css          # 样式 (支持亮色/暗色主题)
-│   └── index.html          # 入口 HTML
+│   ├── index.html          # 入口 HTML
+│   ├── tokenChart.ts       # Token 图表纯函数 (T-Q-S9)
+│   ├── systemPrompt.ts     # system prompt 组合 (T-Q-S8)
+│   └── tests/              # vitest TS 单元测试 (77 个)
 ├── src-tauri/              # Tauri 后端 (Rust)
-│   ├── src/lib.rs          # 核心逻辑 (Tray/Gateway 管理/代理)
+│   ├── src/
+│   │   ├── lib.rs          # 核心逻辑 (Tray/IPC/WSL 检测)
+│   │   ├── crypto.rs       # AES-256-GCM 加密 (T-Q-S11)
+│   │   └── db/             # SQLite schema + DAO (T-Q-S1.x)
+│   │       ├── session.rs / message.rs / persona.rs
+│   │       ├── token.rs / export.rs / project.rs
+│   │       └── commands.rs
+│   ├── tests/integration/  # Rust 集成测试 (含 sqlite + crypto, 131 个)
 │   ├── Cargo.toml          # Rust 依赖
 │   └── tauri.conf.json     # Tauri 配置
-├── tray_app.py             # (Python 版) 系统托盘主应用
-├── gateway_manager.py      # (Python 版) Gateway 进程管理
-├── config.py               # (Python 版) 配置读取
-└── requirements.txt        # Python 依赖
+├── docs/                   # 设计 + Release Notes (含 RELEASE_v0.1.0/1/2.md)
+├── .agent-teams/           # Mavis 维护 (TASK_BOARD.md + work-history.md)
+└── build-test.ps1          # Windows 端构建测试 (T-Q4, 6 阶段)
 ```
+
+> **历史** (2026-06-04 T-Q1 清理): 原 Python 死代码 (`tray_app.py` / `gateway_manager.py` / `config.py` / `__init__.py` / `generate_icon.py` / `requirements.txt`) 已 mavis-trash, ~1.3MB. 现在是纯 Tauri 项目.
 
 ---
 
@@ -24,13 +35,11 @@ hermes-tray/
 
 ### Open
 
-> **2026-06-26 同步说明**: v0.1.0 (S0-S5) 14 项全部 done + v0.1.1 (T-Q-NEW) 完成 + v2.0 路线图启动 (T-Q-S0~S5 done). 当前真正 open 的是 v2.1 进阶任务的下一站 + 用户侧验证.
+> **2026-07-01 同步说明**: v0.1.2 (S0-S11) 全 done + v0.1.2+S12-light/S13/S14 多模态全 done + 16a232e cleanup done. v2 路线图 12/15 done (S0-S11 + S12-light/S13/S14), 3 项 agent-side 配套 (S12-agent/S13-agent/S14-agent) 等 hermes-agent-cn NEEDS_BACKLOG 触发, 1 项 dropped (S15 → hermes-agent). 当前真正 open: 1 项 S5 增强 (quick capture) + 等用户装 Rust+Node toolchain 后跑 cargo test / build-test.ps1 验证.
 
 | # | 分类 | 文件 | 描述 | 目标 |
 |---|------|------|------|------|
-| 1 | 构建 | `build-test.bat` | Windows 环境运行 `build-test.bat`，将日志发回分析 | S5 (用户侧) |
-| 2 | 后端 托盘 | `src-tauri/src/lib.rs` | 托盘菜单加 3 项快速操作: 新建会话 / 续上次 / 搜索 | T-Q-S6 |
-| 3 | 后端 热键 | `src-tauri/src/lib.rs` | Quick capture: 全局热键直接开新会话输入框 (不只是唤起) | T-Q-S5 增强 |
+| 1 | 后端 热键 | `src-tauri/src/lib.rs` | Quick capture: 全局热键直接开新会话输入框 (不只是唤起) | T-Q-S5 增强 |
 
 ### In Progress
 
@@ -120,8 +129,8 @@ hermes-tray/
 - [x] `setup.iss` 修复 Source 路径指向 Tauri 产物
 - [x] `build.bat` 重写为 Tauri 构建管线
 - [x] `build-setup.bat` 同步更新路径检查
-- [x] `build-test.bat` 新增 Windows 构建测试脚本（含日志输出）
-- [ ] Windows 环境运行 `build-test.bat`，将日志发回分析
+- [x] `build-test.bat` → `build-test.ps1` 新增 Windows 构建测试脚本（含日志输出）— T-Q4, 2026-06-04 一次过
+- [x] Windows 环境运行 `build-test.ps1`, 6 阶段全过 (T-Q4, 2026-06-04 17:57) — Tauri 主程序 11.4MB + MSI 4.1MB + NSIS 2.8MB 三件套构建成功
 
 ### v0.1.1 — 配置路径修复 (T-Q-NEW)
 
