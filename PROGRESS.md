@@ -164,7 +164,8 @@ hermes-tray/
 - [x] **T-Q-S12-light**: 模型选择器 + Persona.model 字段 — 1d ✅ 2026-06-26
 - [x] **T-Q-S13**: 语音输入 (客户端录音 + 后端 STT) — 1d ✅ 2026-06-26
 - [x] **T-Q-S14**: 图片拖拽上传 — 1d ✅ 2026-06-26
-- [~] **T-Q-S12-agent / S13-agent / S14-agent**: 后端配套 (STT 端点 / vision 路由 / cost metadata) — ⏸️ 等待 `hermes-agent-cn/NEEDS_BACKLOG.md` Phase 1-3
+- [x] **T-Q-S13-agent** ✅ done 2026-07-02 (hermes-agent-cn commit `016383af8`): `/v1/audio/transcriptions` OpenAI-compat multipart endpoint; 8/8 tests. 见 `hermes-agent-cn/CHANGELOG_CN.md` v0.17.0+cn.18 段.
+- [~] **T-Q-S12-agent / T-Q-S14-agent**: 后端配套 (cost-aware routing metadata / vision fallback) — ⏸️ 等待 `hermes-agent-cn/NEEDS_BACKLOG.md` Phase 2-3
 - [❌] **T-Q-S15**: 插件系统 — **dropped**, 已迁到 hermes-agent (已有 `plugins.py` 框架, 不该在 tray 重做)
 
 **总计**: 12 个 tray-side task 全 done, 3 个 agent-side 配套待执行, 1 个 dropped.
