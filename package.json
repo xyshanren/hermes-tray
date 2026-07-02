@@ -14,15 +14,15 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-global-shortcut": "^2",
-    "@tauri-apps/plugin-window-state": "^2.4.1",
+    "@tauri-apps/api": "2.6.0",
+    "@tauri-apps/plugin-global-shortcut": "2.3.2",
+    "@tauri-apps/plugin-window-state": "2.4.1",
     "highlight.js": "^11.11.1",
     "marked": "^18.0.4",
     "marked-highlight": "^2.2.4"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
+    "@tauri-apps/cli": "2.6.2",
     "@vitest/ui": "^2.1.8",
     "happy-dom": "^15.11.7",
     "typescript": "^5.9.3",
