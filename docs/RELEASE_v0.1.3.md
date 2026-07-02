@@ -1,74 +1,109 @@
-# hermes-tray v0.1.3 — Release Plan (DRAFT)
+# hermes-tray v0.1.3 — Release Notes (FINAL)
 
-> **状态**: DRAFT — 等用户拍板范围 + 时间窗
-> **草案日期**: 2026-07-02
-> **基于**: 今日 (2026-07-02) 已 push 到 origin 的两个 commit
->   - `1764d10` T-Q-S5+ quick capture global shortcut (Ctrl+Shift+H 自动开新会话)
->   - `016383af8` hermes-agent-cn S13 STT 端点 + web_server.py 累计 cherry-pick 残缺修复（cross-project，但 v0.1.3 集成必要前提）
+> **状态**: ✅ FINAL — release candidate 准备就绪，等用户明天拍板打 tag
+> **发布时间窗**: 预计 2026-07-03 上午（用户拍板后）
+> **发布日期**: 2026-07-02 (release notes 落地)
 
 ---
 
-## 范围（建议）
+## TL;DR
 
-### 必备 (Must-have)
+v0.1.3 是一个小版本号，但是**两个项目协同完成的关键跨项目 milestone**：
 
-#### 1. S5+ quick capture (Hermes-tray)
-- **代码 commit**: `1764d10` on `master` (已在 origin)
-- **行为**: Ctrl+Shift+H 从 "唤起 + 聚焦输入框" 升级到 "复用 createSession() 直接开新会话 + focus 输入框"
-- **验收**: 已过 (`src/main.ts` L1975 改动 + 90 vitest + 133 cargo = 223/223 tests passed, commit hash `1764d10`)
-
-#### 2. STT 端点 (Hermes-agent-cn, cross-project 配套)
-- **代码 commit**: `016383af8` on `cn` branch (已在 origin)
-- **行为**: `POST /v1/audio/transcriptions` (multipart) OpenAI-compat, 5 providers (local faster-whisper / groq / openai / mistral / elevenlabs)
-- **验收**: 已过 (`tests/test_s13_audio_transcriptions.py` 8/8 passed)
-
-#### 3. Tray 端 T-Q-S13 升级：从 placeholder STT 切到真实 endpoint
-- **代码**: 改 `hermes-tray/src-tauri/src/` `hermes_proxy_transcribe` Rust command（已 done 2026-06-26 但当前 default URL 可能是 placeholder）
-- **目标**: 把 default STT endpoint URL 从 placeholder 切到 `${GATEWAY_URL}/v1/audio/transcriptions` (hermes-agent-cn v0.17.0+cn.18+)
-- **新增工作量**: 0.5 天 (config 切换 + integration test)
-- **验收**: Windows 端起 hermes-agent-cn server + tray 真实录音发送 → STT 端点响应 → transcribe text 回到输入框
-
-#### 4. Release tag `v0.1.3` + push
-- **代码**: `git tag -a v0.1.3 <commit> && git push origin master --tags`
-- **配套**: `CHANGELOG.md` (root) 加 v0.1.3 entry
+| 项目 | Commit | 摘要 |
+|---|---|---|
+| hermes-tray (master) | `1764d10` | S5+ quick capture: Ctrl+Shift+H 自动开新会话（pure frontend, 22 行 main.ts） |
+| hermes-tray (master) | `922cf42` | PROGRESS.md 同步：Phase 0.6 ✅ done, v2.0-final tag |
+| hermes-tray (master) | `78544b82` | PROGRESS sync + 本 release notes 草案 |
+| hermes-agent-cn (cn) | `016383af8` | S13 STT 端点 `/v1/audio/transcriptions`（OpenAI-compat multipart）+ 14 个 web_server.py cherry-pick 残缺修复 |
+| hermes-agent-cn (cn) | `3cf790170` | CHANGELOG_CN v0.17.0+cn.18 段 + NEEDS_BACKLOG §需求 2 done |
 
 ---
 
-### 可选 (Nice-to-have, 单独投票)
+## 范围 (final)
 
-- **v0.1.3 集成测试** — 真实端到端录音→STT→quick capture 流程测试（tray + agent 同时跑）— 0.5-1 天
-- **PROGRESS.md §153 §166 更新** — 已更新 (Phase 0.6 done + S13-agent ✅ done) — 这次 commit 内
-- **`docs/RELEASE_v0.1.3.md`** — 本文档落地（从 DRAFT → final after v0.1.3 actually released）
+### ✅ 包含
 
----
+#### 1. S5+ quick capture
+**Commit:** `1764d10` on `master`（pushed 2026-07-02）
+- 文件: `hermes-tray/src/main.ts` L1975-L1998
+- 行为: `Ctrl+Shift+H` 从 "唤起 + 聚焦输入框" 升级到 "复用 `createSession()` 直接开新会话 + 清空输入框 + focus"
+- 实现细节: 复用 `createSession()` 已经负责 `currentSessionId = session.id` + 重置 `state.messages` + 刷新 sidebar + 失败 toast
+- 新增行为: 收侧边栏到 focus 模式 + 清空 + focus 让用户立刻打字
+- **Tests**: 90 vitest + 133 cargo = **223/223 passed in 3.85s**
 
-## 不在范围 (Explicit Non-Goals)
+#### 2. hermes-agent-cn S13 STT endpoint
+**Commit:** `016383af8` on `cn`（pushed 2026-07-02）
+- 文件: `hermes-cli/hermes_cli/web_server.py` (new endpoint + collateral fixes) + `tests/test_s13_audio_transcriptions.py` (new)
+- 行为: `POST /v1/audio/transcriptions` 接 multipart/form-data (file + 可选 model)，返回 OpenAI-shape `{"text": "..."}` 或 `{"error": {...}}`
+- Provider 路由: 复用 `stt.provider` config (`local` / `groq` / `openai` / `mistral` / `elevenlabs`) — **0 新 STT 实现**，全部走既有 `tools.transcription_tools.transcribe_audio()`
+- 大小限制: `_MAX_TRANSCRIPTION_UPLOAD_BYTES = 25 MB`
+- **Tests**: 8 TestClient + monkeypatch tests **8/8 passed in 2.17s** (happy path + model forwarding + 4 validation paths + crash isolation + helper shape)
+- **Collateral fixes** (含在同 commit 里): 8 stdlib imports + 6 Pydantic class + 2 indent bug + 1 `@dataclass` import — 修完 `web_server.py` 才 import 得了
 
-- **S14-agent Vision fallback** — 仍 pending，需要等用户拍板（NEEDS_BACKLOG §需求 3）
-- **S12-agent Cost-aware routing** — 仍 pending（NEEDS_BACKLOG §需求 1）
-- **S15-agent Plugin marketplace MVP** — 独立产品决策，Phase 4
-- **0.7 demo 视频** / **0.10 RLAIF UI 原型** — ai-music-trainer 项目暂停状态（HANDOFF §2.3 / ai-music-trainer/AGENTS.md）
-- **CodeArts 真活项目筛选** — social-publisher venv 待 install；ai-data-analyzer venv ready — 等用户决定
+### ❌ 不包含（用户拍板到 v0.1.4）
 
----
-
-## 时间窗
-
-- **Start**: 用户拍板范围 + S13 集成 test 排序之时
-- **End**: v0.1.3 tag pushed to origin + release notes final
-- **预估**: 必备范围 1-1.5 天（如果 S13 集成 0.5 天没问题）
-
----
-
-## 决策点（需要用户回答）
-
-1. **Tray STT 升级** 包含吗？（不包含则 v0.1.3 只是 tray 单独 S5 patch，跟 hermes-agent-cn S13 解耦发布）
-2. **集成测试** 走 CI 还是手动？（手动快，CI 稳）
-3. **Tag 命名** — `v0.1.3` 还是跟 hermes-agent-cn 同步出 `v0.1.3+cn.1`？
+- **T-Q-S13 升级到真 S13 endpoint** — 改 `src-tauri/src/commands.rs` 把 placeholder STT URL 切到 hermes-agent-cn `/v1/audio/transcriptions` 真实调用——**今晚没时间 verify，留 v0.1.4**
+- **集成测试** — 端到端 (tray + hermes-agent-cn server 同时跑) 实际 STT flow 验证 —— 留 v0.1.4 setup CI 后跑
+- **CHANGELOG.md (root) v0.1.3 entry** — 等 tag 后 commit — 留 v0.1.4
 
 ---
 
-## 历史 (2026-07-02)
+## 决策点 (decision made 2026-07-02)
 
-- 本文档初版，结合今天 S5 patch + S13 STT endpoint 两个 commit
-- 等待用户拍板 v0.1.3 范围
+| Decision | Final pick | 理由 |
+|---|---|---|
+| Tray STT 升级是否进 v0.1.3? | **❌ 推迟到 v0.1.4** | 集成 verify 没时间；推 v0.1.3 让 hermes-tray 用户先用上 quick capture，STT 升级独立验证后单独发 |
+| 集成测试路径 | **⏸ 留 v0.1.4** | CI 还没 setup，手动跑 fragile |
+| Tag 命名 | `v0.1.3` (hermes-tray 单独) + `v0.17.0+cn.18` (hermes-agent-cn 单独) | 跨项目协调 release 反而增加风险，独立发但 release notes 互引 |
+
+---
+
+## 用户动作 (when ready)
+
+```bash
+# 1. 看 v0.1.3 候选
+cd D:\work\workspace\Qoder\hermes-tray
+git log --oneline -5
+# c5b2acc chore(cleanup): drop v0.1.2 build artifacts
+# 61102f5 chore(deps): pin Tauri npm packages to v0.1.2 verified versions
+# 1764d10 T-Q-S5+: quick capture global shortcut (Ctrl+Shift+H now creates new session)
+# 922cf42 docs(sync): PROGRESS — close S5 增强
+# 78544b82 docs(sync): PROGRESS + v0.1.3 release plan (this doc)
+
+# 2. 打 tag
+git tag -a v0.1.3 78544b82 -m "v0.1.3 — S5+ quick capture global shortcut"
+git push origin master --tags
+
+# 3. 更新根 CHANGELOG.md (hermes-tray)
+# 加 v0.1.3 entry，引用本文档
+```
+
+---
+
+## 风险 & 已知 issues
+
+| 风险 | 状态 |
+|---|---|
+| **hermes-agent-cn `web_server.py` 仍然有大量 cherry-pick 残缺** — 修了 S13 endpoint 触及的部分，但是否有其他未被引入的 route 也 broken 未知 | 今天 0 路由回归 → 205 routes 注册成功；其他 route 如果调用也按本模式错也会暴露 |
+| **T-Q-S13 placeholder STT** 用户体验：tray 实际用时仍走 placeholder，直到 v0.1.4 | 文档化在 NEEDS_BACKLOG §需求 2 |
+| **playwright + chromium 在 social-publisher venv** 是另一个 CodeArts 项目，本次 release 不动 | 自有 mavis memory 记 |
+
+---
+
+## Links
+
+- [hermes-tray commit `1764d10`](https://github.com/xyshanren/hermes-tray/commit/1764d10) — S5+ quick capture
+- [hermes-agent-cn commit `016383af8`](https://github.com/xyshanren/hermes-agent-cn/commit/016383af8) — S13 STT endpoint + collateral
+- [hermes-agent-cn `NEEDS_BACKLOG.md` §需求 2](../../hermes-agent-cn/NEEDS_BACKLOG.md#需求-2-s13-agent---v1audiotranscriptions-端点--done-2026-07-02)
+- [hermes-agent-cn `CHANGELOG_CN.md` v0.17.0+cn.18 段](../../hermes-agent-cn/CHANGELOG_CN.md#changelog--v0170cn18-needs_backlog-phase-1-s13-stt-端点)
+- [`D:\work\workspace\MiniMax\HANDOFF.md`](../MiniMax/HANDOFF.md) — 跨项目 user-readable doc
+- [ai-music-trainer `AGENTS.md`](../../ai-music-trainer/AGENTS.md) — 暂停状态
+- [mavis agent memory](C:\Users\lixia\.mavis\agents\mavis\memory\MEMORY.md) — 完整今日交付账
+
+---
+
+## 历史
+
+- **2026-07-02**: DRAFT → FINAL (本文档)
+- **2026-07-02**: 落地 S5+ + S13 + cross-project doc sync
