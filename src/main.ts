@@ -1972,16 +1972,26 @@ window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('backup-verify-btn')?.addEventListener('click', () => { void handleBackupVerify(); });
   document.getElementById('backup-restore-btn')?.addEventListener('click', () => { void handleBackupRestore(); });
 
-  // Register global shortcut: Ctrl+Shift+H — show window + focus input
+  // Register global shortcut: Ctrl+Shift+H — quick capture new session
   try {
     await register('Ctrl+Shift+H', async () => {
       const win = getCurrentWindow();
       await win.show();
       await win.setFocus();
+      // T-Q-S5 增强: 复用 createSession() 直接开新会话（其内部已自动
+      // 设 currentSessionId、刷新 messages 显示与侧边栏列表）
+      const newId = await createSession();
+      if (!newId) {
+        console.warn('[GlobalShortcut] createSession returned null');
+        messageInput?.focus();
+        return;
+      }
+      // 收掉侧边栏到 focus 模式、清空输入、focus 让用户立刻打字
+      if (sidebarVisible) toggleSidebar(false);
+      if (messageInput) messageInput.value = '';
       messageInput?.focus();
-      if (!sidebarVisible) toggleSidebar(true);
     });
-    console.log('[GlobalShortcut] Ctrl+Shift+H registered');
+    console.log('[GlobalShortcut] Ctrl+Shift+H registered (quick capture)');
   } catch (e) {
     console.warn('[GlobalShortcut] Failed to register:', e);
   }
