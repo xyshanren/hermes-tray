@@ -35,11 +35,11 @@ hermes-tray/
 
 ### Open
 
-> **2026-07-01 同步说明**: v0.1.2 (S0-S11) 全 done + v0.1.2+S12-light/S13/S14 多模态全 done + 16a232e cleanup done. v2 路线图 12/15 done (S0-S11 + S12-light/S13/S14), 3 项 agent-side 配套 (S12-agent/S13-agent/S14-agent) 等 hermes-agent-cn NEEDS_BACKLOG 触发, 1 项 dropped (S15 → hermes-agent). 当前真正 open: 1 项 S5 增强 (quick capture) + 等用户装 Rust+Node toolchain 后跑 cargo test / build-test.ps1 验证.
+> **2026-07-02 同步说明**: v0.1.2 (S0-S11) 全 done + v0.1.2+S12-light/S13/S14 多模态全 done + 16a232e cleanup done + S5+ quick capture done (commit 1764d10). v2 路线图 12/15 done (S0-S11 + S12-light/S13/S14), 3 项 agent-side 配套 (S12-agent/S13-agent/S14-agent) 等 hermes-agent-cn NEEDS_BACKLOG 触发, 1 项 dropped (S15 → hermes-agent). 当前真正 open: 0 项 + 等用户装 Rust+Node toolchain 后跑 cargo test / build-test.ps1 验证.
 
 | # | 分类 | 文件 | 描述 | 目标 |
 |---|------|------|------|------|
-| 1 | 后端 热键 | `src-tauri/src/lib.rs` | Quick capture: 全局热键直接开新会话输入框 (不只是唤起) | T-Q-S5 增强 |
+| - |  |  | 目前暂无 open task。 |  |
 
 ### In Progress
 
@@ -153,6 +153,7 @@ hermes-tray/
 ### v2.0 进阶 — T-Q-S5+
 
 - [x] **T-Q-S5**: 全局热键 Ctrl+Shift+H 唤起/聚焦窗口
+- [x] **T-Q-S5+**: quick capture — Ctrl+Shift+H 现在自动开新会话 (复用 createSession()，自动切会话/清空输入/focus) — commit `1764d10` ✅ 2026-07-02 (90 vitest + 133 cargo = 223/223 tests pass)
 - [x] **T-Q-S6**: 托盘快速操作 (新建会话 / 续上次 / 搜索) — 1d ✅ 2026-06-26
 - [x] **T-Q-S7**: Persona 库 + 默认 persona picker — 1d ✅ 2026-06-26
 - [x] **T-Q-S8**: 项目上下文感知 (CWD 扫描 + 自动注入 system prompt) — 1d ✅ 2026-06-26
