@@ -17,6 +17,7 @@ Thumbs.db
 
 # Logs
 *.log
+*.err
 
 # Test artifacts
 test-output-*.txt
