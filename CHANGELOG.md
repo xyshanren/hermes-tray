@@ -6,6 +6,19 @@
 
 ---
 
+## v0.1.5 (2026-07-03)
+
+**S12 metadata 增强 — 7 个新 stats tile + by_rule breakdown + per-turn CLI bar** — 配合 hermes-agent-cn NEEDS_BACKLOG §需求 1 (commits `a192442d8` + `b49ef1a31`) 收尾 S12 P3 (tray T-Q-S9 真值替换)。
+- **真实 cost 落地**: SSE `usage.cost_estimate_usd` 顶层真值 + `routing_decision.cost_threshold_exceeded` 写到 `messages.cost_estimate_usd REAL` + `cost_threshold_exceeded INTEGER` 单独列 (schema v4 迁移); 同样字段镜像到 `messages.metadata` JSON blob 给 legacy json_extract 读者.
+- **7 个新 stats tile**: 本月 Cost (S12 真值 / 预估成本自动切换 label) / Fallback 命中率 / 平均 Latency / Cost Threshold 触发 — 4 个 S12 新 tile + S14 已有 2 个 + 1 个原有 = 7 个 new total surface; 4 个新 aggregate 走 `compute_token_stats` 一次扫表, 不开新 Tauri command.
+- **By Rule breakdown**: `routing_decision.rule_id` group by, 命中数 / 成本 (USD), hit_count DESC; pre-S12 messages bucket 到 `no_rule`.
+- **Per-turn CLI bar**: assistant 消息下方一行 muted 文字 `💰 $0.0234 · ⏱ 3.4s · 🛡 vision_fallback_config`; threshold breach 加 `message-bar-warn` CSS class (amber). 缺数据时不显示 (pre-S12 message 无 bar).
+- **123 vitest + 150 cargo 测试 pass** (16 new: 4 backend S12 + 12 messageBar). cargo fmt + clippy -D warnings clean.
+
+Full notes: [docs/RELEASE_v0.1.5.md](./blob/v0.1.5/docs/RELEASE_v0.1.5.md)
+
+---
+
 ## v0.1.4 (2026-07-03)
 
 **S14-agent 集成 — image_tokens + routing_decision + 多图 UI 提示** — 配合 hermes-agent-cn NEEDS_BACKLOG §需求 3 (commits `a716f33e6` + `125cc93c0` + `8882270e7`) 收尾。
