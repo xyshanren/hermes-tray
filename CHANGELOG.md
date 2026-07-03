@@ -6,6 +6,19 @@
 
 ---
 
+## v0.1.4 (2026-07-03)
+
+**S14-agent 集成 — image_tokens + routing_decision + 多图 UI 提示** — 配合 hermes-agent-cn NEEDS_BACKLOG §需求 3 (commits `a716f33e6` + `125cc93c0` + `8882270e7`) 收尾。
+- **真实 usage 落地**: SSE `usage` chunk 现在被消费，tray 把 `prompt_tokens + completion_tokens` 写回 `messages.tokens`（替换之前的 char/4 启发式），session `total_tokens` 跟着 delta 调整。
+- **图片 cost 可视化**: stats modal 加 "图片 Token (S14)" tile + "最近 Vision" trace（`vision native: openai/gpt-5` / `vision fallback: anthropic/claude-opus-4-6 (primary primary_unavailable)` + `3.4s` latency badge）。
+- **多图 UI 提示**: 用户拖图达到 `max - 2` (4-2=2) 时显示 info toast 提示用 vision_analyze 预生成描述，超过 max 仍 block 提交。
+- **数据层**: `messages.metadata` JSON blob 复用（之前 unused），`record_usage` Tauri command + Rust `MessageDao::record_usage` 增量更新 image_tokens / routing_decision / elapsed_ms。
+- **111 vitest + 14 cargo 测试 pass**（4 new multimodal scenarios 1/4/16/50 + 9 attachmentLimit + 8 routingTrace + 4 record_usage）。
+
+Full notes: [docs/RELEASE_v0.1.4.md](./blob/v0.1.4/docs/RELEASE_v0.1.4.md)
+
+---
+
 ## v0.1.3 (2026-07-03)
 
 **S5+ quick capture global shortcut** — `Ctrl+Shift+H` 现在直接开新会话（不只是唤起），复用 `createSession()` 路径。

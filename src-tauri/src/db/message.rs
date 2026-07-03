@@ -65,16 +65,15 @@ fn merge_usage_metadata(
     if let Some(rd) = routing_decision_json {
         // Parse and re-serialise so downstream readers always get a JSON
         // object even if the agent pushed a stringified form.
-        let rd_value: serde_json::Value = serde_json::from_str(rd)
-            .unwrap_or_else(|_| serde_json::Value::String(rd.to_string()));
+        let rd_value: serde_json::Value =
+            serde_json::from_str(rd).unwrap_or_else(|_| serde_json::Value::String(rd.to_string()));
         obj.insert("routing_decision".to_string(), rd_value);
     }
     if let Some(ms) = elapsed_ms {
         obj.insert("elapsed_ms".to_string(), serde_json::json!(ms));
     }
 
-    serde_json::to_string(&base)
-        .map_err(|e| DbError::Invalid(format!("serialize metadata: {e}")))
+    serde_json::to_string(&base).map_err(|e| DbError::Invalid(format!("serialize metadata: {e}")))
 }
 
 pub struct MessageDao<'a> {

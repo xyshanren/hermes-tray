@@ -337,10 +337,7 @@ fn message_record_usage_preserves_existing_metadata() {
         let conn = pool.get().expect("conn");
         conn.execute(
             "UPDATE messages SET metadata = ?1 WHERE id = ?2",
-            rusqlite::params![
-                r#"{"attachments":[{"name":"x.png","size":1024}]}"#,
-                m.id
-            ],
+            rusqlite::params![r#"{"attachments":[{"name":"x.png","size":1024}]}"#, m.id],
         )
         .expect("seed metadata");
     }
@@ -372,7 +369,11 @@ fn message_record_usage_does_not_underflow_session_total() {
         .append(&s.id, "assistant", "this is thirty six chars, hi", None)
         .expect("append");
     // "this is thirty six chars, hi" is 30 chars -> 30/4 = 7.
-    assert!(m.tokens >= 5, "heuristic for 30 chars should be >= 5, got {}", m.tokens);
+    assert!(
+        m.tokens >= 5,
+        "heuristic for 30 chars should be >= 5, got {}",
+        m.tokens
+    );
 
     // Real usage is way lower than the heuristic.
     dao.message()
@@ -383,8 +384,6 @@ fn message_record_usage_does_not_underflow_session_total() {
     assert!(s2.total_tokens >= 0, "total_tokens must never go negative");
 }
 
-fn dao_pool(
-    db: &hermes_tray_tauri_lib::db::pool::Db,
-) -> hermes_tray_tauri_lib::db::DbPool {
+fn dao_pool(db: &hermes_tray_tauri_lib::db::pool::Db) -> hermes_tray_tauri_lib::db::DbPool {
     db.pool().clone()
 }

@@ -208,12 +208,10 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
              ORDER BY m.created_at DESC LIMIT 1",
         )
         .map_err(|e| e.to_string())?;
-    if let Ok(row) = routing_stmt
-        .query_row([start_ms], |row| {
-            let metadata: Option<String> = row.get(0)?;
-            Ok(metadata.unwrap_or_default())
-        })
-    {
+    if let Ok(row) = routing_stmt.query_row([start_ms], |row| {
+        let metadata: Option<String> = row.get(0)?;
+        Ok(metadata.unwrap_or_default())
+    }) {
         if !row.is_empty() {
             // Stash the raw JSON string; the frontend parses and renders.
             // We deliberately pass through the entire metadata blob so
