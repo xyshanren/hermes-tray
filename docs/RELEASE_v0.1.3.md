@@ -1,7 +1,7 @@
 # hermes-tray v0.1.3 — Release Notes (FINAL)
 
-> **状态**: ✅ FINAL — release candidate 准备就绪，等用户明天拍板打 tag
-> **发布时间窗**: 预计 2026-07-03 上午（用户拍板后）
+> **状态**: ✅ FINAL — release candidate 准备就绪，明天打 tag
+> **发布时间窗**: 预计 2026-07-03 上午（决策后）
 > **发布日期**: 2026-07-02 (release notes 落地)
 
 ---
@@ -41,7 +41,7 @@ v0.1.3 是一个小版本号，但是**两个项目协同完成的关键跨项�
 - **Tests**: 8 TestClient + monkeypatch tests **8/8 passed in 2.17s** (happy path + model forwarding + 4 validation paths + crash isolation + helper shape)
 - **Collateral fixes** (含在同 commit 里): 8 stdlib imports + 6 Pydantic class + 2 indent bug + 1 `@dataclass` import — 修完 `web_server.py` 才 import 得了
 
-### ❌ 不包含（用户拍板到 v0.1.4）
+### ❌ 不包含（决策到 v0.1.4）
 
 - **T-Q-S13 升级到真 S13 endpoint** — 改 `src-tauri/src/commands.rs` 把 placeholder STT URL 切到 hermes-agent-cn `/v1/audio/transcriptions` 真实调用——**今晚没时间 verify，留 v0.1.4**
 - **集成测试** — 端到端 (tray + hermes-agent-cn server 同时跑) 实际 STT flow 验证 —— 留 v0.1.4 setup CI 后跑

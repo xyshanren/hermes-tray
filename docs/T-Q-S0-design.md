@@ -444,7 +444,7 @@ tempfile = "3"
 4. ✅ Bundled SQLite (避免系统依赖, 同 ffmpeg-sys-next 思路)
 
 **T-V2 触发**:
-- T-Q-S11 (加密备份) - 加密策略需用户拍板
+- T-Q-S11 (加密备份) - 加密策略 待决策
 - T-Q-S15 (插件系统) - Tauri plugin vs JS plugin 需拍板
 
 **Maintainer**: Mavis (Architect + Planner)

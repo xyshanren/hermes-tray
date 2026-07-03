@@ -35,7 +35,7 @@ hermes-tray/
 
 ### Open
 
-> **2026-07-02 同步说明**: v0.1.2 (S0-S11) 全 done + v0.1.2+S12-light/S13/S14 多模态全 done + 16a232e cleanup done + S5+ quick capture done (commit 1764d10). v2 路线图 12/15 done (S0-S11 + S12-light/S13/S14), 3 项 agent-side 配套 (S12-agent/S13-agent/S14-agent) 等 hermes-agent-cn NEEDS_BACKLOG 触发, 1 项 dropped (S15 → hermes-agent). 当前真正 open: 0 项 + 等用户装 Rust+Node toolchain 后跑 cargo test / build-test.ps1 验证.
+> **2026-07-02 同步说明**: v0.1.2 (S0-S11) 全 done + v0.1.2+S12-light/S13/S14 多模态全 done + 16a232e cleanup done + S5+ quick capture done (commit 1764d10). v2 路线图 12/15 done (S0-S11 + S12-light/S13/S14), 3 项 agent-side 配套 (S12-agent/S13-agent/S14-agent) 等 hermes-agent-cn NEEDS_BACKLOG 触发, 1 项 dropped (S15 → hermes-agent). 当前真正 open: 0 项 + 等 Rust+Node toolchain 装好后跑 cargo test / build-test.ps1 验证.
 
 | # | 分类 | 文件 | 描述 | 目标 |
 |---|------|------|------|------|
