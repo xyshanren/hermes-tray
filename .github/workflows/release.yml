@@ -54,9 +54,20 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
+          # tauri-action builds both msi AND nsis on windows-latest,
+          # and also drops a portable `hermes-tray-tauri.exe` at
+          # `target/release/`. The matrix only requests `bundle: msi`
+          # so the per-OS upload glob above would skip nsis and the
+          # portable. v0.1.4 hand-rolled the upload via `gh release
+          # upload` to cover the gap; v0.1.5+ is the first CI-only
+          # release so we make CI actually produce all 3 Windows
+          # bundles. The `${{ ... || '' }}` resolves to an empty
+          # string on non-windows matrix entries, which is a noop glob.
           name: tauri-${{ matrix.os }}
           path: |
             src-tauri/target/release/bundle/${{ matrix.bundle }}/**/*
+            ${{ matrix.os == 'windows-latest' && 'src-tauri/target/release/bundle/nsis/*' || '' }}
+            ${{ matrix.os == 'windows-latest' && 'src-tauri/target/release/hermes-tray-tauri.exe' || '' }}
 
   # ── Create GitHub Release ──────────────────────────────────────────
   release:
