@@ -136,6 +136,32 @@ interface TokenStats {
   total_image_tokens: number;
   recent_routing_decision: string | null;
   recent_elapsed_ms: number | null;
+  // ── v0.1.5 S12 cost-aware routing aggregates ─────────────────────────
+  // Real USD cost (sum of messages.cost_estimate_usd) for the period.
+  // Replaces the char/4 cost projection in the "预估成本" tile as
+  // messages with S12 cost data accumulate.
+  period_cost_total_usd: number;
+  // Fallback hit rate in [0.0, 1.0]. Of messages that carried a
+  // routing_decision in the period, the fraction that fired a
+  // fallback. 0.0 when no messages in the period carry a routing
+  // decision (pre-S12 / pre-S14).
+  fallback_hit_rate: number;
+  // Average wall-clock latency (ms) across the period, from
+  // messages.metadata.elapsed_ms. 0.0 when no messages in the
+  // period carry elapsed_ms.
+  avg_latency_ms: number;
+  // Count of messages where S12 cost-aware fallback flagged a budget
+  // breach (cost_threshold_exceeded = 1). Surfaces silent overruns.
+  cost_threshold_count: number;
+  // Per-rule breakdown. `rule_id` from routing_decision.rule_id;
+  // sorted by hit_count DESC.
+  by_rule: RuleBucket[];
+}
+
+interface RuleBucket {
+  rule_id: string;
+  hit_count: number;
+  cost_total: number;
 }
 
 interface DbMessage {
@@ -984,6 +1010,27 @@ function renderStatsModal(): void {
   // took. Empty string -> the JSX conditional hides the block.
   const routingTrace = formatRoutingTrace(s.recent_routing_decision ?? null);
   const latencyBadge = formatLatencyMs(s.recent_elapsed_ms);
+  // v0.1.5 S12: 4 new aggregate tiles + 2 breakdown tables (by model,
+  // by rule). The "本月 Cost" tile uses the S12 real value when it's
+  // > 0; otherwise falls back to the char/4 projected `total_cost` so
+  // pre-S12 DBs still render something useful. The label flips between
+  // "本月 Cost (S12)" and "预估成本" depending on which path is active.
+  const costTotalUsd = s.period_cost_total_usd ?? 0;
+  const hasRealCost = costTotalUsd > 0;
+  const costValue = hasRealCost ? costTotalUsd : s.total_cost;
+  const costLabel = hasRealCost ? '本月 Cost (S12)' : '预估成本';
+  const costSub = hasRealCost
+    ? `S12 真实值 · ${s.by_model.length} 个模型`
+    : `基于 ${s.by_model.length} 个模型`;
+  // Fallback hit rate as integer percent (0-100). null/undefined guard.
+  const fallbackPct = Math.round((s.fallback_hit_rate ?? 0) * 100);
+  // Avg latency in seconds, 1 decimal. ms → s, 0 if no data.
+  const avgLatencySec = (s.avg_latency_ms ?? 0) > 0
+    ? ((s.avg_latency_ms ?? 0) / 1000).toFixed(1)
+    : '0.0';
+  // Cost threshold count — show "0 次" when nothing tripped, since
+  // "—" would be visually confusing next to the integer tile siblings.
+  const thresholdCount = s.cost_threshold_count ?? 0;
   body.innerHTML = `
     <div class="stats-period-tabs">
       ${(['day', 'week', 'month', 'all'] as const).map(p =>
@@ -999,9 +1046,9 @@ function renderStatsModal(): void {
         <div class="stats-totals-sub">↑ ${formatTokens(s.total_input_tokens)} / ↓ ${formatTokens(s.total_output_tokens)}</div>
       </div>
       <div class="stats-totals-cell">
-        <div class="stats-totals-label">预估成本</div>
-        <div class="stats-totals-value">${formatCost(s.total_cost)}</div>
-        <div class="stats-totals-sub">基于 ${s.by_model.length} 个模型</div>
+        <div class="stats-totals-label">${escapeHtml(costLabel)}</div>
+        <div class="stats-totals-value">${formatCost(costValue)}</div>
+        <div class="stats-totals-sub">${escapeHtml(costSub)}</div>
       </div>
       <div class="stats-totals-cell">
         <div class="stats-totals-label">消息 / 会话</div>
@@ -1021,6 +1068,23 @@ function renderStatsModal(): void {
         <div class="stats-totals-sub">${escapeHtml(latencyBadge || '')}</div>
       </div>
     </div>
+    <div class="stats-totals">
+      <div class="stats-totals-cell">
+        <div class="stats-totals-label">Fallback 命中率 (S12)</div>
+        <div class="stats-totals-value">${fallbackPct}%</div>
+        <div class="stats-totals-sub">已 fallback / 已路由</div>
+      </div>
+      <div class="stats-totals-cell">
+        <div class="stats-totals-label">平均 Latency (S12)</div>
+        <div class="stats-totals-value">${avgLatencySec}s</div>
+        <div class="stats-totals-sub">来自 elapsed_ms 平均</div>
+      </div>
+      <div class="stats-totals-cell">
+        <div class="stats-totals-label">Cost Threshold 触发</div>
+        <div class="stats-totals-value">${thresholdCount}</div>
+        <div class="stats-totals-sub">${thresholdCount > 0 ? '预算超支次数' : '本周期内无超支'}</div>
+      </div>
+    </div>
     <div class="stats-chart-section">
       <h3>每日 Token 用量</h3>
       ${renderChartSvg(s.daily)}
@@ -1038,6 +1102,21 @@ function renderStatsModal(): void {
                 <td>${formatTokens(m.input_tokens)}</td>
                 <td>${formatTokens(m.output_tokens)}</td>
                 <td>${formatCost(m.cost)}</td>
+              </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="stats-models-section">
+      <h3>By Rule (S12)</h3>
+      <table class="stats-models-table">
+        <thead><tr><th>规则</th><th>命中数</th><th>成本 (USD)</th></tr></thead>
+        <tbody>
+          ${(s.by_rule ?? []).length === 0
+            ? '<tr><td colspan="3" class="stats-empty">暂无 routing_decision 数据</td></tr>'
+            : (s.by_rule ?? []).map(r => `<tr>
+                <td>${escapeHtml(r.rule_id)}</td>
+                <td>${r.hit_count}</td>
+                <td>${formatCost(r.cost_total)}</td>
               </tr>`).join('')}
         </tbody>
       </table>
@@ -2313,6 +2392,67 @@ function handleStreamChunk(payload: string) {
   }
 }
 
+/**
+ * v0.1.5 S12: turn the per-turn routing telemetry into the one-line
+ * "CLI bar" text. Format:
+ *   💰 $0.0234 · ⏱ 3.4s · 🛡 vision_fallback_config
+ *
+ * Pure function so it can be unit-tested without a DOM. Each section
+ * is appended in fixed order (cost → latency → rule) and only when
+ * the field has a meaningful value, so pre-S12 messages that have no
+ * telemetry get a single missing segment (or nothing) rather than a
+ * half-empty bar.
+ *
+ * Returns the formatted string, or null when none of the three
+ * fields has a meaningful value (e.g. a pre-S12 message) — the
+ * caller can then skip appending a bar at all.
+ */
+export function formatMessageBar(args: {
+  costUsd: number;
+  elapsedMs: number | null;
+  ruleId: string | null;
+  costThresholdExceeded: boolean;
+}): string | null {
+  const parts: string[] = [];
+  if (args.costUsd > 0) {
+    parts.push(`💰 $${args.costUsd.toFixed(4)}`);
+  }
+  if (args.elapsedMs != null && args.elapsedMs > 0) {
+    // Reuse formatLatencyMs from the routing-trace helper.
+    parts.push(`⏱ ${formatLatencyMs(args.elapsedMs)}`);
+  }
+  if (args.ruleId) {
+    parts.push(`🛡 ${args.ruleId}`);
+  } else if (args.costThresholdExceeded) {
+    // Threshold was tripped but the agent didn't surface a rule_id —
+    // surface the breach anyway so the user can see something fired.
+    parts.push(`🛡 cost_threshold_exceeded`);
+  }
+  if (parts.length === 0) return null;
+  return parts.join(' · ');
+}
+
+/**
+ * v0.1.5 S12: DOM wrapper around `formatMessageBar`. Creates the
+ * `<div class="message-bar">` element and adds the `-warn` modifier
+ * when the S12 cost-aware fallback flagged a budget overrun, so
+ * silent overruns are visible without opening the stats modal.
+ */
+function buildMessageBar(args: {
+  costUsd: number;
+  elapsedMs: number | null;
+  ruleId: string | null;
+  costThresholdExceeded: boolean;
+}): HTMLElement | null {
+  const text = formatMessageBar(args);
+  if (text == null) return null;
+  const div = document.createElement('div');
+  div.className = 'message-bar';
+  if (args.costThresholdExceeded) div.classList.add('message-bar-warn');
+  div.textContent = text;
+  return div;
+}
+
 async function finishStream() {
   if (state.streamContent) {
     state.messages.push({
@@ -2341,6 +2481,19 @@ async function finishStream() {
               ? detail.image_tokens : 0;
             const routingJson = state.lastStreamRouting != null
               ? JSON.stringify(state.lastStreamRouting) : null;
+            // v0.1.5 S12: real cost (USD) + cost-aware fallback flag.
+            // - cost_estimate_usd is pushed at the top level of the usage
+            //   payload by the agent (replaces the char/4 projection).
+            // - cost_threshold_exceeded lives inside routing_decision
+            //   (mirrors the S12 RoutingDecision dataclass field).
+            // - rule_id is the S12 routing rule that fired (e.g.
+            //   "vision_fallback_config"), used for the CLI bar.
+            const costUsd = typeof usage.cost_estimate_usd === 'number'
+              ? usage.cost_estimate_usd : 0;
+            const routingObj = (state.lastStreamRouting ?? {}) as Record<string, unknown>;
+            const costThresholdExceeded = routingObj.cost_threshold_exceeded === true;
+            const ruleId = typeof routingObj.rule_id === 'string'
+              ? routingObj.rule_id : null;
             await invoke('message_record_usage', {
               id: appended.id,
               promptTokens: usage.prompt_tokens,
@@ -2348,7 +2501,24 @@ async function finishStream() {
               imageTokens,
               routingDecisionJson: routingJson,
               elapsedMs: state.lastStreamElapsedMs ?? null,
+              costEstimateUsd: costUsd,
+              costThresholdExceeded,
             });
+            // v0.1.5 S12 CLI bar: render the per-turn cost / latency /
+            // rule summary as a one-liner under the assistant message.
+            // We attach it to the parent .message.assistant element (not
+            // the content div) so it sits BELOW the markdown body and
+            // stays in place across future re-renders.
+            const barParent = state.streamElement?.parentElement;
+            if (barParent) {
+              const bar = buildMessageBar({
+                costUsd,
+                elapsedMs: state.lastStreamElapsedMs,
+                ruleId,
+                costThresholdExceeded,
+              });
+              if (bar) barParent.appendChild(bar);
+            }
           }
         } catch (e) {
           console.error('[DB] save assistant msg failed:', e);

@@ -365,6 +365,36 @@ html, body {
   }
 }
 
+/* v0.1.5 S12: per-turn CLI bar under the assistant message.
+   Shows cost (💰 USD), latency (⏱ s) and the routing rule (🛡 id) in
+   one muted line so the user sees the per-turn routing cost at a
+   glance without opening the stats modal. The `-warn` variant flips
+   the colour when the S12 cost-aware fallback flagged a budget
+   breach, so silent overruns are still visible. */
+.message-bar {
+  margin-top: 6px;
+  margin-left: 56px; /* align with the content area, past the avatar */
+  font-size: 0.75em;
+  color: var(--text-muted, #6b7280);
+  font-family: var(--mono-font, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  letter-spacing: 0.02em;
+  user-select: text;
+}
+
+.message-bar-warn {
+  color: var(--warn, #b45309);
+  font-weight: 500;
+}
+
+@media (prefers-color-scheme: dark) {
+  .message-bar {
+    color: var(--text-muted-dark, #9ca3af);
+  }
+  .message-bar-warn {
+    color: #fbbf24;
+  }
+}
+
 /* Typing indicator */
 .typing-indicator {
   display: flex;
