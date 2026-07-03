@@ -130,10 +130,18 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
     let mut total_output: i64 = 0;
     let mut total_msgs: i64 = 0;
     let mut total_sessions: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // S14-agent: image_tokens is stored on messages.metadata (JSON blob).
+    // We pull it via json_extract and sum across the period. The most
+    // recent routing_decision + elapsed_ms come from the latest message
+    // that has them set (LIMIT 1 by created_at DESC).
+    let mut total_image_tokens: i64 = 0;
+    let mut recent_routing: Option<String> = None;
+    let mut recent_elapsed: Option<i64> = None;
 
     let mut stmt = conn
         .prepare(
-            "SELECT m.session_id, m.role, m.tokens, m.created_at, COALESCE(s.model, 'unknown') \
+            "SELECT m.session_id, m.role, m.tokens, m.created_at, COALESCE(s.model, 'unknown'), \
+                    COALESCE(json_extract(m.metadata, '$.image_tokens'), 0) \
              FROM messages m \
              LEFT JOIN sessions s ON s.id = m.session_id \
              WHERE m.created_at >= ?1",
@@ -147,11 +155,13 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
                 row.get::<_, i64>(2)?,
                 row.get::<_, i64>(3)?,
                 row.get::<_, String>(4)?,
+                row.get::<_, i64>(5)?,
             ))
         })
         .map_err(|e| e.to_string())?;
     for row in rows {
-        let (session_id, role, tokens, created_at, model) = row.map_err(|e| e.to_string())?;
+        let (session_id, role, tokens, created_at, model, image_tokens) =
+            row.map_err(|e| e.to_string())?;
         // UTC date bucket. Unix epoch days = created_at / 86_400_000.
         let day_unix = created_at / 86_400_000;
         let date = unix_days_to_ymd(day_unix);
@@ -179,6 +189,50 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
             entry.1 += tokens;
         }
         entry.2 += 1;
+
+        // S14: image_tokens is always a user-attachment cost (the model's
+        // input side), so sum unconditionally across roles.
+        total_image_tokens = total_image_tokens.saturating_add(image_tokens);
+    }
+
+    // S14: pick the most recent routing_decision + elapsed_ms blob from
+    // any message in the period. We do a separate query (not joined into
+    // the main loop) because we only need the latest row, and parsing
+    // json_extract on every row would be wasted work.
+    let mut routing_stmt = conn
+        .prepare(
+            "SELECT m.metadata, m.created_at \
+             FROM messages m \
+             WHERE m.created_at >= ?1 \
+               AND json_extract(m.metadata, '$.routing_decision') IS NOT NULL \
+             ORDER BY m.created_at DESC LIMIT 1",
+        )
+        .map_err(|e| e.to_string())?;
+    if let Ok(row) = routing_stmt
+        .query_row([start_ms], |row| {
+            let metadata: Option<String> = row.get(0)?;
+            Ok(metadata.unwrap_or_default())
+        })
+    {
+        if !row.is_empty() {
+            // Stash the raw JSON string; the frontend parses and renders.
+            // We deliberately pass through the entire metadata blob so
+            // new fields the agent adds later (e.g. tool_call routing)
+            // show up automatically.
+            recent_routing = Some(row);
+        }
+    }
+    let mut elapsed_stmt = conn
+        .prepare(
+            "SELECT json_extract(metadata, '$.elapsed_ms') \
+             FROM messages \
+             WHERE created_at >= ?1 \
+               AND json_extract(metadata, '$.elapsed_ms') IS NOT NULL \
+             ORDER BY created_at DESC LIMIT 1",
+        )
+        .map_err(|e| e.to_string())?;
+    if let Ok(v) = elapsed_stmt.query_row([start_ms], |row| row.get::<_, Option<i64>>(0)) {
+        recent_elapsed = v;
     }
 
     // Convert to sorted Vec<DailyBucket> and add cost.
@@ -223,6 +277,9 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
         total_sessions: total_sessions.len() as i64,
         daily,
         by_model: by_model_vec,
+        total_image_tokens,
+        recent_routing_decision: recent_routing,
+        recent_elapsed_ms: recent_elapsed,
     })
 }
 

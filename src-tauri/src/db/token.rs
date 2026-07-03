@@ -196,6 +196,21 @@ pub struct TokenStats {
     pub total_sessions: i64,
     pub daily: Vec<DailyBucket>,
     pub by_model: Vec<ModelBucket>,
+    /// S14-agent: total image-part token cost across the period. Read from
+    /// `messages.metadata.image_tokens` via `json_extract`. Powers the
+    /// "图片 token" sub-stat in the stats modal so the user can see how
+    /// much of their spend went to vision.
+    #[serde(default)]
+    pub total_image_tokens: i64,
+    /// S14-agent: routing decision from the most recent message that
+    /// carries a `routing_decision` blob. Surfaces "vision fallback to X"
+    /// style traces in the stats modal.
+    #[serde(default)]
+    pub recent_routing_decision: Option<String>,
+    /// S14-agent: wall-clock latency (ms) from the most recent
+    /// `elapsed_ms` blob.
+    #[serde(default)]
+    pub recent_elapsed_ms: Option<i64>,
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

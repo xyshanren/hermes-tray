@@ -126,6 +126,16 @@ interface TokenStats {
   total_sessions: number;
   daily: DailyBucket[];
   by_model: ModelBucket[];
+  // S14-agent integration. The Rust token_stats aggregator reads
+  // messages.metadata via json_extract and surfaces these so the
+  // stats modal can show "图片 token" cost + the most recent
+  // routing_decision / elapsed_ms. `recent_routing_decision` is the
+  // raw JSON blob the agent pushed (mode / primary / resolved /
+  // fallback_*); the modal renders the bits it knows and ignores
+  // unknown fields.
+  total_image_tokens: number;
+  recent_routing_decision: string | null;
+  recent_elapsed_ms: number | null;
 }
 
 interface DbMessage {
@@ -969,6 +979,11 @@ function renderStatsModal(): void {
     return;
   }
   const s = currentStats;
+  // S14-agent: derive a one-line "最近 vision" trace + latency badge so
+  // the user can see what their last vision call did and how long it
+  // took. Empty string -> the JSX conditional hides the block.
+  const routingTrace = formatRoutingTrace(s.recent_routing_decision ?? null);
+  const latencyBadge = formatLatencyMs(s.recent_elapsed_ms);
   body.innerHTML = `
     <div class="stats-period-tabs">
       ${(['day', 'week', 'month', 'all'] as const).map(p =>
@@ -992,6 +1007,18 @@ function renderStatsModal(): void {
         <div class="stats-totals-label">消息 / 会话</div>
         <div class="stats-totals-value">${s.total_messages}</div>
         <div class="stats-totals-sub">${s.total_sessions} 个会话</div>
+      </div>
+    </div>
+    <div class="stats-totals">
+      <div class="stats-totals-cell">
+        <div class="stats-totals-label">图片 Token (S14)</div>
+        <div class="stats-totals-value">${formatTokens(s.total_image_tokens ?? 0)}</div>
+        <div class="stats-totals-sub">来自 vision 附件的输入 token</div>
+      </div>
+      <div class="stats-totals-cell stats-totals-cell-vision">
+        <div class="stats-totals-label">最近 Vision</div>
+        <div class="stats-totals-value stats-totals-trace">${escapeHtml(routingTrace || '—')}</div>
+        <div class="stats-totals-sub">${escapeHtml(latencyBadge || '')}</div>
       </div>
     </div>
     <div class="stats-chart-section">
@@ -2143,6 +2170,43 @@ function renderMessage(message: Message) {
 function formatMessage(content: string): string {
   // Use marked for full GFM markdown rendering (tables, code blocks with syntax highlighting, etc.)
   return marked.parse(content) as string;
+}
+
+/**
+ * S14-agent: turn the routing_decision JSON blob into a one-line trace
+ * for the stats modal. The agent pushes a structured dict like:
+ *   { mode: "native" | "text", primary_provider, primary_model,
+ *     resolved_provider, resolved_model, fallback_used, fallback_reason,
+ *     fallback_provider, fallback_model }
+ * We render the bits the user cares about and ignore unknown fields so
+ * future agent-side additions don't break the UI.
+ */
+export function formatRoutingTrace(blob: string | null): string {
+  if (!blob) return '';
+  let parsed: Record<string, unknown>;
+  try { parsed = JSON.parse(blob) as Record<string, unknown>; }
+  catch { return ''; }
+  const mode = typeof parsed.mode === 'string' ? parsed.mode : null;
+  const provider = typeof parsed.resolved_provider === 'string' ? parsed.resolved_provider : null;
+  const model = typeof parsed.resolved_model === 'string' ? parsed.resolved_model : null;
+  const fallbackUsed = parsed.fallback_used === true;
+  const fallbackReason = typeof parsed.fallback_reason === 'string' ? parsed.fallback_reason : null;
+  const fallbackProvider = typeof parsed.fallback_provider === 'string' ? parsed.fallback_provider : null;
+  if (fallbackUsed && fallbackProvider) {
+    return `vision fallback: ${provider}/${model} (primary ${fallbackReason ?? 'unavailable'})`;
+  }
+  if (mode && provider) {
+    return `vision ${mode}: ${provider}/${model}`;
+  }
+  return '';
+}
+
+/** S14-agent: render elapsed_ms as a human latency string. */
+export function formatLatencyMs(ms: number | null): string {
+  if (ms == null || ms < 0) return '';
+  if (ms < 1000) return `${ms}ms`;
+  const s = (ms / 1000).toFixed(1);
+  return `${s}s`;
 }
 
 function createStreamMessage(): HTMLElement {
