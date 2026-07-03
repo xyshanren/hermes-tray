@@ -60,51 +60,84 @@ fn pricing_table() -> HashMap<&'static str, ModelPricing> {
     // Hermes-agent (local — free)
     m.insert(
         "hermes-agent",
-        ModelPricing { input_per_1k: 0.0, output_per_1k: 0.0 },
+        ModelPricing {
+            input_per_1k: 0.0,
+            output_per_1k: 0.0,
+        },
     );
     // DeepSeek (cheap)
     m.insert(
         "deepseek-chat",
-        ModelPricing { input_per_1k: 0.00027, output_per_1k: 0.0011 },
+        ModelPricing {
+            input_per_1k: 0.00027,
+            output_per_1k: 0.0011,
+        },
     );
     m.insert(
         "deepseek-coder",
-        ModelPricing { input_per_1k: 0.00027, output_per_1k: 0.0011 },
+        ModelPricing {
+            input_per_1k: 0.00027,
+            output_per_1k: 0.0011,
+        },
     );
     // OpenAI
     m.insert(
         "gpt-4o",
-        ModelPricing { input_per_1k: 0.0025, output_per_1k: 0.01 },
+        ModelPricing {
+            input_per_1k: 0.0025,
+            output_per_1k: 0.01,
+        },
     );
     m.insert(
         "gpt-4o-mini",
-        ModelPricing { input_per_1k: 0.00015, output_per_1k: 0.0006 },
+        ModelPricing {
+            input_per_1k: 0.00015,
+            output_per_1k: 0.0006,
+        },
     );
     m.insert(
         "gpt-4-turbo",
-        ModelPricing { input_per_1k: 0.01, output_per_1k: 0.03 },
+        ModelPricing {
+            input_per_1k: 0.01,
+            output_per_1k: 0.03,
+        },
     );
     m.insert(
         "gpt-3.5-turbo",
-        ModelPricing { input_per_1k: 0.0005, output_per_1k: 0.0015 },
+        ModelPricing {
+            input_per_1k: 0.0005,
+            output_per_1k: 0.0015,
+        },
     );
     // Anthropic
     m.insert(
         "claude-3-5-sonnet",
-        ModelPricing { input_per_1k: 0.003, output_per_1k: 0.015 },
+        ModelPricing {
+            input_per_1k: 0.003,
+            output_per_1k: 0.015,
+        },
     );
     m.insert(
         "claude-3-haiku",
-        ModelPricing { input_per_1k: 0.00025, output_per_1k: 0.00125 },
+        ModelPricing {
+            input_per_1k: 0.00025,
+            output_per_1k: 0.00125,
+        },
     );
     // Google
     m.insert(
         "gemini-1.5-pro",
-        ModelPricing { input_per_1k: 0.00125, output_per_1k: 0.005 },
+        ModelPricing {
+            input_per_1k: 0.00125,
+            output_per_1k: 0.005,
+        },
     );
     m.insert(
         "gemini-1.5-flash",
-        ModelPricing { input_per_1k: 0.000075, output_per_1k: 0.0003 },
+        ModelPricing {
+            input_per_1k: 0.000075,
+            output_per_1k: 0.0003,
+        },
     );
     m
 }
@@ -212,7 +245,10 @@ mod tests {
 
     #[test]
     fn model_pricing_cost_is_linear() {
-        let p = ModelPricing { input_per_1k: 0.001, output_per_1k: 0.003 };
+        let p = ModelPricing {
+            input_per_1k: 0.001,
+            output_per_1k: 0.003,
+        };
         // 1k input + 1k output = 0.001 + 0.003 = 0.004
         assert!((p.cost(1000, 1000) - 0.004).abs() < 1e-9);
         // 0 input + 5k output = 0 + 0.015

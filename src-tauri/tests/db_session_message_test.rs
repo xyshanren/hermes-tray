@@ -29,7 +29,10 @@ fn fresh_db() -> (
 #[test]
 fn session_create_then_get_round_trips() {
     let (_pool, dao) = fresh_db();
-    let created = dao.session().create("My Session", None, None, None).expect("create");
+    let created = dao
+        .session()
+        .create("My Session", None, None, None)
+        .expect("create");
     assert_eq!(created.title, "My Session");
     assert_eq!(created.persona_id, None);
     assert_eq!(created.msg_count, 0);
@@ -46,7 +49,10 @@ fn session_list_paginates() {
 
     let mut ids = Vec::new();
     for i in 0..3 {
-        let s = dao.session().create(&format!("s{i}"), None, None, None).unwrap();
+        let s = dao
+            .session()
+            .create(&format!("s{i}"), None, None, None)
+            .unwrap();
         ids.push(s.id);
     }
 
@@ -86,7 +92,10 @@ fn session_update_partial_title_only() {
 fn session_update_can_clear_nullable_field() {
     let (_pool, dao) = fresh_db();
 
-    let created = dao.session().create("Has Persona", None, None, None).unwrap();
+    let created = dao
+        .session()
+        .create("Has Persona", None, None, None)
+        .unwrap();
     assert_eq!(created.persona_id, None);
 
     // project_dir is the easiest nullable field to test the Some(None) clear

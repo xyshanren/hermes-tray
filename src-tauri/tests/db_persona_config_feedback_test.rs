@@ -135,7 +135,10 @@ fn config_list_all_returns_sorted() {
 fn feedback_count_thumbs_separates_up_and_down() {
     let (_pool, dao) = fresh_db();
     // Need a real session for FK.
-    let session = dao.session().create("for-feedback", None, None, None).unwrap();
+    let session = dao
+        .session()
+        .create("for-feedback", None, None, None)
+        .unwrap();
 
     // Submit 2 up + 3 down.
     for _ in 0..2 {
@@ -167,7 +170,10 @@ fn feedback_count_thumbs_separates_up_and_down() {
     assert_eq!(all.len(), 5);
 
     // Session with no feedback returns (0, 0).
-    let empty_session = dao.session().create("no-feedback", None, None, None).unwrap();
+    let empty_session = dao
+        .session()
+        .create("no-feedback", None, None, None)
+        .unwrap();
     let (up_e, down_e) = dao
         .feedback()
         .count_thumbs(&empty_session.id)
@@ -203,7 +209,10 @@ fn seed_builtin_personas_inserts_three_on_empty_db() {
     assert!(ids.contains(&"builtin:translator"));
     for p in &list {
         assert!(p.is_builtin, "seeded personas should be marked builtin");
-        assert!(!p.system_prompt.is_empty(), "system_prompt should be non-empty");
+        assert!(
+            !p.system_prompt.is_empty(),
+            "system_prompt should be non-empty"
+        );
     }
 }
 
@@ -226,7 +235,10 @@ fn seed_builtin_personas_does_not_clobber_user_persona() {
     // Seed runs — should respect existing row and not overwrite.
     hermes_tray_tauri_lib::db::pool::seed_builtin_personas(&db);
     let got = db.persona().get("builtin:default").expect("get");
-    assert_eq!(got.name, "User-edited Default", "user row must survive seed");
+    assert_eq!(
+        got.name, "User-edited Default",
+        "user row must survive seed"
+    );
 }
 
 // T-Q-S12-light: persona.model override round-trip.
@@ -279,7 +291,10 @@ fn builtin_personas_constant_has_consistent_shape() {
     // Sanity: every builtin entry has id / name / description / system_prompt
     // / avatar (5-tuple) and uses the "builtin:" prefix on the id.
     for (id, name, desc, prompt, avatar) in BUILTIN_PERSONAS {
-        assert!(id.starts_with("builtin:"), "id must use 'builtin:' prefix: {id}");
+        assert!(
+            id.starts_with("builtin:"),
+            "id must use 'builtin:' prefix: {id}"
+        );
         assert!(!name.is_empty());
         assert!(!desc.is_empty());
         assert!(!prompt.is_empty());

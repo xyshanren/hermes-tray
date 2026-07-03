@@ -96,7 +96,10 @@ pub fn to_markdown(
 ) -> String {
     let mut out = String::new();
     out.push_str(&format!("# {}\n\n", sanitize_md(&session.title)));
-    out.push_str(&format!("- Exported: {}\n", format_iso_ms(session.updated_at)));
+    out.push_str(&format!(
+        "- Exported: {}\n",
+        format_iso_ms(session.updated_at)
+    ));
     out.push_str(&format!("- Session ID: `{}`\n", session.id));
     out.push_str(&format!(
         "- Model: {}\n",
@@ -108,8 +111,17 @@ pub fn to_markdown(
         out.push_str("- Persona: (none)\n");
     }
     if let Some(p) = project {
-        let ver = p.version.as_deref().map(|v| format!(" v{v}")).unwrap_or_default();
-        out.push_str(&format!("- Project: {}{} — `{}`\n", sanitize_md(&p.name), ver, p.path));
+        let ver = p
+            .version
+            .as_deref()
+            .map(|v| format!(" v{v}"))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "- Project: {}{} — `{}`\n",
+            sanitize_md(&p.name),
+            ver,
+            p.path
+        ));
     } else {
         out.push_str("- Project: (none)\n");
     }
@@ -127,13 +139,7 @@ pub fn to_markdown(
     }
 
     for m in messages {
-        let role = match m.role.as_str() {
-            "user" => "user",
-            "assistant" => "assistant",
-            "system" => "system",
-            "tool" => "tool",
-            other => other,
-        };
+        let role = m.role.as_str();
         out.push_str(&format!(
             "## {} · {}\n\n",
             role,
@@ -182,7 +188,10 @@ fn format_iso_ms(unix_ms: i64) -> String {
     let m = (secs_of_day % 3600) / 60;
     let s = secs_of_day % 60;
     let (y, mo, d) = unix_days_to_ymd(days);
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z", y, mo, d, h, m, s, nsec)
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        y, mo, d, h, m, s, nsec
+    )
 }
 
 fn unix_days_to_ymd(days: i64) -> (i64, u32, u32) {
@@ -231,8 +240,15 @@ mod tests {
     #[test]
     fn markdown_includes_all_header_fields() {
         let s = mk_session();
-        let p = ExportPersona { name: "engineer".to_string(), system_prompt: "Be terse.".to_string() };
-        let pr = ExportProject { name: "x".to_string(), version: Some("1.0".to_string()), path: "/x".to_string() };
+        let p = ExportPersona {
+            name: "engineer".to_string(),
+            system_prompt: "Be terse.".to_string(),
+        };
+        let pr = ExportProject {
+            name: "x".to_string(),
+            version: Some("1.0".to_string()),
+            path: "/x".to_string(),
+        };
         let md = to_markdown(&s, Some(&p), Some(&pr), &[]);
         assert!(md.starts_with("# Test Session\n"));
         assert!(md.contains("- Session ID: `s1`"));
@@ -288,7 +304,10 @@ mod tests {
     #[test]
     fn markdown_includes_persona_system_prompt() {
         let s = mk_session();
-        let p = ExportPersona { name: "x".to_string(), system_prompt: "You are terse.".to_string() };
+        let p = ExportPersona {
+            name: "x".to_string(),
+            system_prompt: "You are terse.".to_string(),
+        };
         let md = to_markdown(&s, Some(&p), None, &[]);
         assert!(md.contains("## system · persona prompt"));
         assert!(md.contains("You are terse."));
@@ -297,7 +316,10 @@ mod tests {
     #[test]
     fn markdown_skips_empty_persona_system_prompt() {
         let s = mk_session();
-        let p = ExportPersona { name: "x".to_string(), system_prompt: "   ".to_string() };
+        let p = ExportPersona {
+            name: "x".to_string(),
+            system_prompt: "   ".to_string(),
+        };
         let md = to_markdown(&s, Some(&p), None, &[]);
         assert!(!md.contains("## system · persona prompt"));
     }
@@ -305,7 +327,10 @@ mod tests {
     #[test]
     fn json_shape_includes_all_keys() {
         let s = mk_session();
-        let p = ExportPersona { name: "x".to_string(), system_prompt: "y".to_string() };
+        let p = ExportPersona {
+            name: "x".to_string(),
+            system_prompt: "y".to_string(),
+        };
         let v = to_json(&s, Some(&p), None, &[], 1234);
         assert_eq!(v["version"], 1);
         assert_eq!(v["exported_at"], 1234);

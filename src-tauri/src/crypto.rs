@@ -126,11 +126,8 @@ pub fn restore_backup(blob: &[u8], password: &str) -> Result<Vec<u8>, String> {
         .try_into()
         .unwrap();
     let ct_len_start = nonce_start + NONCE_LEN;
-    let ct_len = u64::from_le_bytes(
-        blob[ct_len_start..ct_len_start + 8]
-            .try_into()
-            .unwrap(),
-    ) as usize;
+    let ct_len =
+        u64::from_le_bytes(blob[ct_len_start..ct_len_start + 8].try_into().unwrap()) as usize;
     let ct_start = ct_len_start + 8;
     if blob.len() < ct_start + ct_len {
         return Err(format!(

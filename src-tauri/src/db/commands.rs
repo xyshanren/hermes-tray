@@ -5,7 +5,10 @@
 
 use tauri::State;
 
-use crate::db::dao::{ConfigDAO, ConfigEntry, Message, MessageDAO, Persona, PersonaDAO, ProjectContext, SearchHit, Session, SessionDAO, SessionPatch};
+use crate::db::dao::{
+    ConfigDAO, ConfigEntry, Message, MessageDAO, Persona, PersonaDAO, ProjectContext, SearchHit,
+    Session, SessionDAO, SessionPatch,
+};
 use crate::db::export::{to_json, to_markdown, ExportPersona, ExportProject, ExportSession};
 use crate::db::project::scan_project;
 use crate::db::token::{cost_for_model, DailyBucket, ModelBucket, TokenStats};
@@ -40,14 +43,8 @@ pub fn session_create(
 }
 
 #[tauri::command]
-pub fn session_update(
-    db: State<'_, Db>,
-    id: &str,
-    patch: SessionPatch,
-) -> Result<Session, String> {
-    db.session()
-        .update(id, patch)
-        .map_err(|e| e.to_string())
+pub fn session_update(db: State<'_, Db>, id: &str, patch: SessionPatch) -> Result<Session, String> {
+    db.session().update(id, patch).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -111,7 +108,8 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
         "day" => now_ms - 24 * 60 * 60 * 1000,
         "week" => now_ms - 7 * 24 * 60 * 60 * 1000,
         "month" => now_ms - 30 * 24 * 60 * 60 * 1000,
-        "all" | _ => 0,
+        "all" => 0,
+        _ => 0,
     };
     let period_label = match period {
         "day" => "day",
@@ -124,8 +122,10 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
 
     // Per-day + per-role aggregation. We bucket by UTC date
     // (created_at / 86400000 since epoch).
-    let mut daily_map: std::collections::BTreeMap<String, (i64, i64)> = std::collections::BTreeMap::new();
-    let mut by_model: std::collections::HashMap<String, (i64, i64, i64)> = std::collections::HashMap::new();
+    let mut daily_map: std::collections::BTreeMap<String, (i64, i64)> =
+        std::collections::BTreeMap::new();
+    let mut by_model: std::collections::HashMap<String, (i64, i64, i64)> =
+        std::collections::HashMap::new();
     let mut total_input: i64 = 0;
     let mut total_output: i64 = 0;
     let mut total_msgs: i64 = 0;
@@ -204,7 +204,11 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
             message_count: count,
         })
         .collect();
-    by_model_vec.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap_or(std::cmp::Ordering::Equal));
+    by_model_vec.sort_by(|a, b| {
+        b.cost
+            .partial_cmp(&a.cost)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let total_cost = by_model_vec.iter().map(|m| m.cost).sum();
 
@@ -232,7 +236,12 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
 #[tauri::command]
 pub fn export_session_markdown(db: State<'_, Db>, session_id: &str) -> Result<String, String> {
     let (session_export, persona, project, messages) = load_export_bundle(&db, session_id)?;
-    Ok(to_markdown(&session_export, persona.as_ref(), project.as_ref(), &messages))
+    Ok(to_markdown(
+        &session_export,
+        persona.as_ref(),
+        project.as_ref(),
+        &messages,
+    ))
 }
 
 #[tauri::command]
@@ -254,20 +263,22 @@ pub fn export_session_json(
     ))
 }
 
+/// Everything an export needs in a single query: session metadata,
+/// the (optional) persona + project that were active when the
+/// session was created, and the full message list. Tuple-shaped
+/// (rather than a struct) because the export endpoints consume
+/// the fields positionally, but the type alias keeps clippy
+/// happy (avoids `very complex type`).
+type ExportBundle = (
+    ExportSession,
+    Option<ExportPersona>,
+    Option<ExportProject>,
+    Vec<Message>,
+);
+
 /// Shared lookup: session + (optional) persona + (optional) project + messages.
 /// Used by both `export_session_markdown` and `export_session_json`.
-fn load_export_bundle(
-    db: &Db,
-    session_id: &str,
-) -> Result<
-    (
-        ExportSession,
-        Option<ExportPersona>,
-        Option<ExportProject>,
-        Vec<Message>,
-    ),
-    String,
-> {
+fn load_export_bundle(db: &Db, session_id: &str) -> Result<ExportBundle, String> {
     // Session
     let s = db.session().get(session_id).map_err(|e| e.to_string())?;
     // Messages — no pagination; the export wants the full conversation.
@@ -282,7 +293,10 @@ fn load_export_bundle(
         .persona_id
         .as_deref()
         .and_then(|pid| db.persona().get(pid).ok())
-        .map(|p| ExportPersona { name: p.name, system_prompt: p.system_prompt });
+        .map(|p| ExportPersona {
+            name: p.name,
+            system_prompt: p.system_prompt,
+        });
     // Project (optional) — parse the cached JSON for name + version + path.
     let project = s
         .project_context

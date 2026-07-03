@@ -68,8 +68,7 @@ const DIR_SCAN_CAP: usize = 200;
 /// not a directory, or permission denied). Per-file read failures are
 /// silently tolerated and reflected as missing fields in the result.
 pub fn scan_project(path: &Path) -> Result<ProjectContext, String> {
-    let meta = fs::metadata(path)
-        .map_err(|e| format!("stat {}: {e}", path.display()))?;
+    let meta = fs::metadata(path).map_err(|e| format!("stat {}: {e}", path.display()))?;
     if !meta.is_dir() {
         return Err(format!("not a directory: {}", path.display()));
     }
@@ -183,10 +182,7 @@ fn read_manifest(root: &Path, files_scanned: &mut Vec<String>) -> Option<Manifes
 }
 
 fn first_existing(root: &Path, names: &[&str]) -> Option<PathBuf> {
-    names
-        .iter()
-        .map(|n| root.join(n))
-        .find(|p| p.is_file())
+    names.iter().map(|n| root.join(n)).find(|p| p.is_file())
 }
 
 fn read_readme(root: &Path, files_scanned: &mut Vec<String>) -> Option<String> {
@@ -450,7 +446,7 @@ fn render_summary(i: &SummaryInputs<'_>) -> String {
         // First strip leading markdown heading (we already have a title).
         let trimmed = readme.trim_start_matches('#').trim_start();
         out.push_str(trimmed);
-        out.push_str("\n");
+        out.push('\n');
     }
     truncate_chars(&out, SUMMARY_MAX_BYTES)
 }
@@ -542,7 +538,10 @@ mod tests {
         assert_eq!(ctx.name, "demo-app");
         assert_eq!(ctx.version.as_deref(), Some("1.2.3"));
         assert_eq!(ctx.description.as_deref(), Some("A demo Node app"));
-        assert!(ctx.files_scanned.iter().any(|f| f.ends_with("package.json")));
+        assert!(ctx
+            .files_scanned
+            .iter()
+            .any(|f| f.ends_with("package.json")));
     }
 
     #[test]
@@ -607,7 +606,11 @@ description = "Music trainer"
         let ctx = scan_project(dir.path()).unwrap();
         let readme = ctx.readme_excerpt.unwrap();
         // Truncated form is base + "…\n[truncated]" (16 ASCII bytes).
-        assert!(readme.len() <= README_MAX_BYTES + 20, "len = {}", readme.len());
+        assert!(
+            readme.len() <= README_MAX_BYTES + 20,
+            "len = {}",
+            readme.len()
+        );
         assert!(readme.starts_with('#'));
         assert!(readme.contains("truncated"));
     }

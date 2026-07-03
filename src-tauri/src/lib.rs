@@ -1,8 +1,11 @@
 // `mod tests` 在文件中间 (紧跟被测函数), `pub fn run()` 在它后面是常规 Tauri 模式.
 #![allow(clippy::items_after_test_module)]
 
+use crypto::{
+    create_backup as crypto_create_backup, restore_backup as crypto_restore_backup,
+    verify_password as crypto_verify_password,
+};
 use db::{init_db, Db};
-use crypto::{create_backup as crypto_create_backup, restore_backup as crypto_restore_backup, verify_password as crypto_verify_password};
 
 pub use db::commands::{
     db_config_get, db_config_set, export_session_json, export_session_markdown, message_append,
@@ -587,8 +590,8 @@ fn backup_create(
         let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
         // The rusqlite API: conn.backup(path) opens a dest Connection
         // and copies pages incrementally. Safe + atomic.
-        let mut dest = rusqlite::Connection::open(&temp_path)
-            .map_err(|e| format!("open temp: {e}"))?;
+        let mut dest =
+            rusqlite::Connection::open(&temp_path).map_err(|e| format!("open temp: {e}"))?;
         let backup = rusqlite::backup::Backup::new(&conn, &mut dest)
             .map_err(|e| format!("backup new: {e}"))?;
         backup
@@ -596,12 +599,10 @@ fn backup_create(
             .map_err(|e| format!("backup run: {e}"))?;
     }
     // 2. Read the temp file + encrypt.
-    let plaintext = std::fs::read(&temp_path)
-        .map_err(|e| format!("read temp: {e}"))?;
+    let plaintext = std::fs::read(&temp_path).map_err(|e| format!("read temp: {e}"))?;
     let blob = crypto_create_backup(&plaintext, &password)?;
     // 3. Write the encrypted blob to the user's chosen output path.
-    std::fs::write(&output_path, &blob)
-        .map_err(|e| format!("write output: {e}"))?;
+    std::fs::write(&output_path, &blob).map_err(|e| format!("write output: {e}"))?;
     // 4. Cleanup temp file.
     let _ = std::fs::remove_file(&temp_path);
 
@@ -619,8 +620,7 @@ fn backup_restore(
     input_path: String,
     password: String,
 ) -> Result<RestoreInfo, String> {
-    let blob = std::fs::read(&input_path)
-        .map_err(|e| format!("read input: {e}"))?;
+    let blob = std::fs::read(&input_path).map_err(|e| format!("read input: {e}"))?;
     let plaintext = crypto_restore_backup(&blob, &password)?;
     let db_path = resolve_config_dir(&app).join("sessions.db");
     // Write to a temp file alongside the live DB, then use SQLite's
@@ -628,16 +628,15 @@ fn backup_restore(
     // is the safe way to swap a SQLite file while the pool has open
     // connections — direct file-replace would corrupt the WAL.
     let temp_path = db_path.with_extension("db.restore.tmp");
-    std::fs::write(&temp_path, &plaintext)
-        .map_err(|e| format!("write temp: {e}"))?;
+    std::fs::write(&temp_path, &plaintext).map_err(|e| format!("write temp: {e}"))?;
     {
         // Open the temp as a Connection (this is the SOURCE of the
         // restore), then back up into the live DB connection (the
         // DESTINATION). The live DB connection is in the pool, so we
         // have to be careful — only one connection is checked out at
         // a time, and we release it at the end of this scope.
-        let src_conn = rusqlite::Connection::open(&temp_path)
-            .map_err(|e| format!("open temp: {e}"))?;
+        let src_conn =
+            rusqlite::Connection::open(&temp_path).map_err(|e| format!("open temp: {e}"))?;
         let mut dest_conn = db.pool().get().map_err(|e| e.to_string())?;
         // Close any WAL on the dest first to ensure clean overwrite.
         let _ = dest_conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
@@ -775,11 +774,13 @@ async fn hermes_proxy_transcribe(
         .await
         .map_err(|e| format!("transcribe send: {e}"))?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {}: {}", resp.status().as_u16(),
-            resp.text().await.unwrap_or_default()));
+        return Err(format!(
+            "HTTP {}: {}",
+            resp.status().as_u16(),
+            resp.text().await.unwrap_or_default()
+        ));
     }
-    let body: serde_json::Value = resp.json().await
-        .map_err(|e| format!("parse JSON: {e}"))?;
+    let body: serde_json::Value = resp.json().await.map_err(|e| format!("parse JSON: {e}"))?;
     parse_openai_transcribe_response(&body)
 }
 
@@ -1428,7 +1429,10 @@ mod tests {
         // an empty string (which the frontend would treat as success).
         let v = serde_json::json!({"foo": "bar"});
         let err = parse_openai_transcribe_response(&v).unwrap_err();
-        assert!(err.contains("text"), "error should mention 'text' field: {err}");
+        assert!(
+            err.contains("text"),
+            "error should mention 'text' field: {err}"
+        );
     }
 
     #[test]
@@ -1489,8 +1493,10 @@ pub fn run() {
             // a `tray://*` event to the frontend, which owns the actual UX
             // (createSession, loadLastSession, openSearchModal). The Rust side
             // stays thin and event-based — single source of truth in main.ts.
-            let new_session_item = MenuItemBuilder::with_id("new_session", "新建会话").build(app)?;
-            let continue_last_item = MenuItemBuilder::with_id("continue_last", "续上次").build(app)?;
+            let new_session_item =
+                MenuItemBuilder::with_id("new_session", "新建会话").build(app)?;
+            let continue_last_item =
+                MenuItemBuilder::with_id("continue_last", "续上次").build(app)?;
             let search_item = MenuItemBuilder::with_id("search", "搜索").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
 
