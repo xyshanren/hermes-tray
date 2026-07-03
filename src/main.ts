@@ -244,6 +244,13 @@ interface ChatState {
   isStreaming: boolean;
   streamContent: string;
   streamElement: HTMLElement | null;
+  // S14-agent: per-stream metadata captured from the final SSE chunk.
+  // The agent pushes real prompt/completion/image token counts plus a
+  // routing_decision + elapsed_ms blob; finishStream() persists these
+  // via message_record_usage. Reset on every new turn.
+  lastStreamUsage: Record<string, unknown> | null;
+  lastStreamRouting: unknown;
+  lastStreamElapsedMs: number | null;
 }
 
 const CONFIG = {
@@ -261,6 +268,9 @@ const state: ChatState = {
   isStreaming: false,
   streamContent: '',
   streamElement: null,
+  lastStreamUsage: null,
+  lastStreamRouting: null,
+  lastStreamElapsedMs: null,
 };
 
 let messagesContainer: HTMLElement | null = null;
@@ -2168,11 +2178,31 @@ function handleStreamChunk(payload: string) {
           scrollToBottom();
         }
       }
+      // S14-agent: capture the final-chunk usage + routing metadata so
+      // finishStream() can persist the real token count (replacing the
+      // char/4 heuristic) and surface the routing decision in the
+      // stats modal. We hold the *latest* value seen — OpenAI streaming
+      // sends usage exactly once at the end, but a few proxies repeat it
+      // across chunks and we want the most recent.
+      const usage = json.usage;
+      if (usage && typeof usage === 'object') {
+        state.lastStreamUsage = usage;
+        const rd = (usage as Record<string, unknown>).routing_decision;
+        if (rd) state.lastStreamRouting = rd;
+        const el = (usage as Record<string, unknown>).elapsed_ms;
+        if (typeof el === 'number') state.lastStreamElapsedMs = el;
+      }
+      // Some agent shapes emit routing_decision at the top level of the
+      // final chunk (not nested under usage). Cover that case too.
+      const topRd = (json as Record<string, unknown>).routing_decision;
+      if (topRd) state.lastStreamRouting = topRd;
+      const topEl = (json as Record<string, unknown>).elapsed_ms;
+      if (typeof topEl === 'number') state.lastStreamElapsedMs = topEl;
     } catch { /* skip invalid JSON */ }
   }
 }
 
-function finishStream() {
+async function finishStream() {
   if (state.streamContent) {
     state.messages.push({
       role: 'assistant',
@@ -2181,12 +2211,37 @@ function finishStream() {
     });
       // Persist assistant message to DB
       if (currentSessionId) {
-        invoke('message_append', {
-          sessionId: currentSessionId,
-          role: 'assistant',
-          content: state.streamContent,
-          toolCalls: null,
-        }).catch(e => console.error('[DB] save assistant msg failed:', e));
+        // message_append returns the persisted Message (with the new id).
+        // We need that id to call message_record_usage in the S14 path.
+        try {
+          const appended = await invoke<{ id: string; tokens: number }>('message_append', {
+            sessionId: currentSessionId,
+            role: 'assistant',
+            content: state.streamContent,
+            toolCalls: null,
+          });
+          // S14-agent: if the upstream pushed real usage, replace the
+          // char/4 heuristic tokens + stash image_tokens / routing_decision
+          // on the message metadata so the stats modal can show them.
+          const usage = state.lastStreamUsage;
+          if (appended?.id && usage && typeof usage.prompt_tokens === 'number') {
+            const detail = (usage.prompt_tokens_details ?? {}) as Record<string, unknown>;
+            const imageTokens = typeof detail.image_tokens === 'number'
+              ? detail.image_tokens : 0;
+            const routingJson = state.lastStreamRouting != null
+              ? JSON.stringify(state.lastStreamRouting) : null;
+            await invoke('message_record_usage', {
+              id: appended.id,
+              promptTokens: usage.prompt_tokens,
+              completionTokens: usage.completion_tokens ?? 0,
+              imageTokens,
+              routingDecisionJson: routingJson,
+              elapsedMs: state.lastStreamElapsedMs ?? null,
+            });
+          }
+        } catch (e) {
+          console.error('[DB] save assistant msg failed:', e);
+        }
         invoke('session_touch', { id: currentSessionId }).catch(() => {});
         // T-Q-S9: refresh sidebar row so the token badge updates after
         // each assistant reply. The user sees their spend climbing live.
@@ -2197,6 +2252,10 @@ function finishStream() {
   state.isStreaming = false;
   state.streamContent = '';
   state.streamElement = null;
+  // S14: clear the per-stream metadata so the next turn starts fresh.
+  state.lastStreamUsage = null;
+  state.lastStreamRouting = null;
+  state.lastStreamElapsedMs = null;
   updateSendButton();
 }
 

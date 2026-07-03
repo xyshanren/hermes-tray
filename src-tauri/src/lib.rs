@@ -8,7 +8,7 @@ use crypto::{
 use db::{init_db, Db};
 
 pub use db::commands::{
-    db_config_get, db_config_set, export_session_json, export_session_markdown, message_append,
+    db_config_get, db_config_set, export_session_json, export_session_markdown, message_append, message_record_usage,
     message_delete, message_list, persona_create, persona_delete, persona_get, persona_list,
     persona_update, project_scan, session_create, session_delete, session_get, session_list,
     session_search, session_touch, session_update, token_stats,
@@ -1595,6 +1595,7 @@ pub fn run() {
             session_search,
             session_touch,
             message_append,
+            message_record_usage,
             message_list,
             message_delete,
             // T-Q-S7 — Persona library (also serves as session templates)

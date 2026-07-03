@@ -18,6 +18,65 @@ use crate::db::pool::DbPool;
 use crate::db::session::SessionDao;
 use crate::db::{DbError, DbResult};
 
+/// Merge S14 vision metadata into an existing messages.metadata JSON blob.
+///
+/// The `existing` field is whatever the message already has (could be a
+/// `pendingAttachment` index from T-Q-S14, or null). We always preserve
+/// existing keys, then add:
+///   - `image_tokens` (i64)  — the S14 image-part token count from the agent
+///   - `routing_decision` (object or string) — vision routing decision
+///   - `elapsed_ms` (i64) — wall-clock latency for the request
+///
+/// If `existing` is not valid JSON, we treat it as a plain string and
+/// stash it under `_legacy` to avoid silently dropping prior metadata.
+fn merge_usage_metadata(
+    existing: Option<&str>,
+    image_tokens: i64,
+    routing_decision_json: Option<&str>,
+    elapsed_ms: Option<i64>,
+) -> DbResult<String> {
+    let mut base: serde_json::Value = match existing {
+        None | Some("") => serde_json::Value::Object(serde_json::Map::new()),
+        Some(s) => match serde_json::from_str::<serde_json::Value>(s) {
+            Ok(v) if v.is_object() => v,
+            Ok(v) => {
+                // Prior metadata was a non-object JSON value — wrap it.
+                let mut m = serde_json::Map::new();
+                m.insert("_legacy".to_string(), v);
+                serde_json::Value::Object(m)
+            }
+            Err(_) => {
+                // Prior metadata was not JSON at all — preserve as a string
+                // under `_legacy` so callers can still see it.
+                let mut m = serde_json::Map::new();
+                m.insert(
+                    "_legacy".to_string(),
+                    serde_json::Value::String(s.to_string()),
+                );
+                serde_json::Value::Object(m)
+            }
+        },
+    };
+
+    let obj = base
+        .as_object_mut()
+        .expect("merge_usage_metadata: base must be an object");
+    obj.insert("image_tokens".to_string(), serde_json::json!(image_tokens));
+    if let Some(rd) = routing_decision_json {
+        // Parse and re-serialise so downstream readers always get a JSON
+        // object even if the agent pushed a stringified form.
+        let rd_value: serde_json::Value = serde_json::from_str(rd)
+            .unwrap_or_else(|_| serde_json::Value::String(rd.to_string()));
+        obj.insert("routing_decision".to_string(), rd_value);
+    }
+    if let Some(ms) = elapsed_ms {
+        obj.insert("elapsed_ms".to_string(), serde_json::json!(ms));
+    }
+
+    serde_json::to_string(&base)
+        .map_err(|e| DbError::Invalid(format!("serialize metadata: {e}")))
+}
+
 pub struct MessageDao<'a> {
     pool: &'a DbPool,
 }
@@ -143,6 +202,74 @@ impl<'a> MessageDAO for MessageDao<'a> {
             .query_row(&sql, params![id], Self::row_to_message)
             .optional()?;
         msg.ok_or_else(|| DbError::NotFound(format!("message id={id}")))
+    }
+
+    fn record_usage(
+        &self,
+        id: &str,
+        prompt_tokens: i64,
+        completion_tokens: i64,
+        image_tokens: i64,
+        routing_decision_json: Option<&str>,
+        elapsed_ms: Option<i64>,
+    ) -> DbResult<Message> {
+        // T-Q-S9 v2 + S14 vision: replace the char/4 heuristic token estimate
+        // with the real upstream usage. We persist:
+        //   - `tokens` = prompt + completion (the real total, NOT the heuristic)
+        //   - `metadata` = merged JSON blob: existing metadata + S14 fields
+        //     (`image_tokens`, `routing_decision`, `elapsed_ms`)
+        //
+        // The session's `total_tokens` counter is adjusted by the delta so
+        // the cost chart in the stats modal stays consistent with the
+        // message-level numbers. Negative deltas (real < heuristic, rare
+        // for short replies with reasoning) are floored at 0.
+        let mut conn = self.pool.get()?;
+        let tx = conn.transaction()?;
+
+        // 1. Read existing message so we know the current tokens + session_id
+        //    + existing metadata blob. Done inside the transaction so the
+        //    row doesn't disappear between read and write.
+        let existing: Option<(i64, String, Option<String>)> = tx
+            .query_row(
+                "SELECT tokens, session_id, metadata FROM messages WHERE id = ?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let (old_tokens, session_id, existing_metadata) =
+            existing.ok_or_else(|| DbError::NotFound(format!("message id={id}")))?;
+
+        // 2. Build the merged metadata JSON. We accept arbitrary user-supplied
+        //    routing_decision JSON (the S14 agent pushes a structured dict;
+        //    unknown shapes are passed through verbatim so the stats modal
+        //    can render what it knows and ignore the rest).
+        let new_metadata = merge_usage_metadata(
+            existing_metadata.as_deref(),
+            image_tokens,
+            routing_decision_json,
+            elapsed_ms,
+        )?;
+        let new_tokens = prompt_tokens.saturating_add(completion_tokens);
+        let delta = new_tokens.saturating_sub(old_tokens);
+
+        // 3. Update the message row.
+        tx.execute(
+            "UPDATE messages SET tokens = ?1, metadata = ?2 WHERE id = ?3",
+            params![new_tokens, new_metadata, id],
+        )?;
+
+        // 4. Adjust the session counter by the delta. Floor at 0 to defend
+        //    against the rare case where the real usage is lower than the
+        //    heuristic (long reasoning with no input text).
+        tx.execute(
+            "UPDATE sessions \
+             SET total_tokens = MAX(total_tokens + ?1, 0) \
+             WHERE id = ?2",
+            params![delta, session_id],
+        )?;
+        tx.commit()?;
+
+        self.get(id)
     }
 
     fn delete(&self, id: &str) -> DbResult<()> {

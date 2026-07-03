@@ -265,3 +265,126 @@ fn message_delete_decrements_msg_count() {
     let after_delete = dao.session().get(&s.id).unwrap();
     assert_eq!(after_delete.msg_count, 0);
 }
+
+// ─────────────── MessageDAO::record_usage (S14) ───────────────
+
+#[test]
+fn message_record_usage_replaces_heuristic_with_real_tokens() {
+    let (_pool, dao) = fresh_db();
+    let s = dao.session().create("test", None, None, None).unwrap();
+    let m = dao
+        .message()
+        .append(&s.id, "assistant", "long reply here", None)
+        .expect("append");
+    // char/4 heuristic for "long reply here" (15 chars) = 3 (integer div).
+    assert_eq!(m.tokens, 3);
+
+    // S14-agent pushes real usage: 250 prompt + 100 completion = 350 total.
+    let updated = dao
+        .message()
+        .record_usage(&m.id, 250, 100, 1200, None, None)
+        .expect("record_usage");
+    assert_eq!(updated.tokens, 350);
+    // Session counter gets the delta: +347 (350 real - 3 heuristic).
+    let s2 = dao.session().get(&s.id).expect("get session");
+    assert_eq!(s2.total_tokens, 350);
+}
+
+#[test]
+fn message_record_usage_stashes_image_tokens_in_metadata() {
+    let (_pool, dao) = fresh_db();
+    let s = dao.session().create("test", None, None, None).unwrap();
+    let m = dao
+        .message()
+        .append(&s.id, "user", "see screenshot", None)
+        .expect("append");
+
+    dao.message()
+        .record_usage(
+            &m.id,
+            500,
+            200,
+            1200,
+            Some(r#"{"mode":"text","primary_provider":"openai","fallback_used":false}"#),
+            Some(1234),
+        )
+        .expect("record_usage");
+
+    let fetched = dao.message().get(&m.id).expect("get");
+    let md: serde_json::Value =
+        serde_json::from_str(fetched.metadata.as_deref().unwrap()).expect("parse");
+    assert_eq!(md["image_tokens"], 1200);
+    assert_eq!(md["elapsed_ms"], 1234);
+    assert_eq!(md["routing_decision"]["mode"], "text");
+    assert_eq!(md["routing_decision"]["primary_provider"], "openai");
+    assert_eq!(md["routing_decision"]["fallback_used"], false);
+}
+
+#[test]
+fn message_record_usage_preserves_existing_metadata() {
+    let (_pool, dao) = fresh_db();
+    let s = dao.session().create("test", None, None, None).unwrap();
+    let m = dao
+        .message()
+        .append(&s.id, "user", "with attachment", None)
+        .expect("append");
+
+    // Pre-seed metadata with a T-Q-S14 attachment index (mimicking the
+    // frontend's pendingAttachment record). record_usage should preserve
+    // it and add the S14 fields alongside.
+    {
+        let pool = dao_pool(&dao);
+        let conn = pool.get().expect("conn");
+        conn.execute(
+            "UPDATE messages SET metadata = ?1 WHERE id = ?2",
+            rusqlite::params![
+                r#"{"attachments":[{"name":"x.png","size":1024}]}"#,
+                m.id
+            ],
+        )
+        .expect("seed metadata");
+    }
+
+    dao.message()
+        .record_usage(&m.id, 100, 50, 600, None, Some(500))
+        .expect("record_usage");
+
+    let fetched = dao.message().get(&m.id).expect("get");
+    let md: serde_json::Value =
+        serde_json::from_str(fetched.metadata.as_deref().unwrap()).expect("parse");
+    // Existing attachment index preserved.
+    assert_eq!(md["attachments"][0]["name"], "x.png");
+    assert_eq!(md["attachments"][0]["size"], 1024);
+    // S14 fields added.
+    assert_eq!(md["image_tokens"], 600);
+    assert_eq!(md["elapsed_ms"], 500);
+}
+
+#[test]
+fn message_record_usage_does_not_underflow_session_total() {
+    // Regression guard: when the real usage is *less* than the char/4
+    // heuristic (rare but possible for short reasoning-only responses),
+    // session.total_tokens must floor at 0, not go negative.
+    let (_pool, dao) = fresh_db();
+    let s = dao.session().create("test", None, None, None).unwrap();
+    let m = dao
+        .message()
+        .append(&s.id, "assistant", "this is thirty six chars, hi", None)
+        .expect("append");
+    // "this is thirty six chars, hi" is 30 chars -> 30/4 = 7.
+    assert!(m.tokens >= 5, "heuristic for 30 chars should be >= 5, got {}", m.tokens);
+
+    // Real usage is way lower than the heuristic.
+    dao.message()
+        .record_usage(&m.id, 1, 1, 0, None, None)
+        .expect("record_usage");
+
+    let s2 = dao.session().get(&s.id).expect("get session");
+    assert!(s2.total_tokens >= 0, "total_tokens must never go negative");
+}
+
+fn dao_pool(
+    db: &hermes_tray_tauri_lib::db::pool::Db,
+) -> hermes_tray_tauri_lib::db::DbPool {
+    db.pool().clone()
+}

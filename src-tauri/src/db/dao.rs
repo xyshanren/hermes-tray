@@ -151,6 +151,20 @@ pub trait MessageDAO: Send + Sync {
     ) -> DbResult<Message>;
     fn list_by_session(&self, session_id: &str, limit: i64, offset: i64) -> DbResult<Vec<Message>>;
     fn get(&self, id: &str) -> DbResult<Message>;
+    /// Replace the char/4 heuristic token estimate with the real upstream
+    /// usage (prompt_tokens + completion_tokens) and stash the S14 metadata
+    /// blob (image_tokens / routing_decision / elapsed_ms) on the message.
+    /// Adjusts the session's total_tokens by the delta so the chart stays
+    /// in sync with the persisted value.
+    fn record_usage(
+        &self,
+        id: &str,
+        prompt_tokens: i64,
+        completion_tokens: i64,
+        image_tokens: i64,
+        routing_decision_json: Option<&str>,
+        elapsed_ms: Option<i64>,
+    ) -> DbResult<Message>;
     fn delete(&self, id: &str) -> DbResult<()>;
     fn count_tokens(&self, session_id: &str) -> DbResult<i64>;
 }

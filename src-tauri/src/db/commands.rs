@@ -350,6 +350,32 @@ pub fn message_append(
         .map_err(|e| e.to_string())
 }
 
+/// S14-agent integration: replace the char/4 heuristic token estimate with
+/// the real upstream usage and stash vision metadata on the message.
+/// `routing_decision_json` is a JSON-serialised dict produced by the
+/// hermes-agent S14 routing_decision (mode/primary/resolved/fallback_*).
+#[tauri::command]
+pub fn message_record_usage(
+    db: State<'_, Db>,
+    id: &str,
+    prompt_tokens: i64,
+    completion_tokens: i64,
+    image_tokens: i64,
+    routing_decision_json: Option<&str>,
+    elapsed_ms: Option<i64>,
+) -> Result<Message, String> {
+    db.message()
+        .record_usage(
+            id,
+            prompt_tokens,
+            completion_tokens,
+            image_tokens,
+            routing_decision_json,
+            elapsed_ms,
+        )
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn message_list(
     db: State<'_, Db>,
