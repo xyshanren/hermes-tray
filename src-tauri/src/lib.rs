@@ -689,6 +689,48 @@ struct RestoreInfo {
 // sees base64-encoded bytes from MediaRecorder) so CORS / multipart
 // construction stays server-side.
 
+/// Pick a file extension for a recording given its MIME type. hermes-agent
+/// (and OpenAI's API) infer the format from this; common values:
+///
+///   audio/webm;codecs=opus   -> webm
+///   audio/ogg;codecs=opus    -> ogg
+///   audio/wav                -> wav
+///   audio/mpeg               -> mp3
+///   audio/mp4                -> mp4
+///
+/// Pure helper extracted from `hermes_proxy_transcribe` for unit-test
+/// coverage — the main flow is HTTP-bound and skipped per mod tests top.
+fn pick_audio_extension(mime_type: &str) -> &'static str {
+    if mime_type.contains("webm") {
+        "webm"
+    } else if mime_type.contains("ogg") {
+        "ogg"
+    } else if mime_type.contains("wav") {
+        "wav"
+    } else if mime_type.contains("mpeg") {
+        "mp3"
+    } else if mime_type.contains("mp4") {
+        "mp4"
+    } else {
+        // Fallback: just call it .bin and hope the gateway figures it out.
+        "bin"
+    }
+}
+
+/// Parse the `{"text": "..."}` response body from the OpenAI Whisper
+/// API (or any OpenAI-compatible STT endpoint, including hermes-agent's
+/// S13-agent implementation).
+///
+/// Pure helper extracted from `hermes_proxy_transcribe` for unit-test
+/// coverage. Returns the transcript on success; an error if the body
+/// doesn't have a string `text` field (protocol violation).
+fn parse_openai_transcribe_response(body: &serde_json::Value) -> Result<String, String> {
+    body.get("text")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "response missing 'text' field".to_string())
+}
+
 #[derive(serde::Deserialize)]
 struct TranscribeArgs {
     /// Full URL of the gateway's `/v1/audio/transcriptions` endpoint.
@@ -710,27 +752,7 @@ async fn hermes_proxy_transcribe(
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&args.audio_base64)
         .map_err(|e| format!("base64 decode: {e}"))?;
-    // Pick a file extension that matches the MIME type. hermes-agent
-    // (and OpenAI's API) infer the format from this; common values:
-    //   audio/webm;codecs=opus   -> webm
-    //   audio/ogg;codecs=opus    -> ogg
-    //   audio/wav                -> wav
-    //   audio/mpeg               -> mp3
-    //   audio/mp4                -> mp4
-    let ext = if args.mime_type.contains("webm") {
-        "webm"
-    } else if args.mime_type.contains("ogg") {
-        "ogg"
-    } else if args.mime_type.contains("wav") {
-        "wav"
-    } else if args.mime_type.contains("mpeg") {
-        "mp3"
-    } else if args.mime_type.contains("mp4") {
-        "mp4"
-    } else {
-        // Fallback: just call it .bin and hope the gateway figures it out.
-        "bin"
-    };
+    let ext = pick_audio_extension(&args.mime_type);
     let part = reqwest::multipart::Part::bytes(bytes)
         .file_name(format!("recording.{ext}"))
         .mime_str(&args.mime_type)
@@ -758,10 +780,7 @@ async fn hermes_proxy_transcribe(
     }
     let body: serde_json::Value = resp.json().await
         .map_err(|e| format!("parse JSON: {e}"))?;
-    body.get("text")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| "response missing 'text' field".to_string())
+    parse_openai_transcribe_response(&body)
 }
 
 // ── Application Entry Point ─────────────────────────────────────────
@@ -1345,6 +1364,85 @@ mod tests {
     fn classify_gateway_status_running_requires_both_success_and_keyword() {
         // 仅有 keyword 但 pgrep 失败 → 还是 stopped (不可能从 IO, 但函数应鲁棒).
         assert_eq!(classify_gateway_status(false, "hermes gateway"), "stopped");
+    }
+
+    // ── T-Q-S13 / STT proxy helpers ─────────────────────────────────
+    //
+    // Pure helpers extracted from `hermes_proxy_transcribe` for unit-test
+    // coverage. The main flow is HTTP-bound and skipped per mod tests top
+    // docstring, but these branches are deterministic — every MIME-type
+    // and JSON-shape edge case is covered below.
+
+    #[test]
+    fn pick_audio_extension_webm() {
+        assert_eq!(pick_audio_extension("audio/webm;codecs=opus"), "webm");
+    }
+
+    #[test]
+    fn pick_audio_extension_wav() {
+        assert_eq!(pick_audio_extension("audio/wav"), "wav");
+    }
+
+    #[test]
+    fn pick_audio_extension_ogg() {
+        assert_eq!(pick_audio_extension("audio/ogg;codecs=opus"), "ogg");
+    }
+
+    #[test]
+    fn pick_audio_extension_mpeg() {
+        assert_eq!(pick_audio_extension("audio/mpeg"), "mp3");
+    }
+
+    #[test]
+    fn pick_audio_extension_mp4() {
+        assert_eq!(pick_audio_extension("audio/mp4"), "mp4");
+    }
+
+    #[test]
+    fn pick_audio_extension_unknown_falls_back_to_bin() {
+        // Unknown / unrecognised MIME types degrade to .bin so hermes-agent
+        // gets a chance to sniff the format itself.
+        assert_eq!(pick_audio_extension("audio/x-foo"), "bin");
+        assert_eq!(pick_audio_extension(""), "bin");
+        assert_eq!(pick_audio_extension("application/octet-stream"), "bin");
+    }
+
+    #[test]
+    fn parse_openai_transcribe_response_text() {
+        let v = serde_json::json!({"text": "hello world"});
+        assert_eq!(parse_openai_transcribe_response(&v).unwrap(), "hello world");
+    }
+
+    #[test]
+    fn parse_openai_transcribe_response_empty_text_ok() {
+        // Empty string is a valid (if useless) transcript — the frontend
+        // surfaces a "转写为空" toast, the backend shouldn't reject it.
+        let v = serde_json::json!({"text": ""});
+        assert_eq!(parse_openai_transcribe_response(&v).unwrap(), "");
+    }
+
+    #[test]
+    fn parse_openai_transcribe_response_missing_text_errors() {
+        // OpenAI schema: `text` is required. A 200 with no `text` is a
+        // protocol violation — surface to caller instead of returning
+        // an empty string (which the frontend would treat as success).
+        let v = serde_json::json!({"foo": "bar"});
+        let err = parse_openai_transcribe_response(&v).unwrap_err();
+        assert!(err.contains("text"), "error should mention 'text' field: {err}");
+    }
+
+    #[test]
+    fn parse_openai_transcribe_response_text_not_string_errors() {
+        // Per OpenAI spec, `text` is always a string. A non-string value
+        // (number, bool, null, array) is a backend bug — error out.
+        let v = serde_json::json!({"text": 42});
+        assert!(parse_openai_transcribe_response(&v).is_err());
+
+        let v = serde_json::json!({"text": null});
+        assert!(parse_openai_transcribe_response(&v).is_err());
+
+        let v = serde_json::json!({"text": ["hello"]});
+        assert!(parse_openai_transcribe_response(&v).is_err());
     }
 }
 
