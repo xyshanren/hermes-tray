@@ -160,6 +160,7 @@ hermes-tray/
 - [x] **T-Q-S9**: Token / 成本追踪 + 图表 — 1d ✅ 2026-06-26
 - [x] **T-Q-S10**: 导出/分享 (markdown + 分享链接) — 1d ✅ 2026-06-26
 - [x] **v0.1.2 tag** (commit `16fe742` at `f0526f2`) — release notes 落在 `docs/RELEASE_v0.1.2.md` — 2026-06-26
+- [x] **v0.1.3 tag** (commit `888bbaf`) — S5+ quick capture global shortcut — release notes 落在 `docs/RELEASE_v0.1.3.md` — 2026-07-03
 - [x] **T-Q-S11**: 加密本地备份 (AES-256-GCM + Argon2id) — 1d ✅ 2026-06-26
 - [x] **T-Q-S12-light**: 模型选择器 + Persona.model 字段 — 1d ✅ 2026-06-26
 - [x] **T-Q-S13**: 语音输入 (客户端录音 + 后端 STT) — 1d ✅ 2026-06-26
