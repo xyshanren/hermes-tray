@@ -152,10 +152,31 @@ pub trait MessageDAO: Send + Sync {
     fn list_by_session(&self, session_id: &str, limit: i64, offset: i64) -> DbResult<Vec<Message>>;
     fn get(&self, id: &str) -> DbResult<Message>;
     /// Replace the char/4 heuristic token estimate with the real upstream
-    /// usage (prompt_tokens + completion_tokens) and stash the S14 metadata
-    /// blob (image_tokens / routing_decision / elapsed_ms) on the message.
+    /// usage (prompt_tokens + completion_tokens) and stash the S14/S12
+    /// metadata (image_tokens / routing_decision / elapsed_ms /
+    /// cost_estimate_usd / cost_threshold_exceeded) on the message.
     /// Adjusts the session's total_tokens by the delta so the chart stays
     /// in sync with the persisted value.
+    ///
+    /// v0.1.5 S12 fields:
+    /// - `cost_estimate_usd` — real USD cost from agent S12 SSE
+    ///   `usage.cost_estimate_usd` (real value, replaces char/4
+    ///   heuristic). Persisted to dedicated `messages.cost_estimate_usd`
+    ///   column AND mirrored into the metadata JSON blob for legacy
+    ///   readers.
+    /// - `cost_threshold_exceeded` — bool, S12 cost-aware fallback flag.
+    ///   Persisted to `messages.cost_threshold_exceeded` (0/1) and
+    ///   mirrored into `routing_decision.cost_threshold_exceeded` in the
+    ///   metadata blob.
+    // The S14 v0.1.4 signature already triggered the
+    // `clippy::too_many_arguments` lint at 6 args. v0.1.5 S12 adds two
+    // more (cost_estimate_usd + cost_threshold_exceeded) and pushes
+    // us to 8. We can't easily collapse them into a struct without
+    // breaking the Tauri IPC contract (the frontend already calls
+    // `message_record_usage` with these as separate kwargs), so we
+    // allow the lint explicitly. The DAO is the boundary — anything
+    // below it can use structs freely.
+    #[allow(clippy::too_many_arguments)]
     fn record_usage(
         &self,
         id: &str,
@@ -164,6 +185,8 @@ pub trait MessageDAO: Send + Sync {
         image_tokens: i64,
         routing_decision_json: Option<&str>,
         elapsed_ms: Option<i64>,
+        cost_estimate_usd: f64,
+        cost_threshold_exceeded: bool,
     ) -> DbResult<Message>;
     fn delete(&self, id: &str) -> DbResult<()>;
     fn count_tokens(&self, session_id: &str) -> DbResult<i64>;

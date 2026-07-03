@@ -32,7 +32,7 @@ pub use dao::{
 pub use pool::{init_db, Db, DbPool};
 pub use token::{
     cost_for_model, estimate_tokens, lookup_pricing, DailyBucket, ModelBucket, ModelPricing,
-    TokenStats,
+    RuleBucket, TokenStats,
 };
 
 /// Centralized error type for the DB layer.

@@ -22,7 +22,7 @@
 use crate::db::pool::DbPool;
 use crate::db::{DbError, DbResult};
 
-const CURRENT_SCHEMA_VERSION: i64 = 3;
+const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 /// Embedded migrations in version order. The version number is the
 /// leading digits of the original filename (e.g. `0001_initial.sql` -> 1).
@@ -37,6 +37,16 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (
         3,
         include_str!("../../migrations/0003_add_persona_model.sql"),
+    ),
+    // v0.1.5: S12 cost metadata — `cost_estimate_usd` REAL (per-message
+    // real cost from agent S12 SSE usage) + `cost_threshold_exceeded`
+    // INTEGER (0/1; whether S12 cost-aware fallback flagged this turn).
+    // Replaces the older `json_extract(metadata, '$.cost_estimate_usd')`
+    // path so the stats modal aggregates are O(1) per row instead of
+    // re-parsing the JSON blob.
+    (
+        4,
+        include_str!("../../migrations/0004_add_cost_metadata.sql"),
     ),
 ];
 

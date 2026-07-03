@@ -11,7 +11,7 @@ use crate::db::dao::{
 };
 use crate::db::export::{to_json, to_markdown, ExportPersona, ExportProject, ExportSession};
 use crate::db::project::scan_project;
-use crate::db::token::{cost_for_model, DailyBucket, ModelBucket, TokenStats};
+use crate::db::token::{cost_for_model, DailyBucket, ModelBucket, RuleBucket, TokenStats};
 use crate::db::Db;
 
 // ── Session commands ──────────────────────────────────────────────────────────
@@ -137,11 +137,26 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
     let mut total_image_tokens: i64 = 0;
     let mut recent_routing: Option<String> = None;
     let mut recent_elapsed: Option<i64> = None;
+    // v0.1.5 S12 aggregates — collected from the same scan to keep the
+    // whole stats render to one DB round-trip. The boolean flag
+    // `fallback_used` and the `elapsed_ms` value are read from the
+    // metadata JSON blob; `cost_estimate_usd` and
+    // `cost_threshold_exceeded` come from the dedicated S12 columns.
+    let mut cost_total: f64 = 0.0;
+    let mut fallback_hits: i64 = 0;
+    let mut routing_count: i64 = 0;
+    let mut latency_sum_ms: f64 = 0.0;
+    let mut latency_count: i64 = 0;
+    let mut cost_threshold_count: i64 = 0;
 
     let mut stmt = conn
         .prepare(
             "SELECT m.session_id, m.role, m.tokens, m.created_at, COALESCE(s.model, 'unknown'), \
-                    COALESCE(json_extract(m.metadata, '$.image_tokens'), 0) \
+                    COALESCE(json_extract(m.metadata, '$.image_tokens'), 0), \
+                    COALESCE(m.cost_estimate_usd, 0.0), \
+                    COALESCE(m.cost_threshold_exceeded, 0), \
+                    json_extract(m.metadata, '$.routing_decision.fallback_used'), \
+                    json_extract(m.metadata, '$.elapsed_ms') \
              FROM messages m \
              LEFT JOIN sessions s ON s.id = m.session_id \
              WHERE m.created_at >= ?1",
@@ -156,12 +171,26 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
                 row.get::<_, i64>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, i64>(5)?,
+                row.get::<_, f64>(6)?,
+                row.get::<_, i64>(7)?,
+                row.get::<_, Option<i64>>(8)?,
+                row.get::<_, Option<i64>>(9)?,
             ))
         })
         .map_err(|e| e.to_string())?;
     for row in rows {
-        let (session_id, role, tokens, created_at, model, image_tokens) =
-            row.map_err(|e| e.to_string())?;
+        let (
+            session_id,
+            role,
+            tokens,
+            created_at,
+            model,
+            image_tokens,
+            msg_cost,
+            msg_threshold,
+            msg_fallback,
+            msg_elapsed,
+        ) = row.map_err(|e| e.to_string())?;
         // UTC date bucket. Unix epoch days = created_at / 86_400_000.
         let day_unix = created_at / 86_400_000;
         let date = unix_days_to_ymd(day_unix);
@@ -193,6 +222,26 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
         // S14: image_tokens is always a user-attachment cost (the model's
         // input side), so sum unconditionally across roles.
         total_image_tokens = total_image_tokens.saturating_add(image_tokens);
+
+        // v0.1.5 S12 aggregates.
+        cost_total += msg_cost;
+        if msg_threshold != 0 {
+            cost_threshold_count += 1;
+        }
+        if let Some(fb) = msg_fallback {
+            // Only count messages that actually carry a routing_decision
+            // blob (fallback_used is null when there's no routing). This
+            // makes the hit-rate denominator a true "of the routed
+            // messages" number, not "of every message ever".
+            routing_count += 1;
+            if fb != 0 {
+                fallback_hits += 1;
+            }
+        }
+        if let Some(ms) = msg_elapsed {
+            latency_sum_ms += ms as f64;
+            latency_count += 1;
+        }
     }
 
     // S14: pick the most recent routing_decision + elapsed_ms blob from
@@ -233,6 +282,36 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
         recent_elapsed = v;
     }
 
+    // v0.1.5 S12: per-rule breakdown. group by routing_decision.rule_id
+    // and aggregate hit_count + cost_total. The COALESCE catches the
+    // pre-S12 messages (no rule_id in metadata) and buckets them under
+    // "no_rule" so they don't pollute the stats. NULL rule_id values
+    // (e.g. routing_decision blob present but rule_id missing) are
+    // bucketed under "unknown".
+    let mut rule_stmt = conn
+        .prepare(
+            "SELECT COALESCE(json_extract(m.metadata, '$.routing_decision.rule_id'), 'no_rule') AS rule_id, \
+                    COUNT(*) AS hit_count, \
+                    COALESCE(SUM(m.cost_estimate_usd), 0.0) AS cost_total \
+             FROM messages m \
+             WHERE m.created_at >= ?1 \
+               AND json_extract(m.metadata, '$.routing_decision') IS NOT NULL \
+             GROUP BY rule_id \
+             ORDER BY hit_count DESC, cost_total DESC",
+        )
+        .map_err(|e| e.to_string())?;
+    let by_rule: Vec<RuleBucket> = rule_stmt
+        .query_map([start_ms], |row| {
+            Ok(RuleBucket {
+                rule_id: row.get::<_, String>(0)?,
+                hit_count: row.get::<_, i64>(1)?,
+                cost_total: row.get::<_, f64>(2)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())?;
+
     // Convert to sorted Vec<DailyBucket> and add cost.
     let daily: Vec<DailyBucket> = daily_map
         .into_iter()
@@ -264,6 +343,22 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
 
     let total_cost = by_model_vec.iter().map(|m| m.cost).sum();
 
+    // v0.1.5 S12 aggregates — derived from the per-row scan above.
+    // fallback_hit_rate is "of messages that actually carried a
+    // routing_decision" (not of all messages) so the percentage
+    // reflects routing behavior, not "the user just had a bunch of
+    // pre-S12 messages that we never tried to route".
+    let fallback_hit_rate = if routing_count > 0 {
+        fallback_hits as f64 / routing_count as f64
+    } else {
+        0.0
+    };
+    let avg_latency_ms = if latency_count > 0 {
+        latency_sum_ms / latency_count as f64
+    } else {
+        0.0
+    };
+
     Ok(TokenStats {
         period: period_label.to_string(),
         start_unix_ms: start_ms,
@@ -278,6 +373,11 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
         total_image_tokens,
         recent_routing_decision: recent_routing,
         recent_elapsed_ms: recent_elapsed,
+        period_cost_total_usd: cost_total,
+        fallback_hit_rate,
+        avg_latency_ms,
+        cost_threshold_count,
+        by_rule,
     })
 }
 
@@ -409,6 +509,12 @@ pub fn message_append(
 /// the real upstream usage and stash vision metadata on the message.
 /// `routing_decision_json` is a JSON-serialised dict produced by the
 /// hermes-agent S14 routing_decision (mode/primary/resolved/fallback_*).
+///
+/// v0.1.5 S12: also persist the real `cost_estimate_usd` and the
+/// `cost_threshold_exceeded` boolean (cost-aware fallback flag) on
+/// first-class columns so the stats modal can do period-aggregate
+/// SUM/COUNT/AVG without re-parsing the metadata JSON blob.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn message_record_usage(
     db: State<'_, Db>,
@@ -418,6 +524,8 @@ pub fn message_record_usage(
     image_tokens: i64,
     routing_decision_json: Option<&str>,
     elapsed_ms: Option<i64>,
+    cost_estimate_usd: f64,
+    cost_threshold_exceeded: bool,
 ) -> Result<Message, String> {
     db.message()
         .record_usage(
@@ -427,6 +535,8 @@ pub fn message_record_usage(
             image_tokens,
             routing_decision_json,
             elapsed_ms,
+            cost_estimate_usd,
+            cost_threshold_exceeded,
         )
         .map_err(|e| e.to_string())
 }

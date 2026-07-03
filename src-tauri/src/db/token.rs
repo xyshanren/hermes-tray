@@ -182,6 +182,18 @@ pub struct ModelBucket {
     pub message_count: i64,
 }
 
+/// v0.1.5 S12: per-rule breakdown. `rule_id` is the routing_decision.rule_id
+/// the agent S12 emitted; hits are how many messages in the period were
+/// routed by that rule; cost_total is the sum of those messages'
+/// `cost_estimate_usd` (USD). Sorted by hit_count DESC so the busiest
+/// rules surface first.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct RuleBucket {
+    pub rule_id: String,
+    pub hit_count: i64,
+    pub cost_total: f64,
+}
+
 /// Aggregate stats for a given period. Returned by the `token_stats`
 /// Tauri command and consumed by the frontend stats modal.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -211,6 +223,36 @@ pub struct TokenStats {
     /// `elapsed_ms` blob.
     #[serde(default)]
     pub recent_elapsed_ms: Option<i64>,
+    // ── v0.1.5 S12 cost-aware routing aggregates ───────────────────────────
+    /// S12: real USD cost total across the period. Sum of
+    /// `messages.cost_estimate_usd` for messages with a real cost
+    /// (replaces the pre-S12 char/4 cost projection in `total_cost`).
+    /// This is the **authoritative** cost; `total_cost` is the projected
+    /// fallback for messages that don't have a real cost yet (pre-S12
+    /// DBs).
+    #[serde(default)]
+    pub period_cost_total_usd: f64,
+    /// S12: fallback hit rate in [0.0, 1.0]. Computed as
+    /// `count(routing_decision.fallback_used = true) /
+    /// count(routing_decision IS NOT NULL)`. 0.0 when no messages in
+    /// the period carry a routing decision.
+    #[serde(default)]
+    pub fallback_hit_rate: f64,
+    /// S12: average wall-clock latency (ms) across the period, computed
+    /// from `messages.metadata.elapsed_ms` via `json_extract`. 0.0 when
+    /// no messages in the period carry `elapsed_ms`.
+    #[serde(default)]
+    pub avg_latency_ms: f64,
+    /// S12: count of messages where the S12 cost-aware fallback flagged
+    /// a budget threshold breach (`cost_threshold_exceeded = 1`). Powers
+    /// the "Cost Threshold 触发" tile — surfaces silent budget overruns.
+    #[serde(default)]
+    pub cost_threshold_count: i64,
+    /// S12: per-rule breakdown. `rule_id` from
+    /// `messages.metadata.routing_decision.rule_id`. Sorted by
+    /// `hit_count DESC` so the busiest rules surface first.
+    #[serde(default)]
+    pub by_rule: Vec<RuleBucket>,
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

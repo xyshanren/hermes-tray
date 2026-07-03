@@ -18,14 +18,21 @@ use crate::db::pool::DbPool;
 use crate::db::session::SessionDao;
 use crate::db::{DbError, DbResult};
 
-/// Merge S14 vision metadata into an existing messages.metadata JSON blob.
+/// Merge S14 vision + S12 cost metadata into an existing messages.metadata
+/// JSON blob.
 ///
 /// The `existing` field is whatever the message already has (could be a
 /// `pendingAttachment` index from T-Q-S14, or null). We always preserve
 /// existing keys, then add:
 ///   - `image_tokens` (i64)  — the S14 image-part token count from the agent
-///   - `routing_decision` (object or string) — vision routing decision
+///   - `routing_decision` (object or string) — S14 vision + S12 routing
+///     decision; v0.1.5 also injects `cost_estimate_usd` and
+///     `cost_threshold_exceeded` *inside* this object so legacy
+///     json_extract(routing_decision.cost_threshold_exceeded) readers
+///     still see the flag.
 ///   - `elapsed_ms` (i64) — wall-clock latency for the request
+///   - `cost_estimate_usd` (f64) — top-level mirror of the S12 cost
+///     field, also persisted to the dedicated column.
 ///
 /// If `existing` is not valid JSON, we treat it as a plain string and
 /// stash it under `_legacy` to avoid silently dropping prior metadata.
@@ -34,6 +41,8 @@ fn merge_usage_metadata(
     image_tokens: i64,
     routing_decision_json: Option<&str>,
     elapsed_ms: Option<i64>,
+    cost_estimate_usd: f64,
+    cost_threshold_exceeded: bool,
 ) -> DbResult<String> {
     let mut base: serde_json::Value = match existing {
         None | Some("") => serde_json::Value::Object(serde_json::Map::new()),
@@ -65,13 +74,68 @@ fn merge_usage_metadata(
     if let Some(rd) = routing_decision_json {
         // Parse and re-serialise so downstream readers always get a JSON
         // object even if the agent pushed a stringified form.
-        let rd_value: serde_json::Value =
+        let mut rd_value: serde_json::Value =
             serde_json::from_str(rd).unwrap_or_else(|_| serde_json::Value::String(rd.to_string()));
+        // v0.1.5 S12: inject cost fields *inside* routing_decision so the
+        // legacy json_extract(routing_decision.cost_threshold_exceeded)
+        // path in pre-v0.1.5 stats queries still sees the flag.
+        if let Some(rd_obj) = rd_value.as_object_mut() {
+            rd_obj.insert(
+                "cost_estimate_usd".to_string(),
+                serde_json::json!(cost_estimate_usd),
+            );
+            rd_obj.insert(
+                "cost_threshold_exceeded".to_string(),
+                serde_json::json!(cost_threshold_exceeded),
+            );
+        } else {
+            // routing_decision was a string (not an object) — wrap it
+            // so we can attach the cost fields cleanly. The original
+            // string is preserved under `_raw`.
+            let mut wrapper = serde_json::Map::new();
+            wrapper.insert("_raw".to_string(), rd_value);
+            wrapper.insert(
+                "cost_estimate_usd".to_string(),
+                serde_json::json!(cost_estimate_usd),
+            );
+            wrapper.insert(
+                "cost_threshold_exceeded".to_string(),
+                serde_json::json!(cost_threshold_exceeded),
+            );
+            rd_value = serde_json::Value::Object(wrapper);
+        }
         obj.insert("routing_decision".to_string(), rd_value);
+    } else {
+        // No routing_decision was passed (e.g. a pre-S14 path) but the
+        // S12 fields still need to live somewhere on the message.
+        // Build a stub routing_decision containing only the cost fields
+        // so downstream code can always read cost_threshold_exceeded
+        // out of metadata.routing_decision.
+        let mut stub = serde_json::Map::new();
+        stub.insert(
+            "cost_estimate_usd".to_string(),
+            serde_json::json!(cost_estimate_usd),
+        );
+        stub.insert(
+            "cost_threshold_exceeded".to_string(),
+            serde_json::json!(cost_threshold_exceeded),
+        );
+        obj.insert(
+            "routing_decision".to_string(),
+            serde_json::Value::Object(stub),
+        );
     }
     if let Some(ms) = elapsed_ms {
         obj.insert("elapsed_ms".to_string(), serde_json::json!(ms));
     }
+    // Top-level mirror so future code that reads
+    // `metadata.cost_estimate_usd` doesn't have to dig into
+    // routing_decision. Overwritten by the routing_decision write above
+    // if both keys exist (routing_decision wins, see above).
+    obj.insert(
+        "cost_estimate_usd".to_string(),
+        serde_json::json!(cost_estimate_usd),
+    );
 
     serde_json::to_string(&base).map_err(|e| DbError::Invalid(format!("serialize metadata: {e}")))
 }
@@ -211,12 +275,18 @@ impl<'a> MessageDAO for MessageDao<'a> {
         image_tokens: i64,
         routing_decision_json: Option<&str>,
         elapsed_ms: Option<i64>,
+        cost_estimate_usd: f64,
+        cost_threshold_exceeded: bool,
     ) -> DbResult<Message> {
-        // T-Q-S9 v2 + S14 vision: replace the char/4 heuristic token estimate
-        // with the real upstream usage. We persist:
+        // T-Q-S9 v2 + S14 vision + S12 cost metadata: replace the char/4
+        // heuristic token estimate with the real upstream usage. We persist:
         //   - `tokens` = prompt + completion (the real total, NOT the heuristic)
-        //   - `metadata` = merged JSON blob: existing metadata + S14 fields
-        //     (`image_tokens`, `routing_decision`, `elapsed_ms`)
+        //   - `cost_estimate_usd` (REAL column) + `cost_threshold_exceeded`
+        //     (INTEGER 0/1 column) for first-class aggregation in the
+        //     stats modal — replaces the slower json_extract path.
+        //   - `metadata` = merged JSON blob: existing metadata + S14/S12
+        //     fields (`image_tokens`, `routing_decision`, `elapsed_ms`,
+        //     `cost_estimate_usd`).
         //
         // The session's `total_tokens` counter is adjusted by the delta so
         // the cost chart in the stats modal stays consistent with the
@@ -241,20 +311,44 @@ impl<'a> MessageDAO for MessageDao<'a> {
         // 2. Build the merged metadata JSON. We accept arbitrary user-supplied
         //    routing_decision JSON (the S14 agent pushes a structured dict;
         //    unknown shapes are passed through verbatim so the stats modal
-        //    can render what it knows and ignore the rest).
+        //    can render what it knows and ignore the rest). v0.1.5 S12
+        //    cost fields are also injected into the routing_decision
+        //    object so the legacy `json_extract(metadata, '$.routing_decision.cost_threshold_exceeded')`
+        //    path keeps working.
         let new_metadata = merge_usage_metadata(
             existing_metadata.as_deref(),
             image_tokens,
             routing_decision_json,
             elapsed_ms,
+            cost_estimate_usd,
+            cost_threshold_exceeded,
         )?;
         let new_tokens = prompt_tokens.saturating_add(completion_tokens);
         let delta = new_tokens.saturating_sub(old_tokens);
+        // S12 stores the cost threshold flag as INTEGER 0/1 in SQLite.
+        // Passing a bool into rusqlite::params! is supported (it goes
+        // through ToSql) but we cast to i32 explicitly to avoid any
+        // driver-version surprise.
+        let threshold_int: i32 = if cost_threshold_exceeded { 1 } else { 0 };
 
-        // 3. Update the message row.
+        // 3. Update the message row (tokens + metadata + the 2 new
+        //    S12 columns). All six values are written in a single
+        //    UPDATE so the row stays consistent under concurrent
+        //    readers.
         tx.execute(
-            "UPDATE messages SET tokens = ?1, metadata = ?2 WHERE id = ?3",
-            params![new_tokens, new_metadata, id],
+            "UPDATE messages SET \
+                tokens = ?1, \
+                metadata = ?2, \
+                cost_estimate_usd = ?3, \
+                cost_threshold_exceeded = ?4 \
+             WHERE id = ?5",
+            params![
+                new_tokens,
+                new_metadata,
+                cost_estimate_usd,
+                threshold_int,
+                id,
+            ],
         )?;
 
         // 4. Adjust the session counter by the delta. Floor at 0 to defend

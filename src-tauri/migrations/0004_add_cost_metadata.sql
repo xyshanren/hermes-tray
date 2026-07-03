@@ -1,0 +1,35 @@
+-- Hermes Tray v2 — v0.1.5 S12 metadata persistence
+--
+-- Add two top-level columns to `messages` for S12 cost-aware routing
+-- telemetry. The agent (hermes-agent-cn S12 P1 + P2) pushes per-message
+-- real cost estimates and a "did we hit a cost threshold?" flag through
+-- SSE `usage` + the `routing_decision` blob. We mirror those fields
+-- into first-class columns so the stats modal can do per-period
+-- aggregation (SUM / AVG / COUNT) via simple SQL — no JSON parsing
+-- inside hot aggregates.
+--
+-- Why not stay inside `messages.metadata` JSON?
+-- - Cost total: `SUM(json_extract(metadata, '$.cost_estimate_usd'))`
+--   works but is slower than `SUM(cost_estimate_usd)` and harder to
+--   defensively parse (NULL vs 0 vs invalid float).
+-- - Boolean threshold flag stored as INTEGER 0/1 (SQLite convention)
+--   is identical to cost_threshold_exceeded field on the S12
+--   RoutingDecision dataclass.
+--
+-- Why REAL for cost?
+-- - USD amounts are decimals; i64 cents would lose precision
+--   (LLM cost is often <$0.0001 for short exchanges).
+-- - REAL is a double in SQLite; sufficient for 6-digit precision.
+--
+-- Defaults:
+-- - cost_estimate_usd 0.0 — pre-S12 messages / messages where the
+--   agent didn't push a cost get 0 in aggregates. char/4 heuristic
+--   cost is intentionally NOT back-filled; it was inaccurate.
+-- - cost_threshold_exceeded 0 — pre-S12 messages never tripped a
+--   threshold. (FALSE)
+--
+-- Both columns are NULL-tolerant reads; aggregates use COALESCE to
+-- convert NULL → 0 defensively.
+
+ALTER TABLE messages ADD COLUMN cost_estimate_usd REAL NOT NULL DEFAULT 0.0;
+ALTER TABLE messages ADD COLUMN cost_threshold_exceeded INTEGER NOT NULL DEFAULT 0;
