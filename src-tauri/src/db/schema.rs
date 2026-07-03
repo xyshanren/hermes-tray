@@ -1,21 +1,44 @@
 //! Migration runner.
 //!
-//! Reads `migrations/0001_initial.sql` etc. and applies any new files
-//! to the database, recording each applied version in `schema_version`.
+//! Applies SQL migrations to the database, recording each applied
+//! version in `schema_version`.
 //!
 //! Strategy:
 //! 1. Read `schema_version` table; find the current max version
-//! 2. List all `*.sql` files in `migrations/` (relative to CARGO_MANIFEST_DIR)
-//! 3. For each file with version > current, execute + record
+//! 2. For each entry in the `MIGRATIONS` const array with version >
+//!    current, execute + record
+//!
+//! **Migrations are embedded at compile time via `include_str!`** so the
+//! release binary does not depend on the working directory containing
+//! a `migrations/` subfolder. The previous fs::read_dir approach
+//! silently failed when the user launched the MSI-installed binary
+//! from a Start Menu shortcut (cwd != install dir) and the app
+//! panicked at startup with "系统找不到指定的路径". Embedding the
+//! SQL avoids that whole class of problem.
 //!
 //! Files MUST be named `NNNN_description.sql` (NNNN = zero-padded version).
-
-use std::fs;
+//! Add a new const entry below when adding a migration.
 
 use crate::db::pool::DbPool;
 use crate::db::{DbError, DbResult};
 
 const CURRENT_SCHEMA_VERSION: i64 = 3;
+
+/// Embedded migrations in version order. The version number is the
+/// leading digits of the original filename (e.g. `0001_initial.sql` -> 1).
+/// Adding a migration = appending a new entry here AND bumping
+/// `CURRENT_SCHEMA_VERSION`.
+const MIGRATIONS: &[(i64, &str)] = &[
+    (1, include_str!("../../migrations/0001_initial.sql")),
+    (
+        2,
+        include_str!("../../migrations/0002_add_project_context.sql"),
+    ),
+    (
+        3,
+        include_str!("../../migrations/0003_add_persona_model.sql"),
+    ),
+];
 
 /// Apply all pending migrations. Idempotent — safe to call on every startup.
 pub fn run_migrations(pool: &DbPool) -> DbResult<()> {
@@ -38,25 +61,11 @@ pub fn run_migrations(pool: &DbPool) -> DbResult<()> {
         )
         .unwrap_or(0);
 
-    let migrations_dir = migrations_dir();
-    let mut entries: Vec<(i64, String)> = fs::read_dir(&migrations_dir)
-        .map_err(|e| DbError::Migration(format!("read_dir({}): {e}", migrations_dir.display())))?
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let name = entry.file_name().into_string().ok()?;
-            let version = parse_version_from_filename(&name)?;
-            Some((version, entry.path().to_string_lossy().to_string()))
-        })
-        .collect();
-    entries.sort_by_key(|(v, _)| *v);
-
-    for (version, path) in entries {
-        if version > current_version && version <= CURRENT_SCHEMA_VERSION {
-            let sql = fs::read_to_string(&path)
-                .map_err(|e| DbError::Migration(format!("read {path}: {e}")))?;
-            log::info!("Applying migration v{version} from {path}");
-            conn.execute_batch(&sql)
-                .map_err(|e| DbError::Migration(format!("apply v{version} ({path}): {e}")))?;
+    for (version, sql) in MIGRATIONS {
+        if *version > current_version && *version <= CURRENT_SCHEMA_VERSION {
+            log::info!("Applying migration v{version} (embedded)");
+            conn.execute_batch(sql)
+                .map_err(|e| DbError::Migration(format!("apply v{version} (embedded): {e}")))?;
             // Record that this migration has been applied.
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -64,7 +73,7 @@ pub fn run_migrations(pool: &DbPool) -> DbResult<()> {
                 .unwrap_or(0);
             conn.execute(
                 "INSERT INTO schema_version (version, applied_at, comment) VALUES (?1, ?2, ?3)",
-                rusqlite::params![version, now, format!("migrations/{path}")],
+                rusqlite::params![version, now, format!("embedded v{version}")],
             )?;
         }
     }
@@ -72,46 +81,36 @@ pub fn run_migrations(pool: &DbPool) -> DbResult<()> {
     Ok(())
 }
 
-/// Locate the migrations directory.
-///
-/// In production builds the SQL is embedded via `include_str!` so we don't
-/// depend on the working directory. In tests we fall back to a known path.
-fn migrations_dir() -> std::path::PathBuf {
-    // CARGO_MANIFEST_DIR points at src-tauri/ during `cargo test`
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
-    std::path::PathBuf::from(manifest_dir).join("migrations")
-}
-
-/// Parse the leading numeric prefix from `0001_initial.sql` -> `1`.
-fn parse_version_from_filename(name: &str) -> Option<i64> {
-    let prefix: String = name.chars().take_while(|c| c.is_ascii_digit()).collect();
-    if prefix.is_empty() {
-        return None;
-    }
-    prefix.parse().ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parse_version_from_filename_handles_padded_numbers() {
-        assert_eq!(parse_version_from_filename("0001_initial.sql"), Some(1));
-        assert_eq!(parse_version_from_filename("0042_fts.sql"), Some(42));
-        assert_eq!(parse_version_from_filename("9999.sql"), Some(9999));
+    fn migrations_array_is_sorted_and_complete() {
+        // Regression guard: MIGRATIONS must be in ascending order and the
+        // highest version must equal CURRENT_SCHEMA_VERSION. If a
+        // maintainer adds a migration but forgets to bump
+        // CURRENT_SCHEMA_VERSION, this test fails.
+        let mut prev = 0;
+        for (v, _sql) in MIGRATIONS {
+            assert!(
+                *v > prev,
+                "MIGRATIONS not in ascending order: {prev} -> {v}"
+            );
+            prev = *v;
+        }
+        assert_eq!(
+            MIGRATIONS.last().map(|(v, _)| *v),
+            Some(CURRENT_SCHEMA_VERSION),
+            "CURRENT_SCHEMA_VERSION must equal the highest entry in MIGRATIONS"
+        );
     }
 
     #[test]
-    fn parse_version_from_filename_rejects_non_numeric() {
-        assert_eq!(parse_version_from_filename("initial.sql"), None);
-        assert_eq!(parse_version_from_filename("README.md"), None);
-        assert_eq!(parse_version_from_filename(""), None);
-    }
-
-    #[test]
-    fn parse_version_from_filename_rejects_garbage_prefix() {
-        assert_eq!(parse_version_from_filename("a001_foo.sql"), None);
-        assert_eq!(parse_version_from_filename("_0001.sql"), None);
+    fn migrations_array_contains_no_duplicates() {
+        let mut seen = std::collections::HashSet::new();
+        for (v, _) in MIGRATIONS {
+            assert!(seen.insert(*v), "duplicate migration version: {v}");
+        }
     }
 }
