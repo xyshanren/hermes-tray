@@ -81,9 +81,19 @@ jobs:
 
       - name: Generate release notes
         run: |
-          echo "## Hermes Tray ${{ github.ref_name }}" > RELEASE_NOTES.md
-          echo "" >> RELEASE_NOTES.md
-          echo "See [CHANGELOG](./CHANGELOG.md) for details." >> RELEASE_NOTES.md
+          VERSION="${{ github.ref_name }}"
+          cat > RELEASE_NOTES.md <<EOF
+          ## Hermes Tray ${VERSION}
+
+          Full release notes: [docs/RELEASE_${VERSION}.md](./blob/${VERSION}/docs/RELEASE_${VERSION}.md)
+
+          ### Assets (Windows-only build today; macOS/Linux planned for next release)
+          - \`*.msi\` — Windows MSI installer (企业 / silent install via \`msiexec /qn\`)
+          - \`*setup.exe\` — NSIS setup (普通用户 / custom install path)
+          - \`hermes-tray-tauri.exe\` — Portable (高级用户 / debug)
+
+          See [CHANGELOG.md](./blob/${VERSION}/CHANGELOG.md) for the full version history.
+          EOF
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -94,4 +104,6 @@ jobs:
             **/*.AppImage
             **/*.dmg
             **/*.msi
+            **/*setup.exe
+            **/hermes-tray-tauri.exe
           fail_on_unmatched_files: false
