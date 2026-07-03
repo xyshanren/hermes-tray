@@ -1192,6 +1192,45 @@ function formatBytes(n: number): string {
 const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024; // 10 MB per image
 const ATTACHMENT_MAX_COUNT = 4; // per single message
 
+/**
+ * S14 v0.1.4: when the user is approaching the per-message image cap,
+ * show a warning toast so they can switch strategies (vision_analyze
+ * pre-processing, splitting into multiple messages) before hitting
+ * the hard limit. The threshold is `max - 2` so the user has one
+ * chance to add the final 2 images after seeing the hint.
+ *
+ * Returns a structured decision so the UI handler doesn't have to
+ * recompute the threshold or remember the magic -2 offset.
+ */
+export type AttachmentLimitDecision =
+  | { level: 'ok' }
+  | { level: 'warn'; message: string }
+  | { level: 'block'; message: string };
+
+export function evaluateAttachmentLimit(
+  currentCount: number,
+  addingCount: number,
+  max: number = ATTACHMENT_MAX_COUNT,
+): AttachmentLimitDecision {
+  const next = currentCount + addingCount;
+  if (next > max) {
+    return {
+      level: 'block',
+      message: `每次消息最多 ${max} 张图片，当前 ${currentCount} 张 + 新增 ${addingCount} 张 = ${next} 张超限`,
+    };
+  }
+  if (next >= max - 2 && currentCount < max - 2) {
+    // Only warn on the transition into the warning zone, not on every
+    // subsequent add — otherwise a user dragging 4 files one-by-one
+    // would see 3 stacked toasts.
+    return {
+      level: 'warn',
+      message: `即将达到每次 ${max} 张图片上限; 多余的图建议用 vision_analyze 工具预生成描述后用文字提交`,
+    };
+  }
+  return { level: 'ok' };
+}
+
 /** Convert a File to a data URL + extract metadata. */
 function fileToAttachment(file: File): Promise<PendingAttachment> {
   return new Promise((resolve, reject) => {
@@ -1226,8 +1265,13 @@ function fileToAttachment(file: File): Promise<PendingAttachment> {
 
 async function addAttachments(files: FileList | File[]): Promise<void> {
   const list = Array.from(files);
-  if (pendingAttachments.length + list.length > ATTACHMENT_MAX_COUNT) {
-    showToast('太多附件', `每次消息最多 ${ATTACHMENT_MAX_COUNT} 张`, 'error');
+  // S14 v0.1.4: structured decision covers the three outcomes
+  // (under limit / approaching limit / over limit) with helpful copy.
+  // The hard block stays an error toast; the soft warn is an info toast
+  // so the user sees the hint but isn't blocked from sending.
+  const decision = evaluateAttachmentLimit(pendingAttachments.length, list.length);
+  if (decision.level === 'block') {
+    showToast('太多附件', decision.message, 'error');
     return;
   }
   const results: PendingAttachment[] = [];
@@ -1239,6 +1283,9 @@ async function addAttachments(files: FileList | File[]): Promise<void> {
     }
   }
   pendingAttachments = [...pendingAttachments, ...results];
+  if (decision.level === 'warn') {
+    showToast('接近附件上限', decision.message, 'info');
+  }
   renderAttachmentPreviews();
 }
 

@@ -64,3 +64,68 @@ describe("buildMultimodalContent (T-Q-S14)", () => {
     }
   });
 });
+
+// ─── S14 v0.1.4: image count scenarios for pre-flight + native fast path ────
+//
+// S14 multi-image limit (hermes-agent phase 3): the agent enforces a
+// per-model max_images. For GPT-5 it's 16. These tests pin the tray-side
+// contract: whatever N the user attaches, the request body must be
+// structurally correct OpenAI multimodal (text first, then N image_url
+// parts). The actual pre-flight check that decides whether to refuse
+// happens on the agent side; the tray just needs to send the right
+// shape and warn the user before they hit the limit.
+
+function makeImages(n: number): Array<{ dataUrl: string; name: string; type: string; size: number }> {
+  return Array.from({ length: n }, (_, i) => ({
+    dataUrl: `data:image/png;base64,IMG${i}`,
+    name: `${i}.png`,
+    type: "image/png",
+    size: 4,
+  }));
+}
+
+describe("buildMultimodalContent image-count scenarios (S14 v0.1.4)", () => {
+  it("1 image: native fast path candidate", () => {
+    const out = buildMultimodalContent("describe", makeImages(1));
+    expect(Array.isArray(out)).toBe(true);
+    if (Array.isArray(out)) {
+      expect(out).toHaveLength(2); // text + 1 image
+      const imageParts = out.filter(p => p.type === "image_url");
+      expect(imageParts).toHaveLength(1);
+    }
+  });
+
+  it("4 images: still under typical 16-image limit", () => {
+    const out = buildMultimodalContent("compare these", makeImages(4));
+    expect(Array.isArray(out)).toBe(true);
+    if (Array.isArray(out)) {
+      expect(out).toHaveLength(5); // text + 4 images
+      const imageParts = out.filter(p => p.type === "image_url");
+      expect(imageParts).toHaveLength(4);
+    }
+  });
+
+  it("16 images: at the GPT-5 limit, must still build correctly", () => {
+    const out = buildMultimodalContent("", makeImages(16));
+    expect(Array.isArray(out)).toBe(true);
+    if (Array.isArray(out)) {
+      expect(out).toHaveLength(16); // no text + 16 images
+      const imageParts = out.filter(p => p.type === "image_url");
+      expect(imageParts).toHaveLength(16);
+    }
+  });
+
+  it("50 images: over the GPT-5 limit — agent will reject with 422 TooManyImagesError", () => {
+    // The tray still builds the request shape correctly. The agent
+    // enforces the limit server-side (TooManyImagesError). This is
+    // exactly the path the user would hit in production with a 50-image
+    // drop — verifying the tray doesn't crash / silently drop images.
+    const out = buildMultimodalContent("all of these", makeImages(50));
+    expect(Array.isArray(out)).toBe(true);
+    if (Array.isArray(out)) {
+      expect(out).toHaveLength(51); // text + 50 images
+      const imageParts = out.filter(p => p.type === "image_url");
+      expect(imageParts).toHaveLength(50);
+    }
+  });
+});
