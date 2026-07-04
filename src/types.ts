@@ -131,12 +131,14 @@ export interface Persona {
 export interface HermesResponse {
   ok: boolean;
   status: number;
-  data: unknown;
-  error?: string;
+  body: string;
 }
 
 export interface GatewayInfo {
+  ip: string;
+  port: string;
   url: string;
+  distro: string;
 }
 
 export interface Message {

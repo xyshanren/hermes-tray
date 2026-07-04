@@ -29,6 +29,13 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { composeSystemPrompt } from './systemPrompt';
 import { layoutChart, formatTokens, formatCost, DEFAULT_CHART_LAYOUT, type DailyBucketLike } from './tokenChart';
 import { setTheme, getStoredTheme, type ThemeMode } from './lib/theme';
+import { hermesGet, hermesPostStream, authHeaders } from './lib/api';
+import {
+  getGatewayUrl,
+  setApiKey,
+  resolveGatewayUrl,
+  applyPortOverride,
+} from './lib/state';
 
 const UNKNOWN_MODEL = '-';
 
@@ -216,36 +223,17 @@ let sidebarVisible = false;
 let currentPersonaId: string | null = null;
 let personasCache: Persona[] = [];
 
-interface HermesResponse {
-  ok: boolean;
-  status: number;
-  body: string;
-}
-
-interface GatewayInfo {
-  ip: string;
-  port: string;
-  url: string;
-}
-
-// Resolved at runtime via hermes_resolve_gateway_ip()
-let RESOLVED_GATEWAY_URL = '';
-let API_KEY = 'hermes-local-dev-key';
-
-async function hermesGet(path: string): Promise<HermesResponse> {
-  return await invoke('hermes_proxy_get', {
-    url: `${RESOLVED_GATEWAY_URL}${path}`,
-    headers: { 'Authorization': `Bearer ${API_KEY}` }
-  });
-}
-
-async function hermesPostStream(path: string, body: object): Promise<void> {
-  return await invoke('hermes_proxy_post_stream', {
-    url: `${RESOLVED_GATEWAY_URL}${path}`,
-    headers: { 'Authorization': `Bearer ${API_KEY}` },
-    body: JSON.stringify(body)
-  });
-}
+// v0.2-alpha-3 — HermesResponse / GatewayInfo + hermesGet / hermesPostStream +
+// module-level gateway URL / API key bindings moved out:
+//   - HermesResponse / GatewayInfo → './types' (single source of truth, matches Rust schema)
+//   - hermesGet / hermesPostStream / authHeaders → './lib/api'
+//   - getGatewayUrl / setGatewayUrl / getApiKey / setApiKey /
+//     resolveGatewayUrl / applyPortOverride → './lib/state'
+// Import block at the top of this file already pulls them in; just call them.
+//
+// Bootstrap (DOMContentLoaded) and the settings save handler are the two
+// places that mutate state — they call the new setters. Everything else
+// reads via getters and stays untouched.
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -1509,7 +1497,7 @@ async function onRecordingComplete(): Promise<void> {
     );
   }
   const audioBase64 = btoa(binary);
-  const url = `${RESOLVED_GATEWAY_URL}/v1/audio/transcriptions`;
+  const url = `${getGatewayUrl()}/v1/audio/transcriptions`;
   try {
     const text = await invoke<string>('hermes_proxy_transcribe', {
       args: {
@@ -1517,7 +1505,7 @@ async function onRecordingComplete(): Promise<void> {
         audioBase64,
         mimeType: blob.type,
       },
-      headers: { 'Authorization': `Bearer ${API_KEY}` },
+      headers: authHeaders(),
     });
     if (!text) {
       showToast('转写为空', '识别结果为空字符串', 'info');
@@ -1782,26 +1770,19 @@ function sanitizeSnippet(s: string): string {
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
-  // Resolve WSL2 gateway IP dynamically
-  try {
-    const info = await invoke<GatewayInfo>('hermes_resolve_gateway_ip');
-    RESOLVED_GATEWAY_URL = info.url;
-    console.log('[Hermes] Gateway resolved:', info.url);
-  } catch {
-    // Fallback
-    RESOLVED_GATEWAY_URL = 'http://172.31.98.230:8642';
-    console.warn('[Hermes] Gateway IP detection failed, using fallback');
-  }
+  // v0.2-alpha-3 — Resolve WSL2 gateway IP dynamically via ./lib/state.
+  // resolveGatewayUrl handles the fallback internally.
+  const resolvedUrl = await resolveGatewayUrl();
+  console.log('[Hermes] Gateway resolved:', resolvedUrl);
 
   // Load saved API key and port from config
   try {
     const config: Record<string, any> = await invoke('hermes_get_config');
     if (config.api_key) {
-      API_KEY = config.api_key;
+      setApiKey(config.api_key);
     }
-    if (config.port && RESOLVED_GATEWAY_URL) {
-      // Replace port in the URL
-      RESOLVED_GATEWAY_URL = RESOLVED_GATEWAY_URL.replace(/:\d+$/, `:${config.port}`);
+    if (config.port) {
+      applyPortOverride(config.port);
     }
   } catch { /* no config */ }
 
@@ -2056,16 +2037,14 @@ window.addEventListener('DOMContentLoaded', async () => {
       closeSettings();
 
       // Apply settings at runtime
-      if (apiKey) API_KEY = apiKey;
+      if (apiKey) setApiKey(apiKey);
 
-      // Re-resolve gateway after distro/port change
+      // Re-resolve gateway after distro/port change.
+      // resolveGatewayUrl() writes the new URL through the state setter;
+      // applyPortOverride() then swaps the port if the user changed it.
       try {
-        const info = await invoke<GatewayInfo>('hermes_resolve_gateway_ip');
-        RESOLVED_GATEWAY_URL = info.url;
-        // Apply port override
-        if (port && RESOLVED_GATEWAY_URL) {
-          RESOLVED_GATEWAY_URL = RESOLVED_GATEWAY_URL.replace(/:\d+$/, `:${port}`);
-        }
+        await resolveGatewayUrl();
+        if (port) applyPortOverride(port);
       } catch { /* keep old */ }
     } catch (e) {
       showToast('保存失败', String(e), 'error');
@@ -2655,7 +2634,7 @@ async function sendMessage() {
 
     const errorDiv = document.createElement('div');
     errorDiv.className = 'message error';
-    errorDiv.innerHTML = `<div class="message-content">❌ 连接失败: ${errorMsg}<br><small>请确保 Hermes Gateway 正在运行 (${RESOLVED_GATEWAY_URL})</small></div>`;
+    errorDiv.innerHTML = `<div class="message-content">❌ 连接失败: ${errorMsg}<br><small>请确保 Hermes Gateway 正在运行 (${getGatewayUrl()})</small></div>`;
     messagesContainer?.appendChild(errorDiv);
     scrollToBottom();
     updateSendButton();
@@ -2666,7 +2645,7 @@ async function checkConnection() {
   updateConnectionStatus('connecting');
   // Show the resolved URL in status
   if (statusText) {
-    statusText.textContent = `连接中... (${RESOLVED_GATEWAY_URL})`;
+    statusText.textContent = `连接中... (${getGatewayUrl()})`;
   }
   try {
     const response = await hermesGet('/health');
