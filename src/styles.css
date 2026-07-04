@@ -880,6 +880,88 @@ html, body {
   margin-top: 4px;
 }
 
+/* v0.2-alpha-2 — Segmented control (used for theme picker in settings modal).
+   Stop-gap before shadcn-style SegmentedControl is generated in Phase 1. */
+.segmented {
+  display: inline-flex;
+  gap: 0;
+  padding: 3px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+.segmented-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.segmented-btn:hover:not(.active) {
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.04);
+}
+:root.dark .segmented-btn:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.06);
+}
+.segmented-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+.segmented-btn.active {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-color: var(--border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  cursor: default;
+}
+:root.dark .segmented-btn.active {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+/* Dark mode for segmented control — needed because the legacy :root vars
+   only respond to @media(prefers-color-scheme:dark), but our <html class="dark">
+   toggle (driven by setTheme('dark')) does not flip that media query.
+   So we mirror the dark colors for both selectors: */
+@media (prefers-color-scheme: dark) {
+  .segmented {
+    background: #1e293b;
+    border-color: #334155;
+  }
+  .segmented-btn:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .segmented-btn.active {
+    background: #0f172a;
+    border-color: #334155;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+}
+:root.dark .segmented {
+  background: #1e293b;
+  border-color: #334155;
+}
+:root.dark .segmented-btn:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.06);
+}
+:root.dark .segmented-btn.active {
+  background: #0f172a;
+  border-color: #334155;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
 .modal-footer {
   display: flex;
   justify-content: flex-end;

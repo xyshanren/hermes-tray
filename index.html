@@ -5,6 +5,23 @@
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hermes Chat</title>
+    <!-- v0.2-alpha-2 — anti-flash theme bootstrap.
+         Reads hermes-theme from localStorage and toggles .dark on <html>
+         BEFORE main.ts loads. Kept inline (no module imports) so it runs
+         synchronously in the head, ahead of any paint. main.ts will re-apply
+         and attach the OS-preference listener once it boots. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('hermes-theme');
+          var mode = (stored === 'light' || stored === 'dark' || stored === 'system') ? stored : 'system';
+          var dark = mode === 'dark' ||
+            (mode === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+          document.documentElement.dataset.theme = mode;
+        } catch (e) { /* localStorage unavailable — fall through to default light */ }
+      })();
+    </script>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
@@ -159,6 +176,15 @@
             <button id="settings-close" class="modal-close-btn">&times;</button>
           </div>
           <div class="modal-body">
+            <div class="form-group">
+              <label id="setting-theme-label">主题</label>
+              <div class="segmented" role="radiogroup" aria-labelledby="setting-theme-label" id="setting-theme-group">
+                <button type="button" class="segmented-btn" role="radio" data-theme="light" aria-checked="false">☀️ 浅色</button>
+                <button type="button" class="segmented-btn" role="radio" data-theme="dark" aria-checked="false">🌙 深色</button>
+                <button type="button" class="segmented-btn" role="radio" data-theme="system" aria-checked="true">💻 跟随系统</button>
+              </div>
+              <span class="form-hint">界面外观。点击立即生效，重启后保留（写入配置数据库）。</span>
+            </div>
             <div class="form-group">
               <label for="setting-wsl-distro">WSL 发行版</label>
               <select id="setting-wsl-distro"></select>

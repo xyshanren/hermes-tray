@@ -28,6 +28,7 @@ import { register, unregister } from '@tauri-apps/plugin-global-shortcut';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { composeSystemPrompt } from './systemPrompt';
 import { layoutChart, formatTokens, formatCost, DEFAULT_CHART_LAYOUT, type DailyBucketLike } from './tokenChart';
+import { setTheme, getStoredTheme, type ThemeMode } from './lib/theme';
 
 const UNKNOWN_MODEL = '-';
 
@@ -1909,6 +1910,12 @@ window.addEventListener('DOMContentLoaded', async () => {
   const defaultProjectPathInput = document.getElementById('setting-default-project-path') as HTMLInputElement;
   const defaultModelInput = document.getElementById('setting-default-model') as HTMLInputElement;
 
+  // v0.2-alpha-2 — Theme segmented control (stop-gap before shadcn SegmentedControl).
+  // Stores the user's choice in module scope and writes to DB on save.
+  const themeGroup = document.getElementById('setting-theme-group')!;
+  const themeButtons = themeGroup.querySelectorAll<HTMLButtonElement>('.segmented-btn');
+  let pendingTheme: ThemeMode = getStoredTheme();
+
   // Open settings
   settingsBtn.addEventListener('click', () => openSettings());
   settingsClose.addEventListener('click', closeSettings);
@@ -1921,6 +1928,21 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Save
   settingsSave.addEventListener('click', () => saveSettings());
+
+  // Theme: live preview on click (apply immediately), persisted on save.
+  themeButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.theme as ThemeMode | undefined;
+      if (mode !== 'light' && mode !== 'dark' && mode !== 'system') return;
+      pendingTheme = mode;
+      setTheme(mode); // writes localStorage + toggles .dark
+      themeButtons.forEach((b) => {
+        const active = b.dataset.theme === mode;
+        b.classList.toggle('active', active);
+        b.setAttribute('aria-checked', active ? 'true' : 'false');
+      });
+    });
+  });
 
   // Load WSL distro list on open
   function openSettings() {
@@ -1977,6 +1999,29 @@ window.addEventListener('DOMContentLoaded', async () => {
         defaultModel = entry.value;
       }
     } catch { /* key not set yet */ }
+
+    // v0.2-alpha-2: load theme preference from DB config.
+    // DB key is the source of truth (survives localStorage clear); fallback to localStorage.
+    let loadedTheme: ThemeMode = 'system';
+    try {
+      const entry = await invoke<{ key: string; value: string } | null>('db_config_get', { key: 'theme' });
+      const v = entry?.value;
+      if (v === 'light' || v === 'dark' || v === 'system') {
+        loadedTheme = v;
+      } else {
+        loadedTheme = getStoredTheme();
+      }
+    } catch {
+      loadedTheme = getStoredTheme();
+    }
+    pendingTheme = loadedTheme;
+    // Reflect loaded state in the segmented control without re-applying theme
+    // (the inline anti-flash script already painted the correct class).
+    themeButtons.forEach((b) => {
+      const active = b.dataset.theme === loadedTheme;
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-checked', active ? 'true' : 'false');
+    });
   }
 
   async function saveSettings() {
@@ -2003,6 +2048,9 @@ window.addEventListener('DOMContentLoaded', async () => {
       const newDefaultModel = defaultModelInput.value.trim();
       await setDefaultModel(newDefaultModel.length > 0 ? newDefaultModel : null);
       defaultModel = newDefaultModel.length > 0 ? newDefaultModel : null;
+
+      // v0.2-alpha-2: persist theme to DB-backed config so it survives reinstall/clear-localStorage.
+      await invoke('db_config_set', { key: 'theme', value: pendingTheme });
 
       showToast('设置已保存', '配置已更新，部分设置可能需要重启后生效', 'success');
       closeSettings();
