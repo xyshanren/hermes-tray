@@ -1,32 +1,5 @@
 import { describe, it, expect } from "vitest";
-
-/**
- * Mirror of `base64UrlEncode` / `base64UrlDecode` from main.ts. The
- * Tauri app uses the same algorithm to share a session as a URL
- * fragment. The encode must be:
- *   - URL-safe (uses `-_` instead of `+/`)
- *   - No padding (strips `=`)
- *   - UTF-8 safe (multi-byte chars like emoji round-trip)
- */
-
-function base64UrlEncode(s: string): string {
-  const bytes = new TextEncoder().encode(s);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-function base64UrlDecode(s: string): string {
-  let b64 = s.replace(/-/g, "+").replace(/_/g, "/");
-  while (b64.length % 4 !== 0) b64 += "=";
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
-}
+import { base64UrlEncode, base64UrlDecode, SHARE_FRAGMENT_RE } from "./shareLink";
 
 describe("base64UrlEncode", () => {
   it("encodes ASCII correctly", () => {
@@ -118,9 +91,8 @@ describe("base64Url round-trip", () => {
 
 describe("URL fragment parsing", () => {
   it("matches #share= prefix", () => {
-    const re = /^#share=(.+)$/;
-    expect("#share=abc".match(re)?.[1]).toBe("abc");
-    expect("#share=".match(re)).toBeNull();
-    expect("share=abc".match(re)).toBeNull();
+    expect("#share=abc".match(SHARE_FRAGMENT_RE)?.[1]).toBe("abc");
+    expect("#share=".match(SHARE_FRAGMENT_RE)).toBeNull();
+    expect("share=abc".match(SHARE_FRAGMENT_RE)).toBeNull();
   });
 });

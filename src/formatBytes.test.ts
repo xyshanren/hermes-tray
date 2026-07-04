@@ -1,14 +1,5 @@
 import { describe, it, expect } from "vitest";
-
-/**
- * Mirror of `formatBytes` from main.ts. The function formats byte
- * counts into human-readable strings (B / KB / MB).
- */
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(2)} MB`;
-}
+import { formatBytes } from "./formatBytes";
 
 describe("formatBytes", () => {
   it("sub-KB: integer B", () => {
