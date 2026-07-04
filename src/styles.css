@@ -1,4 +1,107 @@
-/* Reset & Base */
+/* ============================================================================
+ * v0.2 Tailwind base + Design Tokens
+ * Synced with hermes-tray-UI设计要求.md §五
+ * Tokens use HSL for Tailwind compatibility. CSS variables enable theme toggle.
+ * ============================================================================ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light theme — default */
+    --background: 0 0% 100%;          /* #FFFFFF */
+    --foreground: 222 47% 11%;        /* #0F172A */
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --primary: 233 100% 69%;          /* #5B6CFF — Hermes brand indigo */
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 233 84% 60%;
+
+    --secondary: 210 40% 98%;         /* #F8FAFC */
+    --secondary-foreground: 215 25% 27%;  /* #475569 */
+
+    --muted: 210 40% 96%;             /* #F1F5F9 */
+    --muted-foreground: 215 16% 47%;  /* #64748B */
+
+    --accent: 14 100% 60%;            /* #FF7A45 — Hermes accent orange */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;         /* #EF4444 */
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 45%;           /* #22C55E */
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;            /* #F59E0B */
+    --warning-foreground: 0 0% 100%;
+
+    --info: 217 91% 60%;              /* #3B82F6 */
+    --info-foreground: 0 0% 100%;
+
+    --border: 214 32% 91%;            /* #E2E8F0 */
+    --input: 214 32% 91%;
+    --ring: 233 100% 69%;             /* primary */
+
+    --radius: 0.5rem; /* 8px — default Tailwind md */
+  }
+
+  .dark {
+    /* Dark theme — toggled via .dark class on <html> */
+    --background: 220 39% 9%;         /* #0B1220 */
+    --foreground: 210 40% 98%;        /* #F8FAFC */
+
+    --card: 220 39% 11%;              /* #111827 */
+    --card-foreground: 210 40% 98%;
+
+    --primary: 233 100% 69%;          /* same brand color in dark */
+    --primary-foreground: 220 39% 9%;
+    --primary-hover: 233 84% 60%;
+
+    --secondary: 220 26% 14%;         /* #1F2937 */
+    --secondary-foreground: 215 25% 65%; /* #CBD5E1 */
+
+    --muted: 220 26% 14%;
+    --muted-foreground: 215 16% 47%;  /* #64748B */
+
+    --accent: 14 100% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 220 39% 9%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 220 39% 9%;
+
+    --info: 217 91% 60%;
+    --info-foreground: 220 39% 9%;
+
+    --border: 215 25% 27%;            /* #334155 */
+    --input: 215 25% 27%;
+    --ring: 233 100% 69%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html, body {
+    @apply bg-background text-foreground antialiased;
+    font-family: theme("fontFamily.sans");
+  }
+}
+
+/* ============================================================================
+ * v0.1.5 legacy CSS — kept for backward compatibility during migration.
+ * Will be removed progressively as components move to Tailwind utilities.
+ * ============================================================================ */
+
 * {
   margin: 0;
   padding: 0;

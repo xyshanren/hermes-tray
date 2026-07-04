@@ -14,12 +14,21 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@preact/preset-vite": "^2.10.5",
     "@tauri-apps/api": "2.6.0",
     "@tauri-apps/plugin-global-shortcut": "2.3.2",
     "@tauri-apps/plugin-window-state": "2.4.1",
+    "autoprefixer": "^10.5.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "highlight.js": "^11.11.1",
+    "lucide-preact": "^1.23.0",
     "marked": "^18.0.4",
-    "marked-highlight": "^2.2.4"
+    "marked-highlight": "^2.2.4",
+    "postcss": "^8.5.16",
+    "preact": "^10.29.4",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^3.4.19"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.6.2",
