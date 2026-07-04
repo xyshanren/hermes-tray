@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { base64UrlEncode, base64UrlDecode, SHARE_FRAGMENT_RE } from "./shareLink";
+import {
+  base64UrlEncode,
+  base64UrlDecode,
+  SHARE_FRAGMENT_RE,
+  encodeShareDoc,
+  decodeShareDoc,
+  buildShareUrl,
+  parseShareHash,
+} from "./shareLink";
 
 describe("base64UrlEncode", () => {
   it("encodes ASCII correctly", () => {
@@ -94,5 +102,85 @@ describe("URL fragment parsing", () => {
     expect("#share=abc".match(SHARE_FRAGMENT_RE)?.[1]).toBe("abc");
     expect("#share=".match(SHARE_FRAGMENT_RE)).toBeNull();
     expect("share=abc".match(SHARE_FRAGMENT_RE)).toBeNull();
+  });
+});
+
+describe("encodeShareDoc", () => {
+  it("JSON-stringifies then base64url-encodes a value", () => {
+    const doc = { version: 1, title: "测试" };
+    const encoded = encodeShareDoc(doc);
+    // Should be a valid base64url string (no +, /, or padding)
+    expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/);
+    // And should decode back to the same JSON
+    expect(decodeShareDoc(encoded)).toEqual(doc);
+  });
+
+  it("handles primitives", () => {
+    expect(decodeShareDoc(encodeShareDoc("hello"))).toBe("hello");
+    expect(decodeShareDoc(encodeShareDoc(42))).toBe(42);
+    expect(decodeShareDoc(encodeShareDoc(null))).toBe(null);
+    expect(decodeShareDoc(encodeShareDoc([1, 2, 3]))).toEqual([1, 2, 3]);
+  });
+});
+
+describe("decodeShareDoc", () => {
+  it("decodes a real share payload back to its document", () => {
+    const doc = { version: 1, session: { id: "s1", title: "T" }, messages: [] };
+    const encoded = encodeShareDoc(doc);
+    expect(decodeShareDoc(encoded)).toEqual(doc);
+  });
+
+  it("throws on garbage base64", () => {
+    // '!!!' is not valid base64 (atob throws on non-alphabet chars in some impls;
+    // for atob specifically the chars are all rejected). Either way, JSON.parse
+    // would also fail downstream.
+    expect(() => decodeShareDoc("!!!")).toThrow();
+  });
+
+  it("throws when base64 decodes to non-JSON", () => {
+    // base64url("hello") -> "aGVsbG8"; JSON.parse("hello") throws
+    expect(() => decodeShareDoc(base64UrlEncode("not json {"))).toThrow();
+  });
+});
+
+describe("buildShareUrl", () => {
+  it("assembles ${origin}${pathname}#share=${encoded}", () => {
+    expect(buildShareUrl("YWJj", "https://example.com", "/app/")).toBe(
+      "https://example.com/app/#share=YWJj",
+    );
+  });
+
+  it("preserves trailing slash on pathname", () => {
+    expect(buildShareUrl("x", "https://example.com", "/")).toBe(
+      "https://example.com/#share=x",
+    );
+  });
+
+  it("works with file:// origin (Tauri dev)", () => {
+    expect(buildShareUrl("x", "tauri://localhost", "/")).toBe(
+      "tauri://localhost/#share=x",
+    );
+  });
+});
+
+describe("parseShareHash", () => {
+  it("decodes a valid share hash back to the document", () => {
+    const doc = { version: 1, session: { id: "s1", title: "T" } };
+    const hash = `#share=${encodeShareDoc(doc)}`;
+    expect(parseShareHash(hash)).toEqual(doc);
+  });
+
+  it("returns null for an empty hash", () => {
+    expect(parseShareHash("")).toBeNull();
+  });
+
+  it("returns null for a non-share hash", () => {
+    expect(parseShareHash("#section-1")).toBeNull();
+    expect(parseShareHash("plain-string")).toBeNull();
+  });
+
+  it("returns null when the encoded payload is garbage (no throw)", () => {
+    expect(parseShareHash("#share=!!!not-base64!!!")).toBeNull();
+    expect(parseShareHash("#share=" + base64UrlEncode("not json"))).toBeNull();
   });
 });

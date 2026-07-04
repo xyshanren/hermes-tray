@@ -31,6 +31,11 @@ import { layoutChart, formatTokens, formatCost, DEFAULT_CHART_LAYOUT, type Daily
 import { setTheme, getStoredTheme, type ThemeMode } from './lib/theme';
 import { hermesGet, hermesPostStream, authHeaders } from './lib/api';
 import {
+  encodeShareDoc,
+  buildShareUrl,
+  parseShareHash,
+} from './shareLink';
+import {
   getGatewayUrl,
   setApiKey,
   resolveGatewayUrl,
@@ -341,40 +346,19 @@ async function copySessionAsMarkdown(sessionId: string): Promise<void> {
  * (title, messages, persona, project) is encoded in the URL fragment
  * so the receiving end can preview the import without any server.
  *
- * `window.location.href + '#share=' + base64url(JSON.stringify(doc))`
+ * Encoding lives in `./shareLink` (encodeShareDoc + buildShareUrl);
+ * this wrapper just owns the Tauri invoke + clipboard + toast bits.
  */
 async function copySessionShareLink(sessionId: string): Promise<void> {
   try {
     const json = await invoke<unknown>('export_session_json', { sessionId });
-    const text = JSON.stringify(json);
-    const encoded = base64UrlEncode(text);
-    const url = `${window.location.origin}${window.location.pathname}#share=${encoded}`;
+    const encoded = encodeShareDoc(json);
+    const url = buildShareUrl(encoded, window.location.origin, window.location.pathname);
     await navigator.clipboard.writeText(url);
     showToast('分享链接已复制', `${url.length} 字符 — 接收方打开即可导入`, 'success');
   } catch (e) {
     showToast('生成链接失败', String(e), 'error');
   }
-}
-
-/** URL-safe base64 (no padding, `-_` instead of `+/`). */
-function base64UrlEncode(s: string): string {
-  // btoa is only available for ASCII; we UTF-8-encode first.
-  const bytes = new TextEncoder().encode(s);
-  let binary = '';
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-}
-
-function base64UrlDecode(s: string): string {
-  let b64 = s.replace(/-/g, '+').replace(/_/g, '/');
-  while (b64.length % 4 !== 0) b64 += '=';
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
 }
 
 /**
@@ -387,13 +371,12 @@ function base64UrlDecode(s: string): string {
  * from <title>. Click to import.") and a confirmation flow.
  */
 async function maybeImportFromHash(): Promise<void> {
-  const hash = window.location.hash;
-  const m = hash.match(/^#share=(.+)$/);
-  if (!m) return;
-  const encoded = m[1];
+  // parseShareHash returns null on no-match OR decode failure, so the only
+  // way to reach the body is a successfully-decoded document.
+  const decoded = parseShareHash(window.location.hash);
+  if (decoded === null) return;
   try {
-    const json = base64UrlDecode(encoded);
-    const doc = JSON.parse(json) as {
+    const doc = decoded as {
       version: number;
       session: { id: string; title: string };
       messages: Array<{ role: string; content: string }>;
