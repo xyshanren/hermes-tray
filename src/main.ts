@@ -32,6 +32,9 @@ import { setTheme, getStoredTheme, type ThemeMode } from './lib/theme';
 import { hermesGet, hermesPostStream, authHeaders } from './lib/api';
 import { showToast, type ToastType } from './lib/toast';
 import { mountAppToaster } from './lib/toaster-mount';
+import { mountSearchModal } from './views/search-modal-mount';
+import { searchModalStore } from './views/search-modal-store';
+import { escapeHtml } from './lib/sanitize';
 import {
   encodeShareDoc,
   buildShareUrl,
@@ -188,13 +191,9 @@ interface DbMessage {
   created_at: string;
 }
 
-interface SearchHit {
-  message_id: string;
-  session_id: string;
-  session_title: string;
-  snippet: string;
-  rank: number;
-}
+// SearchHit is imported by ./views/search-modal.tsx from ./types directly.
+// No local interface needed in main.ts — the previous runSearch() used it,
+// but runSearch() moved to the view.
 
 // ── Persona types (T-Q-S7) ──────────────────────────────────────────────────────
 //
@@ -1681,78 +1680,24 @@ function wirePersonaFormEvents(p: Persona | null): void {
 }
 
 // ── Search Modal ──────────────────────────────────────────────────────────────
+//
+// The actual UI lives in ./views/search-modal.tsx (Preact JSX). These two
+// wrappers preserve the original openSearchModal/closeSearchModal call sites
+// (sidebar button, Ctrl+K, tray menu, result-click, Escape) — they just
+// drive the searchModalStore which the mounted component subscribes to.
 
 function openSearchModal(): void {
-  const modal = document.getElementById('search-modal');
-  const input = document.getElementById('search-input') as HTMLInputElement;
-  const results = document.getElementById('search-results');
-  if (!modal || !input || !results) return;
-  modal.classList.remove('hidden');
-  input.value = '';
-  results.innerHTML = '';
-  input.focus();
+  searchModalStore.setOpen(true);
 }
 
 function closeSearchModal(): void {
-  const modal = document.getElementById('search-modal');
-  if (modal) modal.classList.add('hidden');
-}
-
-async function runSearch(query: string): Promise<void> {
-  const results = document.getElementById('search-results');
-  if (!results) return;
-  if (!query.trim()) {
-    results.innerHTML = '';
-    return;
-  }
-  try {
-    results.innerHTML = '<div class="search-empty">搜索中...</div>';
-    const hits = await invoke<SearchHit[]>('session_search', { query: query.trim(), limit: 20 });
-    results.innerHTML = '';
-    if (hits.length === 0) {
-      results.innerHTML = `<div class="search-empty">未找到与「${escapeHtml(query.trim())}」相关的会话</div>`;
-      return;
-    }
-    const countDiv = document.createElement('div');
-    countDiv.className = 'search-count';
-    countDiv.textContent = `${hits.length} 个结果`;
-    results.appendChild(countDiv);
-    for (const hit of hits) {
-      const el = document.createElement('div');
-      el.className = 'search-result-item';
-      const titleDiv = document.createElement('div');
-      titleDiv.className = 'search-result-title';
-      titleDiv.textContent = hit.session_title || '无标题会话';
-      const snippetDiv = document.createElement('div');
-      snippetDiv.className = 'search-result-snippet';
-      snippetDiv.innerHTML = sanitizeSnippet(hit.snippet);
-      el.appendChild(titleDiv);
-      el.appendChild(snippetDiv);
-      el.addEventListener('click', async () => {
-        closeSearchModal();
-        if (!sidebarVisible) toggleSidebar(true);
-        await selectSession(hit.session_id);
-      });
-      results.appendChild(el);
-    }
-  } catch (e) {
-    results.innerHTML = `<div class="search-empty">搜索失败: ${e}</div>`;
-  }
+  searchModalStore.setOpen(false);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-// Strip dangerous HTML tags from FTS5 snippet (keeps <b> for highlighting)
-function sanitizeSnippet(s: string): string {
-  return s
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/\bon\w+\s*=/gi, ' data-ignored=')
-    .replace(/javascript:/gi, '');
-}
+//
+// escapeHtml + sanitizeSnippet moved to ./views/search-modal.tsx (alpha-7
+// search modal view). They were only used by the search UI.
 
 window.addEventListener('DOMContentLoaded', async () => {
   // v0.2-alpha-6 — Mount the sonner <Toaster /> before any showToast call.
@@ -2066,18 +2011,17 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Search modal
-  const searchModal = document.getElementById('search-modal')!;
-  const searchClose = document.getElementById('search-close')!;
-  const searchInput = document.getElementById('search-input') as HTMLInputElement;
-  searchClose.addEventListener('click', closeSearchModal);
-  searchModal.addEventListener('click', (e) => {
-    if (e.target === searchModal) closeSearchModal();
-  });
-  let searchDebounce: ReturnType<typeof setTimeout>;
-  searchInput.addEventListener('input', () => {
-    clearTimeout(searchDebounce);
-    searchDebounce = setTimeout(() => runSearch(searchInput.value), 250);
+  // v0.2-alpha-7 — Search modal: Preact component mounted once into the
+  // #search-modal overlay root. The component owns its input/results/
+  // debounce/result-click logic; main.ts only wires external triggers
+  // (sidebar button / Ctrl+K / tray menu / Escape) via openSearchModal +
+  // closeSearchModal, which drive the searchModalStore the component
+  // subscribes to.
+  mountSearchModal({
+    onSelect: async (sessionId) => {
+      if (!sidebarVisible) toggleSidebar(true);
+      await selectSession(sessionId);
+    },
   });
 
   // Load session list on startup

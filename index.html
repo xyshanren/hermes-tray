@@ -157,19 +157,11 @@
            lives in src/lib/toaster-mount.tsx, invoked from main.ts
            DOMContentLoaded. -->
 
-      <!-- Search Modal -->
-      <div id="search-modal" class="modal-overlay hidden">
-        <div class="modal modal-search">
-          <div class="modal-header">
-            <h2>🔍 搜索会话</h2>
-            <button id="search-close" class="modal-close-btn">&times;</button>
-          </div>
-          <div class="modal-body">
-            <input type="text" id="search-input" class="search-input" placeholder="输入关键词搜索..." autocomplete="off" />
-            <div id="search-results" class="search-results"></div>
-          </div>
-        </div>
-      </div>
+      <!-- Search Modal (v0.2-alpha-7 — Preact component renders the panel
+           into this overlay root. Inner content managed by
+           src/views/search-modal.tsx; visibility (.hidden class) toggled
+           by the searchModalStore subscription. -->
+      <div id="search-modal" class="modal-overlay hidden"></div>
 
       <!-- Settings Modal -->
       <div id="settings-modal" class="modal-overlay hidden">
