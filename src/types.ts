@@ -117,13 +117,18 @@ export interface SearchHit {
 export interface Persona {
   id: string;
   name: string;
-  description: string;
+  description: string | null;
   avatar: string;
   system_prompt: string;
+  // T-Q-S12-light: optional model name. When this persona is selected,
+  // the chat sends requests with `model: <this>`. `null` means
+  // "fall back to the global default model".
   model: string | null;
-  is_default: boolean;
   created_at: string;
   updated_at: string;
+  // SQLite boolean convention (0 or 1) — built-in personas are seeded
+  // by Rust and cannot be deleted / renamed from the UI.
+  is_builtin: number;
 }
 
 // ── Chat runtime types (frontend-only, not in DB) ────────────────────────────

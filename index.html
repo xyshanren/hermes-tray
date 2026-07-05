@@ -213,16 +213,12 @@
         </div>
       </div>
 
-      <!-- Persona Library Modal (T-Q-S7) -->
-      <div id="persona-modal" class="modal-overlay hidden">
-        <div class="modal modal-persona">
-          <div class="modal-header">
-            <h2>👤 Persona 库</h2>
-            <button id="persona-modal-close" class="modal-close-btn">&times;</button>
-          </div>
-          <div id="persona-modal-body" class="modal-body"></div>
-        </div>
-      </div>
+      <!-- Persona Library Modal (v0.2-alpha-8 — Preact component renders the
+           inner panel into this overlay root. Header + close button +
+           list/form/CRUD logic all live in src/views/persona-modal.tsx;
+           visibility (.hidden class) toggled by the personaStore
+           subscription set up in mountPersonaModal. -->
+      <div id="persona-modal" class="modal-overlay hidden"></div>
 
       <!-- Token / Cost Stats Modal (T-Q-S9) -->
       <div id="stats-modal" class="modal-overlay hidden">

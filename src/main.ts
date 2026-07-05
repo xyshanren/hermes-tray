@@ -34,7 +34,10 @@ import { showToast, type ToastType } from './lib/toast';
 import { mountAppToaster } from './lib/toaster-mount';
 import { mountSearchModal } from './views/search-modal-mount';
 import { searchModalStore } from './views/search-modal-store';
+import { mountPersonaModal } from './views/persona-modal-mount';
+import { personaStore } from './views/persona-modal-store';
 import { escapeHtml } from './lib/sanitize';
+import type { Persona } from './types';
 import {
   encodeShareDoc,
   buildShareUrl,
@@ -200,21 +203,9 @@ interface DbMessage {
 // A persona = reusable assistant role. Carries system_prompt that gets
 // injected when a new session is created from it. Also serves as the
 // "session template" library — no separate templates table needed.
-
-interface Persona {
-  id: string;
-  name: string;
-  description: string | null;
-  system_prompt: string;
-  avatar: string;
-  // T-Q-S12-light: optional model name. When this persona is selected,
-  // the chat sends requests with `model: <this>`. `null` means
-  // "fall back to the global default model".
-  model: string | null;
-  created_at: string;
-  updated_at: string;
-  is_builtin: number; // 0 or 1 — SQLite boolean convention
-}
+//
+// The Persona interface lives in ./types (alpha-1 extraction + alpha-8 schema
+// sync). main.ts imports it via `import type { Persona } from './types'`.
 
 // ── Session State ─────────────────────────────────────────────────────────────
 
@@ -843,49 +834,10 @@ async function onPersonaPickerChange(): Promise<void> {
   showToast('已切换 Persona', persona ? `${persona.avatar ?? ''} ${persona.name}` : '默认 (无)', 'success');
 }
 
-async function createPersonaApi(name: string, description: string, system_prompt: string, avatar: string, model: string | null): Promise<Persona | null> {
-  const id = `persona:${crypto.randomUUID()}`;
-  const now = Date.now().toString();
-  const persona: Persona = {
-    id, name, description, system_prompt, avatar, model,
-    created_at: now, updated_at: now, is_builtin: 0,
-  };
-  try {
-    return await invoke<Persona>('persona_create', { persona });
-  } catch (e) {
-    showToast('创建 Persona 失败', String(e), 'error');
-    return null;
-  }
-}
-
-async function updatePersonaApi(persona: Persona): Promise<Persona | null> {
-  persona.updated_at = Date.now().toString();
-  try {
-    return await invoke<Persona>('persona_update', { persona });
-  } catch (e) {
-    showToast('更新 Persona 失败', String(e), 'error');
-    return null;
-  }
-}
-
-async function deletePersonaApi(id: string): Promise<boolean> {
-  if (id.startsWith('builtin:')) {
-    showToast('无法删除', '内置 Persona 不可删除', 'error');
-    return false;
-  }
-  if (!confirm('确定删除此 Persona？关联会话将保留但不再引用此角色。')) return false;
-  try {
-    await invoke('persona_delete', { id });
-    if (currentPersonaId === id) {
-      currentPersonaId = null;
-      await setDefaultPersonaId(null);
-    }
-    return true;
-  } catch (e) {
-    showToast('删除失败', String(e), 'error');
-    return false;
-  }
-}
+// createPersonaApi / updatePersonaApi / deletePersonaApi moved into
+// ./views/persona-modal.tsx (alpha-8). main.ts no longer wraps the
+// CRUD commands — the persona-modal component calls invoke directly
+// with toast-side error handling.
 
 /**
  * Compose the system prompt for the current session (T-Q-S7 + T-Q-S8).
@@ -1511,172 +1463,18 @@ async function onRecordingComplete(): Promise<void> {
 
 // ── Persona Modal (T-Q-S7) ─────────────────────────────────────────────────────
 //
-// 3-state modal: list view (default) → create form → edit form. Single
-// HTML container swapped between states. Builtin personas are read-only.
-
-let personaModalMode: 'list' | 'create' | 'edit' = 'list';
-let personaEditId: string | null = null;
+// 3-state modal: list view (default) → create form → edit form. Builtin
+// personas are read-only (name + avatar locked, the rest editable).
+//
+// The actual UI lives in ./views/persona-modal.tsx (Preact JSX). The
+// openPersonaModal wrapper preserves the original call sites (header
+// button, sidebar search button, etc.) — it drives the personaStore
+// which the mounted component subscribes to. closePersonaModal lives
+// inside PersonaModal's × button + personaStore.close(), so no main.ts
+// wrapper is needed.
 
 function openPersonaModal(): void {
-  const modal = document.getElementById('persona-modal');
-  if (!modal) return;
-  personaModalMode = 'list';
-  personaEditId = null;
-  renderPersonaModal();
-  modal.classList.remove('hidden');
-}
-
-function closePersonaModal(): void {
-  const modal = document.getElementById('persona-modal');
-  if (modal) modal.classList.add('hidden');
-}
-
-function renderPersonaModal(): void {
-  const body = document.getElementById('persona-modal-body');
-  if (!body) return;
-  if (personaModalMode === 'list') {
-    body.innerHTML = renderPersonaListHtml();
-    wirePersonaListEvents();
-  } else if (personaModalMode === 'create') {
-    body.innerHTML = renderPersonaFormHtml(null);
-    wirePersonaFormEvents(null);
-  } else if (personaModalMode === 'edit' && personaEditId) {
-    const p = personasCache.find(x => x.id === personaEditId) ?? null;
-    body.innerHTML = renderPersonaFormHtml(p);
-    wirePersonaFormEvents(p);
-  }
-}
-
-function renderPersonaListHtml(): string {
-  const rows = personasCache.map(p => {
-    const builtin = p.is_builtin === 1;
-    const safeName = escapeHtml(p.name);
-    const safeAvatar = escapeHtml(p.avatar || '');
-    const safeDesc = escapeHtml(p.description || '(无描述)');
-    const safePrompt = escapeHtml((p.system_prompt || '').slice(0, 120));
-    const tag = builtin ? '<span class="persona-tag builtin">内置</span>' : '';
-    const actions = builtin
-      ? ''
-      : `<button class="persona-action-btn" data-action="edit" data-id="${escapeHtml(p.id)}">编辑</button>
-         <button class="persona-action-btn danger" data-action="delete" data-id="${escapeHtml(p.id)}">删除</button>`;
-    return `
-      <div class="persona-row" data-id="${escapeHtml(p.id)}">
-        <div class="persona-avatar">${safeAvatar || '👤'}</div>
-        <div class="persona-info">
-          <div class="persona-name">${safeName} ${tag}</div>
-          <div class="persona-desc">${safeDesc}</div>
-          <div class="persona-prompt-preview">${safePrompt}${(p.system_prompt || '').length > 120 ? '…' : ''}</div>
-        </div>
-        <div class="persona-actions">${actions}</div>
-      </div>`;
-  }).join('');
-  return `
-    <div class="persona-toolbar">
-      <button id="persona-new-btn" class="btn btn-primary">+ 新建 Persona</button>
-    </div>
-    <div class="persona-list">${rows || '<div class="persona-empty">暂无 Persona</div>'}</div>`;
-}
-
-function renderPersonaFormHtml(p: Persona | null): string {
-  const isEdit = p !== null;
-  const builtin = isEdit && p!.is_builtin === 1;
-  const name = isEdit ? p!.name : '';
-  const desc = isEdit ? p!.description || '' : '';
-  const prompt = isEdit ? p!.system_prompt : '';
-  const avatar = isEdit ? p!.avatar || '👤' : '👤';
-  const model = isEdit ? p!.model || '' : '';
-  // Builtin personas: name/avatar locked, description/prompt/model editable.
-  const fieldDisabled = (_n: string) => builtin ? `disabled title="内置 Persona 不可修改"` : '';
-  return `
-    <div class="persona-form">
-      <div class="form-group">
-        <label>头像 (Emoji)</label>
-        <input type="text" id="pf-avatar" maxlength="4" value="${escapeHtml(avatar)}" ${fieldDisabled('avatar')} />
-      </div>
-      <div class="form-group">
-        <label>名称 *</label>
-        <input type="text" id="pf-name" maxlength="60" value="${escapeHtml(name)}" ${fieldDisabled('name')} />
-      </div>
-      <div class="form-group">
-        <label>简介</label>
-        <input type="text" id="pf-desc" maxlength="200" value="${escapeHtml(desc)}" placeholder="一句话描述这个角色" />
-      </div>
-      <div class="form-group">
-        <label>系统提示词 *</label>
-        <textarea id="pf-prompt" rows="8" placeholder="定义助手的角色、风格、约束...">${escapeHtml(prompt)}</textarea>
-        <span class="form-hint">每次新建会话时自动注入到 system 消息</span>
-      </div>
-      <div class="form-group">
-        <label>绑定 Model (T-Q-S12-light)</label>
-        <input type="text" id="pf-model" maxlength="80" value="${escapeHtml(model)}" placeholder="例如 gpt-4o-mini / deepseek-chat (留空 = 用默认)" />
-        <span class="form-hint">选这个 Persona 时, 对话会用这个 model 名发请求. 留空则用全局默认.</span>
-      </div>
-      <div class="persona-form-actions">
-        <button id="pf-cancel" class="btn btn-secondary">返回</button>
-        <button id="pf-save" class="btn btn-primary">${isEdit ? '保存' : '创建'}</button>
-      </div>
-    </div>`;
-}
-
-function wirePersonaListEvents(): void {
-  document.getElementById('persona-new-btn')?.addEventListener('click', () => {
-    personaModalMode = 'create';
-    renderPersonaModal();
-  });
-  document.querySelectorAll<HTMLElement>('.persona-action-btn').forEach(btn => {
-    const id = btn.dataset.id!;
-    const action = btn.dataset.action!;
-    btn.addEventListener('click', async () => {
-      if (action === 'edit') {
-        personaModalMode = 'edit';
-        personaEditId = id;
-        renderPersonaModal();
-      } else if (action === 'delete') {
-        if (await deletePersonaApi(id)) {
-          await loadPersonas();
-          renderPersonaPicker();
-          renderPersonaModal();
-        }
-      }
-    });
-  });
-}
-
-function wirePersonaFormEvents(p: Persona | null): void {
-  const isEdit = p !== null;
-  document.getElementById('pf-cancel')?.addEventListener('click', () => {
-    personaModalMode = 'list';
-    renderPersonaModal();
-  });
-  document.getElementById('pf-save')?.addEventListener('click', async () => {
-    const name = (document.getElementById('pf-name') as HTMLInputElement).value.trim();
-    const description = (document.getElementById('pf-desc') as HTMLInputElement).value.trim();
-    const system_prompt = (document.getElementById('pf-prompt') as HTMLTextAreaElement).value.trim();
-    const avatar = (document.getElementById('pf-avatar') as HTMLInputElement).value.trim() || '👤';
-    const modelRaw = (document.getElementById('pf-model') as HTMLInputElement | null)?.value.trim() ?? '';
-    const model = modelRaw.length > 0 ? modelRaw : null;
-    if (!name) { showToast('请填写名称', '', 'error'); return; }
-    if (!system_prompt) { showToast('请填写系统提示词', '', 'error'); return; }
-    if (isEdit && p) {
-      const updated = await updatePersonaApi({ ...p, name, description, system_prompt, avatar, model });
-      if (updated) {
-        await loadPersonas();
-        renderPersonaPicker();
-        personaModalMode = 'list';
-        renderPersonaModal();
-        showToast('已更新', updated.name, 'success');
-      }
-    } else {
-      const created = await createPersonaApi(name, description, system_prompt, avatar, model);
-      if (created) {
-        await loadPersonas();
-        renderPersonaPicker();
-        personaModalMode = 'list';
-        renderPersonaModal();
-        showToast('已创建', created.name, 'success');
-      }
-    }
-  });
+  personaStore.setOpen(true);
 }
 
 // ── Search Modal ──────────────────────────────────────────────────────────────
@@ -2037,12 +1835,17 @@ window.addEventListener('DOMContentLoaded', async () => {
   const personaPicker = document.getElementById('persona-picker') as HTMLSelectElement | null;
   personaPicker?.addEventListener('change', () => { void onPersonaPickerChange(); });
 
-  // Manage button (next to picker) → open the persona library modal
+  // Manage button (next to picker) → open the persona library modal.
+  // × button click + overlay-click-to-close are owned by the PersonaModal
+  // component itself (alpha-8); mountPersonaModal below wires the store
+  // subscription that toggles the overlay's .hidden class.
   document.getElementById('persona-manage-btn')?.addEventListener('click', () => openPersonaModal());
-  const personaModal = document.getElementById('persona-modal');
-  document.getElementById('persona-modal-close')?.addEventListener('click', closePersonaModal);
-  personaModal?.addEventListener('click', (e) => {
-    if (e.target === personaModal) closePersonaModal();
+  mountPersonaModal({
+    onPersonasChanged: () => {
+      // Refresh the header persona picker + personasCache so session creation
+      // picks up the new persona without a restart.
+      void loadPersonas().then(() => renderPersonaPicker());
+    },
   });
 
   // ── T-Q-S8: default project path init ────────────────────
