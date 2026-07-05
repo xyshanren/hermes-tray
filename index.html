@@ -151,8 +151,11 @@
 
       </div><!-- /main-wrapper -->
 
-      <!-- Toast Notifications -->
-      <div id="toast-container"></div>
+      <!-- Toast Notifications (v0.2-alpha-6 — sonner <Toaster /> portal.
+           Old #toast-container div removed; sonner renders into its own
+           fixed-position container appended to <body>. The mount call
+           lives in src/lib/toaster-mount.tsx, invoked from main.ts
+           DOMContentLoaded. -->
 
       <!-- Search Modal -->
       <div id="search-modal" class="modal-overlay hidden">

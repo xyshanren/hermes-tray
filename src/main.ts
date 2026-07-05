@@ -30,6 +30,8 @@ import { composeSystemPrompt } from './systemPrompt';
 import { layoutChart, formatTokens, formatCost, DEFAULT_CHART_LAYOUT, type DailyBucketLike } from './tokenChart';
 import { setTheme, getStoredTheme, type ThemeMode } from './lib/theme';
 import { hermesGet, hermesPostStream, authHeaders } from './lib/api';
+import { showToast, type ToastType } from './lib/toast';
+import { mountAppToaster } from './lib/toaster-mount';
 import {
   encodeShareDoc,
   buildShareUrl,
@@ -1753,6 +1755,11 @@ function sanitizeSnippet(s: string): string {
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
+  // v0.2-alpha-6 — Mount the sonner <Toaster /> before any showToast call.
+  // Read theme from <html class="dark"> which the inline IIFE in index.html
+  // already populated before main.ts runs.
+  mountAppToaster();
+
   // v0.2-alpha-3 — Resolve WSL2 gateway IP dynamically via ./lib/state.
   // resolveGatewayUrl handles the fallback internally.
   const resolvedUrl = await resolveGatewayUrl();
@@ -2186,30 +2193,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   }, 30000);
 });
 
-type ToastType = 'success' | 'error' | 'info';
-
-function showToast(title: string, message: string, type: ToastType = 'info') {
-  const container = document.getElementById('toast-container');
-  if (!container) return;
-
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  toast.innerHTML = `<div class="toast-title">${title}</div><div class="toast-message">${message}</div>`;
-  toast.addEventListener('click', () => {
-    toast.classList.add('fadeout');
-    setTimeout(() => toast.remove(), 300);
-  });
-
-  container.appendChild(toast);
-
-  // Auto-dismiss after 3.5s
-  setTimeout(() => {
-    if (toast.isConnected) {
-      toast.classList.add('fadeout');
-      setTimeout(() => toast.remove(), 300);
-    }
-  }, 3500);
-}
+// showToast + ToastType moved to ./lib/toast (sonner wrapper) —
+// see top-of-file imports. Toaster mounted via mountAppToaster() at
+// DOMContentLoaded below.
 
 function handleInput() {
   if (!messageInput || !sendBtn || !charCount) return;
