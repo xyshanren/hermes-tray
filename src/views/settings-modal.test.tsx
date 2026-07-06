@@ -362,8 +362,7 @@ describe("数据危险操作区 group", () => {
     expect(backupStore.getOpen()).toBe(true);
   });
 
-  it("点击 清除所有会话 显示 stub toast (alpha-14 实现)", async () => {
-    const { showToast } = await import("../lib/toast");
+  it("点击 清除所有会话 展开 2-step 确认面板 (checkbox + countdown)", async () => {
     const root = mountSettingsModalInto();
     await flushRender();
     settingsStore.setOpen(true);
@@ -372,13 +371,110 @@ describe("数据危险操作区 group", () => {
       root.querySelectorAll<HTMLButtonElement>(".settings-danger-btn"),
     ).find((b) => b.textContent?.includes("清除所有会话"));
     btn?.click();
-    expect(showToast).toHaveBeenCalledWith(
-      "清除所有会话",
-      expect.stringContaining("alpha-14"),
-      "info",
+    await flushRender();
+    // 2-step confirmation panel appears.
+    const confirmPanel = root.querySelector(".settings-danger-confirm");
+    expect(confirmPanel).not.toBeNull();
+    expect(confirmPanel?.querySelector('input[type="checkbox"]')).not.toBeNull();
+    expect(confirmPanel?.querySelector(".countdown-confirm")).not.toBeNull();
+    // Settings is still open (user has not confirmed yet).
+    expect(settingsStore.getOpen()).toBe(true);
+  });
+
+  it("点击 重置所有设置 展开 2-step 确认面板", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    const btn = Array.from(
+      root.querySelectorAll<HTMLButtonElement>(".settings-danger-btn"),
+    ).find((b) => b.textContent?.includes("重置所有设置"));
+    btn?.click();
+    await flushRender();
+    const confirmPanel = root.querySelector(".settings-danger-confirm");
+    expect(confirmPanel).not.toBeNull();
+  });
+
+  it("展开一个确认面板会自动关闭另一个 (互斥)", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    const clearBtn = Array.from(
+      root.querySelectorAll<HTMLButtonElement>(".settings-danger-btn"),
+    ).find((b) => b.textContent?.includes("清除所有会话"));
+    const resetBtn = Array.from(
+      root.querySelectorAll<HTMLButtonElement>(".settings-danger-btn"),
+    ).find((b) => b.textContent?.includes("重置所有设置"));
+    clearBtn?.click();
+    await flushRender();
+    expect(root.querySelectorAll(".settings-danger-confirm").length).toBe(1);
+    resetBtn?.click();
+    await flushRender();
+    // Still only 1 panel — opening reset closed clear.
+    expect(root.querySelectorAll(".settings-danger-confirm").length).toBe(1);
+  });
+
+  it("countdown button 默认 disabled (block=!understand)", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    const clearBtn = Array.from(
+      root.querySelectorAll<HTMLButtonElement>(".settings-danger-btn"),
+    ).find((b) => b.textContent?.includes("清除所有会话"));
+    clearBtn?.click();
+    await flushRender();
+    const confirmBtn = root.querySelector<HTMLButtonElement>(
+      ".settings-danger-confirm .countdown-confirm",
     );
-    expect(settingsStore.getOpen()).toBe(true); // stub doesn't close
-    expect(backupStore.getOpen()).toBe(false);
+    expect(confirmBtn).not.toBeNull();
+    expect(confirmBtn?.disabled).toBe(true);
+    // Check the "我已了解" checkbox — but countdown is still active.
+    const checkbox = root.querySelector<HTMLInputElement>(
+      '.settings-danger-confirm input[type="checkbox"]',
+    );
+    checkbox?.click();
+    await flushRender();
+    // Countdown is now finished OR counting down. Either way it should
+    // not be enabled IMMEDIATELY because the countdown takes 5s.
+    // Test will see enabled=false until ~5s; we just verify it has
+    // not flipped to enabled immediately.
+    expect(confirmBtn?.disabled).toBe(true);
+  });
+
+  it("取消按钮关闭确认面板", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    const clearBtn = Array.from(
+      root.querySelectorAll<HTMLButtonElement>(".settings-danger-btn"),
+    ).find((b) => b.textContent?.includes("清除所有会话"));
+    clearBtn?.click();
+    await flushRender();
+    expect(root.querySelector(".settings-danger-confirm")).not.toBeNull();
+    const cancelBtn = root.querySelector<HTMLButtonElement>(
+      ".settings-danger-confirm .btn-secondary",
+    );
+    cancelBtn?.click();
+    await flushRender();
+    expect(root.querySelector(".settings-danger-confirm")).toBeNull();
+  });
+
+  it("确认面板展示 destructive 警告文案", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    const resetBtn = Array.from(
+      root.querySelectorAll<HTMLButtonElement>(".settings-danger-btn"),
+    ).find((b) => b.textContent?.includes("重置所有设置"));
+    resetBtn?.click();
+    await flushRender();
+    const warning = root.querySelector(".settings-danger-warning");
+    expect(warning?.textContent).toContain("清空所有偏好设置");
+    expect(warning?.textContent).toContain("主题");
   });
 });
 

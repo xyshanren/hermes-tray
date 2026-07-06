@@ -607,3 +607,28 @@ pub fn db_config_get(db: State<'_, Db>, key: &str) -> Result<Option<ConfigEntry>
 pub fn db_config_set(db: State<'_, Db>, key: &str, value: &str) -> Result<ConfigEntry, String> {
     db.config().set(key, value).map_err(|e| e.to_string())
 }
+
+// ── alpha-14: bulk-clear commands used by the settings danger zone ──────
+
+/// Wipe every row in the `sessions` table. ON DELETE CASCADE handles
+/// `messages` and `session_tags`; the `messages_ad` trigger re-syncs
+/// the FTS5 index. Returns the number of sessions removed so the UI
+/// can show "已删除 N 个会话".
+///
+/// Frontend wires this to the settings "清除所有会话" button (with a
+/// 2-step confirmation flow per AGENTS.md §4 dangerous-action rules).
+#[tauri::command]
+pub fn session_clear_all(db: State<'_, Db>) -> Result<usize, String> {
+    db.session().clear_all().map_err(|e| e.to_string())
+}
+
+/// Wipe every row in the `config` table. The frontend's CONFIG_SCHEMA
+/// (src/lib/config-schema.ts) owns per-key defaults, so any subsequent
+/// `db_config_get(key)` returns None and the UI falls back to defaults
+/// on reload. Returns the number of rows removed. The legacy
+/// config.json file is wiped separately via `hermes_reset_config` —
+/// the frontend's "重置所有设置" flow calls BOTH commands.
+#[tauri::command]
+pub fn db_config_reset_all(db: State<'_, Db>) -> Result<usize, String> {
+    db.config().reset_all().map_err(|e| e.to_string())
+}

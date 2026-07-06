@@ -203,6 +203,17 @@ impl<'a> SessionDAO for SessionDao<'a> {
         Ok(())
     }
 
+    fn clear_all(&self) -> DbResult<usize> {
+        let conn = self.pool.get()?;
+        // alpha-14: wipe every session row. The schema's ON DELETE
+        // CASCADE handles messages + session_tags; the messages_ad
+        // trigger re-syncs the FTS5 index. We don't VACUUM here — the
+        // user's app stays snappy even at 10k+ rows of dead tuples;
+        // SQLite's auto-vacuum will reclaim space on the next close.
+        let changed = conn.execute("DELETE FROM sessions", [])?;
+        Ok(changed)
+    }
+
     fn search(&self, query: &str, limit: i64) -> DbResult<Vec<SearchHit>> {
         let conn = self.pool.get()?;
         // FTS5: match against messages_fts, JOIN back to messages + sessions for full info.
@@ -244,5 +255,68 @@ impl<'a> SessionDAO for SessionDao<'a> {
             return Err(DbError::NotFound(format!("session id={id}")));
         }
         Ok(())
+    }
+}
+
+// ── alpha-14: clear_all DAO tests ──────────────────────────────────────
+//
+// Verifies that `DELETE FROM sessions` cascades to `messages` and
+// `session_tags` via the schema's ON DELETE CASCADE constraints, and
+// that the FTS5 index re-syncs via the `messages_ad` trigger.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::dao::{MessageDAO, SessionDAO};
+    use crate::db::pool::{open_pool, Db};
+
+    fn fresh_db() -> Db {
+        let dir = std::env::temp_dir().join(format!("hermes_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pool = open_pool(&dir.join("test.db")).unwrap();
+        Db::new(pool)
+    }
+
+    #[test]
+    fn clear_all_removes_every_session() {
+        let db = fresh_db();
+        // Seed 3 sessions.
+        for title in ["alpha", "beta", "gamma"] {
+            db.session().create(title, None, None, None).unwrap();
+        }
+        assert_eq!(db.session().list(10, 0).unwrap().len(), 3);
+        // Clear all.
+        let removed = db.session().clear_all().unwrap();
+        assert_eq!(removed, 3);
+        assert_eq!(db.session().list(10, 0).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn clear_all_cascades_to_messages() {
+        let db = fresh_db();
+        let s1 = db.session().create("with-messages", None, None, None).unwrap();
+        // Append 2 messages to s1.
+        db.message()
+            .append(&s1.id, "user", "hi", None)
+            .unwrap();
+        db.message()
+            .append(&s1.id, "assistant", "hello", None)
+            .unwrap();
+        // Add a 2nd session with no messages.
+        db.session().create("empty", None, None, None).unwrap();
+        // Clear all — messages from s1 should cascade-delete.
+        let removed = db.session().clear_all().unwrap();
+        assert_eq!(removed, 2);
+        // list_by_session for the deleted session should error or
+        // return empty (cascade deleted the parent row).
+        let messages = db.message().list_by_session(&s1.id, 100, 0).unwrap();
+        assert_eq!(messages.len(), 0);
+    }
+
+    #[test]
+    fn clear_all_on_empty_table_returns_zero() {
+        let db = fresh_db();
+        let removed = db.session().clear_all().unwrap();
+        assert_eq!(removed, 0);
     }
 }

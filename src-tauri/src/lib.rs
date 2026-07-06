@@ -8,9 +8,10 @@ use crypto::{
 use db::{init_db, Db};
 
 pub use db::commands::{
-    db_config_get, db_config_set, export_session_json, export_session_markdown, message_append,
-    message_delete, message_list, message_record_usage, persona_create, persona_delete,
-    persona_get, persona_list, persona_update, project_scan, session_create, session_delete,
+    db_config_get, db_config_reset_all, db_config_set, export_session_json,
+    export_session_markdown, message_append, message_delete, message_list,
+    message_record_usage, persona_create, persona_delete, persona_get, persona_list,
+    persona_update, project_scan, session_clear_all, session_create, session_delete,
     session_get, session_list, session_search, session_touch, session_update, token_stats,
 };
 pub use db::pool::seed_builtin_personas;
@@ -382,6 +383,27 @@ fn hermes_save_config(app: tauri::AppHandle, updates: serde_json::Value) -> Resu
         }
     }
     write_config_json(&app, &config)
+}
+
+/// alpha-14: wipe the legacy config.json file. Used by the
+/// settings "重置所有设置" flow so the next `hermes_resolve_gateway_ip`
+/// + `hermes_save_config` start from a clean slate. Idempotent —
+/// silently succeeds if the file doesn't exist (no-op).
+#[tauri::command]
+fn hermes_reset_config(app: tauri::AppHandle) -> Result<(), String> {
+    let new_path = resolve_config_dir(&app).join("config.json");
+    if new_path.exists() {
+        std::fs::remove_file(&new_path)
+            .map_err(|e| format!("删除 config.json 失败: {}", e))?;
+        log::info!("Deleted legacy config at {}", new_path.display());
+    }
+    // Also wipe any legacy fallback locations (v0.1.x compat).
+    for legacy in legacy_config_paths() {
+        if legacy != new_path && legacy.exists() {
+            let _ = std::fs::remove_file(&legacy);
+        }
+    }
+    Ok(())
 }
 
 /// Check if WSL is available on the system.
@@ -1586,27 +1608,30 @@ pub fn run() {
             // S3 — Config commands
             hermes_get_config,
             hermes_save_config,
+            hermes_reset_config, // alpha-14: wipes legacy config.json
             // T-Q-S2 — Session management (SQLite)
             session_list,
             session_get,
             session_create,
             session_update,
             session_delete,
+            session_clear_all,    // alpha-14: wipe all sessions
             session_search,
             session_touch,
             message_append,
             message_record_usage,
             message_list,
             message_delete,
+            // T-Q-S1.3 — db_config table (SQLite K/V)
+            db_config_get,
+            db_config_set,
+            db_config_reset_all,  // alpha-14: wipe all db_config rows
             // T-Q-S7 — Persona library (also serves as session templates)
             persona_list,
             persona_get,
             persona_create,
             persona_update,
             persona_delete,
-            // T-Q-S7 — DB-backed config (for default_persona_id + future prefs)
-            db_config_get,
-            db_config_set,
             // T-Q-S8 — Project context scanner (CWD → ProjectContext JSON for
             // system-prompt injection). Frontend calls this before
             // session_create and passes the result as `project_context`.

@@ -158,7 +158,7 @@ describe("BackupModal rendering", () => {
     expect(root.querySelector("#backup-restore-path")).not.toBeNull();
     expect(root.querySelector("#backup-restore-password")).not.toBeNull();
     expect(root.querySelector(".btn-secondary")).not.toBeNull(); // verify btn
-    expect(root.querySelector(".backup-confirm")).not.toBeNull(); // countdown btn
+    expect(root.querySelector(".countdown-confirm")).not.toBeNull(); // countdown btn
     expect(root.querySelector(".backup-confirm-row input[type=checkbox]")).not.toBeNull();
   });
 
@@ -176,7 +176,7 @@ describe("BackupModal rendering", () => {
     await flushRender();
     backupStore.setOpen(true);
     await flushRender();
-    const btn = root.querySelector<HTMLButtonElement>(".backup-confirm");
+    const btn = root.querySelector<HTMLButtonElement>(".countdown-confirm");
     expect(btn).not.toBeNull();
     expect(btn?.disabled).toBe(true);
     expect(btn?.textContent).toMatch(/请等待\s*5\s*s/);

@@ -52,6 +52,7 @@ import {
   type SortOrder,
 } from "../lib/config-schema";
 import { Switch } from "../components/ui/switch";
+import { CountdownButton } from "../components/ui/countdown-button";
 import { settingsStore } from "./settings-modal-store";
 import { backupStore } from "./backup-modal-store";
 
@@ -324,7 +325,7 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
     }
   }
 
-  // ── Danger zone handlers (alpha-13) ────────────────────────────────────
+  // ── Danger zone handlers (alpha-14) ────────────────────────────────────
 
   function handleBackupCreate(): void {
     // Open the backup modal in "create" mode. Close settings first so
@@ -338,22 +339,35 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
     backupStore.setOpen(true);
   }
 
-  function handleClearAllSessions(): void {
-    // Stub for alpha-14 (needs Rust session_clear_all command).
-    showToast(
-      "清除所有会话",
-      "即将在 v0.3-alpha-14 实现（需要 Rust 端 session_clear_all 命令）",
-      "info",
-    );
+  async function handleClearAllSessions(): Promise<void> {
+    try {
+      const removed = await invoke<number>("session_clear_all");
+      showToast(
+        "已清除所有会话",
+        `共删除 ${removed} 个会话（消息 + 标签随外键级联删除）`,
+        "success",
+      );
+      settingsStore.setOpen(false);
+    } catch (e) {
+      showToast("清除失败", String(e), "error");
+    }
   }
 
-  function handleResetAllSettings(): void {
-    // Stub for alpha-14 (needs Rust settings_reset_all command).
-    showToast(
-      "重置所有设置",
-      "即将在 v0.3-alpha-14 实现（需要 Rust 端 settings_reset_all 命令）",
-      "info",
-    );
+  async function handleResetAllSettings(): Promise<void> {
+    // Two-step: wipe db_config table + delete legacy config.json.
+    // Both commands are idempotent so a partial failure is recoverable.
+    try {
+      const dbRemoved = await invoke<number>("db_config_reset_all");
+      await invoke("hermes_reset_config");
+      showToast(
+        "已重置所有设置",
+        `已清除 ${dbRemoved} 个 db_config 项；下次启动将使用 CONFIG_SCHEMA 默认值`,
+        "success",
+      );
+      settingsStore.setOpen(false);
+    } catch (e) {
+      showToast("重置失败", String(e), "error");
+    }
   }
 
   if (!open) return null;
@@ -813,7 +827,19 @@ function PreferencesGroup({
   );
 }
 
-// ── 数据危险操作区 (per SVG 11) ──────────────────────────────────────────
+// ── 数据危险操作区 (per SVG 11 + alpha-14 2-step confirmation) ────────
+//
+// alpha-14 upgrade: clear-all-sessions + reset-all-settings now go
+// through a 2-step confirmation flow (per AGENTS.md §4 dangerous-action
+// rule):
+//   1. User clicks the action button to reveal an inline panel.
+//   2. User checks "我已了解…" to acknowledge data loss.
+//   3. CountdownButton locks for 5s before "确认 X" becomes clickable.
+//   4. Click → invoke real command → close settings modal.
+//
+// Backup create/restore open the backup modal directly (no inline
+// confirmation here — alpha-9 already does that flow inside the
+// backup modal with PasswordInput + CountdownButton).
 
 function DangerZoneGroup({
   onBackupCreate,
@@ -823,9 +849,36 @@ function DangerZoneGroup({
 }: {
   onBackupCreate: () => void;
   onBackupRestore: () => void;
-  onClearAllSessions: () => void;
-  onResetAllSettings: () => void;
+  onClearAllSessions: () => Promise<void>;
+  onResetAllSettings: () => Promise<void>;
 }) {
+  // Which destructive action is currently showing its confirmation
+  // panel? Only one at a time.
+  const [confirming, setConfirming] = useState<"clear" | "reset" | null>(null);
+  const [understand, setUnderstand] = useState(false);
+
+  // Opening one confirmation closes the other + resets the checkbox.
+  function openPanel(target: "clear" | "reset"): void {
+    if (confirming === target) {
+      setConfirming(null);
+      setUnderstand(false);
+    } else {
+      setConfirming(target);
+      setUnderstand(false);
+    }
+  }
+
+  async function handleConfirmed(): Promise<void> {
+    // Reset understanding before closing so reopening starts fresh.
+    setUnderstand(false);
+    setConfirming(null);
+    if (confirming === "clear") {
+      await onClearAllSessions();
+    } else if (confirming === "reset") {
+      await onResetAllSettings();
+    }
+  }
+
   return (
     <section class="settings-group settings-danger-zone" aria-labelledby="settings-danger-title">
       <h3 id="settings-danger-title">
@@ -851,21 +904,100 @@ function DangerZoneGroup({
         </button>
         <button
           type="button"
-          class="settings-danger-btn"
-          onClick={onClearAllSessions}
+          class={`settings-danger-btn${confirming === "clear" ? " active" : ""}`}
+          aria-expanded={confirming === "clear" ? "true" : "false"}
+          onClick={() => openPanel("clear")}
         >
           <span class="settings-danger-icon" aria-hidden="true">🗑️</span>
           <span>清除所有会话</span>
         </button>
         <button
           type="button"
-          class="settings-danger-btn"
-          onClick={onResetAllSettings}
+          class={`settings-danger-btn${confirming === "reset" ? " active" : ""}`}
+          aria-expanded={confirming === "reset" ? "true" : "false"}
+          onClick={() => openPanel("reset")}
         >
           <span class="settings-danger-icon" aria-hidden="true">↺</span>
           <span>重置所有设置</span>
         </button>
       </div>
+
+      {confirming === "clear" ? (
+        <DangerConfirmPanel
+          kind="clear"
+          understand={understand}
+          onUnderstandChange={setUnderstand}
+          onCancel={() => {
+            setConfirming(null);
+            setUnderstand(false);
+          }}
+          onConfirm={() => void handleConfirmed()}
+        />
+      ) : confirming === "reset" ? (
+        <DangerConfirmPanel
+          kind="reset"
+          understand={understand}
+          onUnderstandChange={setUnderstand}
+          onCancel={() => {
+            setConfirming(null);
+            setUnderstand(false);
+          }}
+          onConfirm={() => void handleConfirmed()}
+        />
+      ) : null}
     </section>
+  );
+}
+
+// Inline confirmation panel for the 2-step dangerous-action flow.
+//
+// Shows a warning text specific to the destructive kind, an "我已了解"
+// checkbox, and a CountdownButton that locks for 5s before becoming
+// clickable. AGENTS.md §4: red outline (not solid red) + 2-step + checkbox.
+
+function DangerConfirmPanel({
+  kind,
+  understand,
+  onUnderstandChange,
+  onCancel,
+  onConfirm,
+}: {
+  kind: "clear" | "reset";
+  understand: boolean;
+  onUnderstandChange: (v: boolean) => void;
+  onCancel: () => void;
+  onConfirm: () => void | Promise<void>;
+}) {
+  const warning =
+    kind === "clear"
+      ? "将永久删除所有会话及其消息（外键级联）。下次启动需要新建会话。"
+      : "将清空所有偏好设置（主题 / 费用货币 / 自动连接 / 自动重命名 / 排序）以及本地 WSL Gateway 配置。下次启动将使用 CONFIG_SCHEMA 默认值。";
+  const readyLabel = kind === "clear" ? "🗑️ 确认清除所有会话" : "↺ 确认重置所有设置";
+
+  return (
+    <div class="settings-danger-confirm" role="region" aria-label={readyLabel}>
+      <p class="settings-danger-warning">{warning}</p>
+      <label class="settings-confirm-row">
+        <input
+          type="checkbox"
+          checked={understand}
+          onChange={(e) =>
+            onUnderstandChange((e.currentTarget as HTMLInputElement).checked)
+          }
+        />
+        <span>我已了解：此操作不可恢复</span>
+      </label>
+      <div class="settings-danger-confirm-actions">
+        <button type="button" class="btn btn-secondary" onClick={onCancel}>
+          取消
+        </button>
+        <CountdownButton
+          readyLabel={readyLabel}
+          blocked={!understand}
+          onConfirm={onConfirm}
+          className="danger"
+        />
+      </div>
+    </div>
   );
 }

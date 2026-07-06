@@ -136,6 +136,12 @@ pub trait SessionDAO: Send + Sync {
     ) -> DbResult<Session>;
     fn update(&self, id: &str, patch: SessionPatch) -> DbResult<Session>;
     fn delete(&self, id: &str) -> DbResult<()>;
+    /// alpha-14: delete EVERY row in the sessions table. The schema's
+    /// `ON DELETE CASCADE` on `messages.session_id` and
+    /// `session_tags.session_id` cleans up dependent rows; the
+    /// `messages_ad` trigger re-syncs the FTS5 index. Returns the
+    /// number of sessions removed so the UI can show "已删除 N 个会话".
+    fn clear_all(&self) -> DbResult<usize>;
     fn search(&self, query: &str, limit: i64) -> DbResult<Vec<SearchHit>>;
     fn touch(&self, id: &str) -> DbResult<()>;
 }
@@ -208,6 +214,14 @@ pub trait ConfigDAO: Send + Sync {
     fn set(&self, key: &str, value: &str) -> DbResult<ConfigEntry>;
     fn delete(&self, key: &str) -> DbResult<()>;
     fn list_all(&self) -> DbResult<Vec<ConfigEntry>>;
+    /// alpha-14: wipe every row in the config table. The frontend's
+    /// CONFIG_SCHEMA in src/lib/config-schema.ts owns the per-key
+    /// defaults, so any subsequent `db_config_get(key)` returns None
+    /// and the UI falls back to defaults on reload. Returns the number
+    /// of rows removed. Note: this does NOT touch the legacy
+    /// `config.json` file used for wsl_distro / port / api_key — the
+    /// frontend's settings-reset flow handles that separately.
+    fn reset_all(&self) -> DbResult<usize>;
 }
 
 /// User feedback (RLAIF data).

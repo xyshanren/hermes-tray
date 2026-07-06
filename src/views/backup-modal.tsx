@@ -14,6 +14,7 @@ import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { Eye, EyeOff } from "lucide-preact";
 import { showToast } from "../lib/toast";
+import { CountdownButton } from "../components/ui/countdown-button";
 import { backupStore } from "./backup-modal-store";
 
 // ── Password strength (pure function) ──────────────────────────────────────
@@ -109,66 +110,10 @@ export function PasswordInput({
   );
 }
 
-// ── CountdownButton: 5s lockout before a destructive action is enabled ─
-
-interface CountdownButtonProps {
-  /** Total countdown duration in ms. Default 5000. */
-  durationMs?: number;
-  /** Label shown during countdown (e.g. "请等待 Xs…"). */
-  countdownLabel?: (secondsLeft: number) => string;
-  /** Label shown when the button is enabled and ready to click. */
-  readyLabel: string;
-  /** Called once when the user actually clicks. */
-  onConfirm: () => void | Promise<void>;
-  /** Optional class override for theming the dangerous action. */
-  className?: string;
-  /** When true, the button stays disabled regardless of countdown (e.g.
-   *  the user hasn't checked "I understand"). */
-  blocked?: boolean;
-}
-
-export function CountdownButton({
-  durationMs = 5000,
-  countdownLabel,
-  readyLabel,
-  onConfirm,
-  className,
-  blocked = false,
-}: CountdownButtonProps) {
-  const [secondsLeft, setSecondsLeft] = useState(Math.ceil(durationMs / 1000));
-  const [done, setDone] = useState(false);
-
-  useEffect(() => {
-    if (done) return;
-    const handle = setInterval(() => {
-      setSecondsLeft((s) => {
-        if (s <= 1) {
-          clearInterval(handle);
-          setDone(true);
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
-    return () => clearInterval(handle);
-  }, [done]);
-
-  const enabled = done && !blocked;
-
-  return (
-    <button
-      type="button"
-      class={`backup-confirm ${className ?? ""}`}
-      disabled={!enabled}
-      aria-disabled={!enabled}
-      onClick={() => void onConfirm()}
-    >
-      {!done
-        ? (countdownLabel ?? ((s) => `请等待 ${s}s…`))(secondsLeft)
-        : readyLabel}
-    </button>
-  );
-}
+// ── CountdownButton moved to src/components/ui/countdown-button.tsx in
+//    alpha-14 so settings-modal (and future modals) can reuse the same
+//    5s lockout UX for destructive actions without coupling to the
+//    backup view.
 
 // ── Main modal ─────────────────────────────────────────────────────────────
 
