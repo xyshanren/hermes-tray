@@ -163,55 +163,11 @@
            by the searchModalStore subscription. -->
       <div id="search-modal" class="modal-overlay hidden"></div>
 
-      <!-- Settings Modal -->
-      <div id="settings-modal" class="modal-overlay hidden">
-        <div class="modal">
-          <div class="modal-header">
-            <h2>⚙️ 设置</h2>
-            <button id="settings-close" class="modal-close-btn">&times;</button>
-          </div>
-          <div class="modal-body">
-            <div class="form-group">
-              <label id="setting-theme-label">主题</label>
-              <div class="segmented" role="radiogroup" aria-labelledby="setting-theme-label" id="setting-theme-group">
-                <button type="button" class="segmented-btn" role="radio" data-theme="light" aria-checked="false">☀️ 浅色</button>
-                <button type="button" class="segmented-btn" role="radio" data-theme="dark" aria-checked="false">🌙 深色</button>
-                <button type="button" class="segmented-btn" role="radio" data-theme="system" aria-checked="true">💻 跟随系统</button>
-              </div>
-              <span class="form-hint">界面外观。点击立即生效，重启后保留（写入配置数据库）。</span>
-            </div>
-            <div class="form-group">
-              <label for="setting-wsl-distro">WSL 发行版</label>
-              <select id="setting-wsl-distro"></select>
-              <span class="form-hint">选择运行 Hermes Gateway 的 WSL 发行版</span>
-            </div>
-            <div class="form-group">
-              <label for="setting-port">Gateway 端口</label>
-              <input type="number" id="setting-port" min="1024" max="65535" placeholder="8642" />
-              <span class="form-hint">Hermes Gateway 监听端口（默认 8642）</span>
-            </div>
-            <div class="form-group">
-              <label for="setting-api-key">API Key</label>
-              <input type="password" id="setting-api-key" placeholder="输入 API Key" />
-              <span class="form-hint">用于与 Hermes Gateway 通信的 API 密钥</span>
-            </div>
-            <div class="form-group">
-              <label for="setting-default-project-path">默认项目路径 (T-Q-S8)</label>
-              <input type="text" id="setting-default-project-path" placeholder="例如 F:\work\workspace\MiniMax\hermes-tray 或 /home/user/proj" />
-              <span class="form-hint">新建会话时自动扫描此目录的 README + manifest + git 信息，注入到 system prompt。留空则不附加项目上下文。</span>
-            </div>
-            <div class="form-group">
-              <label for="setting-default-model">默认 Model (T-Q-S12-light)</label>
-              <input type="text" id="setting-default-model" placeholder="例如 gpt-4o-mini / deepseek-chat / hermes-agent" />
-              <span class="form-hint">无 persona 绑定时使用的 model 名称. 留空 = gateway 默认. 路由/重试由 hermes-agent 处理 (不在 tray).</span>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button id="settings-cancel" class="btn btn-secondary">取消</button>
-            <button id="settings-save" class="btn btn-primary">保存</button>
-          </div>
-        </div>
-      </div>
+      <!-- Settings Modal (v0.2-alpha-11 — Preact component renders the panel
+           into this overlay root. Inner content managed by
+           src/views/settings-modal.tsx; visibility (.hidden class) toggled
+           by the settingsStore subscription.) -->
+      <div id="settings-modal" class="modal-overlay hidden"></div>
 
       <!-- Persona Library Modal (v0.2-alpha-8 — Preact component renders the
            inner panel into this overlay root. Header + close button +

@@ -28,7 +28,7 @@ import { register, unregister } from '@tauri-apps/plugin-global-shortcut';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { composeSystemPrompt } from './systemPrompt';
 import { formatTokens } from './tokenChart';
-import { setTheme, getStoredTheme, type ThemeMode } from './lib/theme';
+
 import { hermesGet, hermesPostStream, authHeaders } from './lib/api';
 import { showToast, type ToastType } from './lib/toast';
 import { mountAppToaster } from './lib/toaster-mount';
@@ -40,6 +40,8 @@ import { mountBackupModal } from './views/backup-modal-mount';
 import { backupStore } from './views/backup-modal-store';
 import { mountStatsModal } from './views/stats-modal-mount';
 import { statsStore } from './views/stats-modal-store';
+import { mountSettingsModal } from './views/settings-modal-mount';
+import { settingsStore } from './views/settings-modal-store';
 import { escapeHtml } from './lib/sanitize';
 import type { Persona } from './types';
 import {
@@ -729,13 +731,9 @@ async function loadDefaultModel(): Promise<string | null> {
   }
 }
 
-async function setDefaultModel(name: string | null): Promise<void> {
-  try {
-    await invoke('db_config_set', { key: 'default_model', value: name ?? '' });
-  } catch (e) {
-    console.warn('[Model] default_model not saved:', e);
-  }
-}
+// alpha-11: setDefaultModel moved into views/settings-modal.tsx (which
+// now writes db_config directly via invoke). main.ts keeps the module-
+// level defaultModel let for sendMessage + model picker reads.
 
 let defaultModel: string | null = null;
 
@@ -811,14 +809,6 @@ async function loadDefaultProjectPath(): Promise<string | null> {
   } catch (e) {
     console.warn('[Project] default_project_path not loaded:', e);
     return null;
-  }
-}
-
-async function setDefaultProjectPath(path: string | null): Promise<void> {
-  try {
-    await invoke('db_config_set', { key: 'default_project_path', value: path ?? '' });
-  } catch (e) {
-    console.warn('[Project] default_project_path not saved:', e);
   }
 }
 
@@ -1152,6 +1142,10 @@ function openSearchModal(): void {
   searchModalStore.setOpen(true);
 }
 
+function openSettings(): void {
+  settingsStore.setOpen(true);
+}
+
 function closeSearchModal(): void {
   searchModalStore.setOpen(false);
 }
@@ -1276,177 +1270,24 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
 
   // ── Settings Initialization ──────────────────
+  //
+  // Settings modal migrated to src/views/settings-modal.tsx in alpha-11.
+  // Form fields, load/save handlers, theme segmented control, and the
+  // new "Gateway 连接" group (remote IP support) all live there now.
+  // Sidebar settings button + tray menu entry both call openSettings()
+  // below; close/cancel/×/overlay-click + Save/Cancel buttons are handled
+  // by the Preact component.
 
-  const settingsModal = document.getElementById('settings-modal')!;
   const settingsBtn = document.getElementById('settings-btn')!;
-  const settingsClose = document.getElementById('settings-close')!;
-  const settingsCancel = document.getElementById('settings-cancel')!;
-  const settingsSave = document.getElementById('settings-save')!;
-  const wslDistroSelect = document.getElementById('setting-wsl-distro') as HTMLSelectElement;
-  const portInput = document.getElementById('setting-port') as HTMLInputElement;
-  const apiKeyInput = document.getElementById('setting-api-key') as HTMLInputElement;
-  const defaultProjectPathInput = document.getElementById('setting-default-project-path') as HTMLInputElement;
-  const defaultModelInput = document.getElementById('setting-default-model') as HTMLInputElement;
-
-  // v0.2-alpha-2 — Theme segmented control (stop-gap before shadcn SegmentedControl).
-  // Stores the user's choice in module scope and writes to DB on save.
-  const themeGroup = document.getElementById('setting-theme-group')!;
-  const themeButtons = themeGroup.querySelectorAll<HTMLButtonElement>('.segmented-btn');
-  let pendingTheme: ThemeMode = getStoredTheme();
-
-  // Open settings
   settingsBtn.addEventListener('click', () => openSettings());
-  settingsClose.addEventListener('click', closeSettings);
-  settingsCancel.addEventListener('click', closeSettings);
 
-  // Click overlay to close
-  settingsModal.addEventListener('click', (e) => {
-    if (e.target === settingsModal) closeSettings();
+  mountSettingsModal({
+    onDefaultsChanged: ({ defaultProjectPath: proj, defaultModel: model }) => {
+      // Refresh module-level lets used by sendMessage + model picker.
+      defaultProjectPath = proj;
+      defaultModel = model;
+    },
   });
-
-  // Save
-  settingsSave.addEventListener('click', () => saveSettings());
-
-  // Theme: live preview on click (apply immediately), persisted on save.
-  themeButtons.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const mode = btn.dataset.theme as ThemeMode | undefined;
-      if (mode !== 'light' && mode !== 'dark' && mode !== 'system') return;
-      pendingTheme = mode;
-      setTheme(mode); // writes localStorage + toggles .dark
-      themeButtons.forEach((b) => {
-        const active = b.dataset.theme === mode;
-        b.classList.toggle('active', active);
-        b.setAttribute('aria-checked', active ? 'true' : 'false');
-      });
-    });
-  });
-
-  // Load WSL distro list on open
-  function openSettings() {
-    settingsModal.classList.remove('hidden');
-    loadSettings();
-  }
-
-  function closeSettings() {
-    settingsModal.classList.add('hidden');
-  }
-
-  async function loadSettings() {
-    // Load WSL distro list
-    try {
-      const distros = await invoke<string[]>('hermes_list_wsl_distros');
-      wslDistroSelect.innerHTML = '';
-      for (const d of distros) {
-        const opt = document.createElement('option');
-        opt.value = d;
-        opt.textContent = d;
-        wslDistroSelect.appendChild(opt);
-      }
-    } catch { /* no WSL */ }
-
-    // Load current config values
-    try {
-      const config: Record<string, any> = await invoke('hermes_get_config');
-      if (config.wsl_distro && wslDistroSelect.querySelector(`option[value="${config.wsl_distro}"]`)) {
-        wslDistroSelect.value = config.wsl_distro;
-      }
-      if (config.port) {
-        portInput.value = config.port;
-      }
-      if (config.api_key) {
-        apiKeyInput.value = config.api_key;
-      }
-    } catch { /* no config yet */ }
-
-    // T-Q-S8: load default_project_path from the DB-backed config table
-    // (separate from the legacy config.json shown above).
-    try {
-      const entry = await invoke<{ key: string; value: string } | null>('db_config_get', { key: 'default_project_path' });
-      if (entry?.value) {
-        defaultProjectPathInput.value = entry.value;
-        defaultProjectPath = entry.value;
-      }
-    } catch { /* key not set yet */ }
-
-    // T-Q-S12-light: load default_model from the DB-backed config table.
-    try {
-      const entry = await invoke<{ key: string; value: string } | null>('db_config_get', { key: 'default_model' });
-      if (entry?.value) {
-        defaultModelInput.value = entry.value;
-        defaultModel = entry.value;
-      }
-    } catch { /* key not set yet */ }
-
-    // v0.2-alpha-2: load theme preference from DB config.
-    // DB key is the source of truth (survives localStorage clear); fallback to localStorage.
-    let loadedTheme: ThemeMode = 'system';
-    try {
-      const entry = await invoke<{ key: string; value: string } | null>('db_config_get', { key: 'theme' });
-      const v = entry?.value;
-      if (v === 'light' || v === 'dark' || v === 'system') {
-        loadedTheme = v;
-      } else {
-        loadedTheme = getStoredTheme();
-      }
-    } catch {
-      loadedTheme = getStoredTheme();
-    }
-    pendingTheme = loadedTheme;
-    // Reflect loaded state in the segmented control without re-applying theme
-    // (the inline anti-flash script already painted the correct class).
-    themeButtons.forEach((b) => {
-      const active = b.dataset.theme === loadedTheme;
-      b.classList.toggle('active', active);
-      b.setAttribute('aria-checked', active ? 'true' : 'false');
-    });
-  }
-
-  async function saveSettings() {
-    const updates: Record<string, any> = {};
-    const distro = wslDistroSelect.value;
-    const port = portInput.value;
-    const apiKey = apiKeyInput.value;
-
-    if (distro) updates.wsl_distro = distro;
-    if (port) updates.port = Number(port);
-    if (apiKey) updates.api_key = apiKey;
-
-    try {
-      await invoke('hermes_save_config', { updates });
-
-      // T-Q-S8: save default_project_path to the DB-backed config table.
-      // Save as empty string when the input is blank so subsequent loads
-      // can distinguish "user cleared it" from "not set yet".
-      const newDefaultPath = defaultProjectPathInput.value.trim();
-      await setDefaultProjectPath(newDefaultPath.length > 0 ? newDefaultPath : null);
-      defaultProjectPath = newDefaultPath.length > 0 ? newDefaultPath : null;
-
-      // T-Q-S12-light: save default_model.
-      const newDefaultModel = defaultModelInput.value.trim();
-      await setDefaultModel(newDefaultModel.length > 0 ? newDefaultModel : null);
-      defaultModel = newDefaultModel.length > 0 ? newDefaultModel : null;
-
-      // v0.2-alpha-2: persist theme to DB-backed config so it survives reinstall/clear-localStorage.
-      await invoke('db_config_set', { key: 'theme', value: pendingTheme });
-
-      showToast('设置已保存', '配置已更新，部分设置可能需要重启后生效', 'success');
-      closeSettings();
-
-      // Apply settings at runtime
-      if (apiKey) setApiKey(apiKey);
-
-      // Re-resolve gateway after distro/port change.
-      // resolveGatewayUrl() writes the new URL through the state setter;
-      // applyPortOverride() then swaps the port if the user changed it.
-      try {
-        await resolveGatewayUrl();
-        if (port) applyPortOverride(port);
-      } catch { /* keep old */ }
-    } catch (e) {
-      showToast('保存失败', String(e), 'error');
-    }
-  }
 
   // ── Session Sidebar ───────────────────────────────────────────────────────
   const sidebarNewBtn = document.getElementById('sidebar-new-btn');
