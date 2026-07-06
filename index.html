@@ -24,9 +24,15 @@
     </script>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
-  <body>
-    <div id="app">
-      <!-- Sidebar -->
+<body>
+  <!-- Splash screen (v0.2-alpha-19 — design 17). Visible during
+       boot; fades out + unmounts once main.ts calls splashStore.hide().
+       Positioned absolute above the chat UI; the chat view paints
+       beneath it. -->
+  <div id="splash"></div>
+
+  <div id="app">
+    <!-- Sidebar -->
       <aside id="sidebar" class="sidebar hidden">
         <div class="sidebar-header">
           <span class="sidebar-title">会话</span>
@@ -196,5 +202,8 @@
        confirmation in the sidebar's × button. Generic enough to serve
        future confirmation flows too. -->
   <div id="confirm-modal" class="modal-overlay hidden"></div>
+
+  <!-- Shortcuts Modal (v0.2-alpha-19 — design 16). Triggered by Ctrl+/. -->
+  <div id="shortcuts-modal" class="modal-overlay hidden"></div>
 </body>
 </html>

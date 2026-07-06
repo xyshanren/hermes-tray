@@ -94,6 +94,8 @@ import { chatInputStore, mountChatInput, getChatInputHandle } from './views/chat
 // via initChatStream() — the actual hermesPostStream + listen +
 // message_append + message_record_usage flow lives in chat-stream.ts.
 import { initChatStream, sendChatMessage } from './lib/chat-stream';
+import { mountSplashScreen } from './views/splash-mount';
+import { splashStore } from './views/splash-store';
 import {
   loadDefaultPersonaId,
   loadDefaultModel,
@@ -105,6 +107,8 @@ import { registerQuickCaptureShortcut } from './lib/shortcuts';
 import { registerTrayMenuListeners } from './lib/tray-menu';
 import { initShareUI } from './lib/share-ui';
 import { mountConfirmModal, requestConfirm } from './views/confirm-modal-mount';
+import { mountShortcutsModal } from './views/shortcuts-modal-mount';
+import { shortcutsModalStore } from './views/shortcuts-modal-store';
 import type { ChatMessage as Message, PendingAttachment } from './views/chat-view-store';
 // Re-export the chat formatters from main.ts so the existing
 // src/messageBar.test.ts + src/routingTrace.test.ts suites (which
@@ -960,11 +964,19 @@ window.addEventListener('DOMContentLoaded', async () => {
   // already populated before main.ts runs.
   mountAppToaster();
 
+  // v0.2-alpha-19 — Mount the splash screen (design 17) FIRST so
+  // it's visible while the rest of the boot is in flight. The
+  // <div id="splash"> shell is shown by default in index.html and
+  // fades out + unmounts once splashStore.hide() fires at the end
+  // of this handler.
+  mountSplashScreen();
+
   // v0.2-alpha-19: gateway URL + API key + port override extracted
   // into src/lib/boot.ts. applyBootConfig() resolves the WSL gateway
   // (or falls back to the default), then applies any saved api_key
   // + port from the legacy hermes_get_config command.
   await applyBootConfig();
+  splashStore.setProgress(30);
 
   // v0.2-alpha-16: the messages container is owned by <ChatViewWithWelcome />
   // (mounted via mountChatView() below). We no longer query it here.
@@ -1080,11 +1092,19 @@ window.addEventListener('DOMContentLoaded', async () => {
   sidebarToggleBtn?.addEventListener('click', () => sidebarStore.setVisible(false));
   sidebarShowBtn?.addEventListener('click', () => sidebarStore.setVisible(true));
 
-  // Ctrl+K = search
+  // Ctrl+K = search; Ctrl+/ = shortcuts modal (v0.2-alpha-19).
+  // Escape closes the search modal — the shortcuts modal closes
+  // itself via its own keydown listener (which we mount below).
   window.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
       e.preventDefault();
       openSearchModal();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+      e.preventDefault();
+      shortcutsModalStore.toggle();
+      return;
     }
     if (e.key === 'Escape') {
       closeSearchModal();
@@ -1124,6 +1144,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Load session list on startup
   await loadSessionList();
+  splashStore.setProgress(50);
 
   // ── T-Q-S7: Persona init ─────────────────────────────
   // Load builtin + custom personas, then restore the user's last
@@ -1207,6 +1228,13 @@ function openStatsModal(): void {
   // subscribers are already wired (we share the store imports).
   mountChatView();
 
+  // v0.2-alpha-19: chat view mounted + initial state fetched. Mark
+  // the boot as complete and fade the splash out. The store snaps
+  // progress to 100 + sets visible=false; the Preact view returns
+  // null on the next render, removing the overlay from the DOM.
+  splashStore.setProgress(100);
+  splashStore.hide();
+
   // v0.2-alpha-19: register the Ctrl+Shift+H global shortcut via
   // src/lib/shortcuts.ts. We pass in the imperative callbacks
   // (createSession + chat input handle + sidebar store) so the
@@ -1247,6 +1275,10 @@ function openStatsModal(): void {
   // window.confirm() call site in handleSessionDelete (sidebar's ×
   // button). Generic enough to serve future confirmation flows.
   mountConfirmModal();
+
+  // v0.2-alpha-19: mount the shortcuts modal (design 16). Triggered
+  // by Ctrl+/ — see the global keydown listener above.
+  mountShortcutsModal();
 
   // Cleanup on unload
   window.addEventListener('unload', async () => {

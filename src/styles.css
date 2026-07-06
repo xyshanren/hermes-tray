@@ -1605,3 +1605,84 @@ html, body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+
+/* v0.2-alpha-19 — Splash screen (design 17). Full-viewport
+   overlay shown during boot; the Preact view returns null on
+   visible=false (the store-driven unmount). Positioned above
+   the chat UI so the user sees the splash while the JS bundle
+   loads. */
+#splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9000; /* below modals (9100+) but above the chat UI */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary, #0f172a);
+  /* Fade-out is driven by the store → component returning null;
+     no .is-hiding transition needed since the next render
+     removes the node entirely. */
+}
+#splash:empty {
+  display: none;
+}
+.splash-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 32px 48px;
+}
+.splash-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+.splash-logo {
+  font-size: 64px;
+  line-height: 1;
+  /* Hermes 👔 emoji; matches design 17 mark. */
+}
+.splash-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.splash-brand-name {
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--text-primary, #f1f5f9);
+  letter-spacing: 0.5px;
+}
+.splash-brand-version {
+  font-size: 14px;
+  color: var(--text-secondary, #94a3b8);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.splash-progress-track {
+  width: 280px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(148, 163, 184, 0.2);
+  overflow: hidden;
+}
+.splash-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+  /* Width is driven by inline style from the store value. */
+  transition: width 0.3s ease-out;
+}
+.splash-status {
+  font-size: 13px;
+  color: var(--text-secondary, #94a3b8);
+  min-height: 18px;
+  text-align: center;
+}
+.splash-copyright {
+  position: absolute;
+  bottom: 24px;
+  font-size: 11px;
+  color: var(--text-secondary, #94a3b8);
+  opacity: 0.6;
+}
