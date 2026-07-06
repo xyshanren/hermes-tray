@@ -72,6 +72,18 @@ import { sidebarStore, mountSidebar } from './views/sidebar-mount';
 // delegates message-bubble rendering, streaming bubble updates, and
 // the welcome screen to <ChatViewWithWelcome />.
 import { chatStore, chatWelcomeStore, mountChatView } from './views/chat-view-mount';
+// v0.2-alpha-18 — chat input form (textarea + send button + attach
+// preview + drag/drop + mic) migrated to Preact. main.ts keeps:
+//   - fileToAttachment (Tauri FileReader side-effect)
+//   - addAttachments (orchestrates the limit-decision + store writes)
+//   - startRecording / stopRecording / onRecordingComplete (MediaRecorder
+//     + hermes_proxy_transcribe invoke)
+//   - handleSubmit (the SSE submit pipeline: chatStore.appendMessage +
+//     message_append + sendMessage)
+//   - drag/drop listeners on the form (DragEvent.files doesn't go
+//     through Preact cleanly)
+//   - updateSendButton (gone — the Preact view owns the button state)
+import { chatInputStore, mountChatInput, getChatInputHandle } from './views/chat-input-mount';
 import type { ChatMessage as Message, PendingAttachment, ChatMessageBar } from './views/chat-view-store';
 // Re-export the chat formatters from main.ts so the existing
 // src/messageBar.test.ts + src/routingTrace.test.ts suites (which
@@ -232,13 +244,17 @@ const state: MainState = {
   isStreaming: false,
 };
 
-let messageInput: HTMLTextAreaElement | null = null;
-let sendBtn: HTMLButtonElement | null = null;
+// v0.2-alpha-18: messageInput / sendBtn / charCount DOM refs are
+// gone — the Preact <ChatInput /> component owns the form. main.ts
+// reads/writes the textarea via the imperative handle returned by
+// mountChatInput() (getChatInputHandle() / chatInputStore). The
+// `chatForm` ref below is just for the drag/drop listeners (DragEvent
+// with file DataTransfer doesn't go through Preact cleanly, so we
+// attach native listeners to the raw form element).
+const chatForm: HTMLFormElement | null = document.getElementById('chat-form') as HTMLFormElement | null;
 let connectionStatusEl: HTMLElement | null = null;
 let statusText: HTMLElement | null = null;
 let modelName: HTMLElement | null = null;
-let charCount: HTMLElement | null = null;
-let chatForm: HTMLFormElement | null = null;
 
 // S14-agent: per-stream metadata captured from the final SSE chunk.
 // The agent pushes real prompt/completion/image token counts plus a
@@ -566,7 +582,12 @@ async function loadDefaultModel(): Promise<string | null> {
 let defaultModel: string | null = null;
 
 // T-Q-S14: image attachments waiting to be sent. Cleared on each send.
-let pendingAttachments: PendingAttachment[] = [];
+// v0.2-alpha-18: pendingAttachments moved to chatInputStore
+// (src/views/chat-input-store.ts). main.ts reads/writes via the store
+// so the Preact <AttachmentStrip /> subscribes and re-renders. The
+// local `pendingAttachments` let is gone — every reference below
+// (fileToAttachment callers / addAttachments / handleSubmit) now goes
+// through chatInputStore.get().pendingAttachments + .addAttachment().
 
 // T-Q-S13: voice recording state. We keep the MediaRecorder here
 // (outside the function) so a stop click can reach it.
@@ -765,57 +786,29 @@ async function addAttachments(files: FileList | File[]): Promise<void> {
   // (under limit / approaching limit / over limit) with helpful copy.
   // The hard block stays an error toast; the soft warn is an info toast
   // so the user sees the hint but isn't blocked from sending.
-  const decision = evaluateAttachmentLimit(pendingAttachments.length, list.length);
+  // v0.2-alpha-18: read + write via chatInputStore (Preact view
+  // subscribes for the visual strip). No more renderAttachmentPreviews.
+  const decision = evaluateAttachmentLimit(chatInputStore.get().pendingAttachments.length, list.length);
   if (decision.level === 'block') {
     showToast('太多附件', decision.message, 'error');
     return;
   }
-  const results: PendingAttachment[] = [];
   for (const f of list) {
     try {
-      results.push(await fileToAttachment(f));
+      const att = await fileToAttachment(f);
+      chatInputStore.addAttachment(att);
     } catch (e) {
       showToast('附件失败', String(e), 'error');
     }
   }
-  pendingAttachments = [...pendingAttachments, ...results];
   if (decision.level === 'warn') {
     showToast('接近附件上限', decision.message, 'info');
   }
-  renderAttachmentPreviews();
 }
 
-function removeAttachment(idx: number): void {
-  pendingAttachments = pendingAttachments.filter((_, i) => i !== idx);
-  renderAttachmentPreviews();
-}
-
-function renderAttachmentPreviews(): void {
-  const container = document.getElementById('attachment-previews');
-  if (!container) return;
-  if (pendingAttachments.length === 0) {
-    container.classList.add('hidden');
-    container.innerHTML = '';
-    return;
-  }
-  container.classList.remove('hidden');
-  container.innerHTML = pendingAttachments.map((a, i) => `
-    <div class="attachment-thumb" data-idx="${i}">
-      <img src="${escapeHtml(a.dataUrl)}" alt="${escapeHtml(a.name)}" />
-      <button class="attachment-remove" data-idx="${i}" title="移除">×</button>
-      <div class="attachment-meta">
-        <div class="attachment-name">${escapeHtml(a.name)}</div>
-        <div class="attachment-size">${formatBytes(a.size)}</div>
-      </div>
-    </div>
-  `).join('');
-  container.querySelectorAll<HTMLButtonElement>('.attachment-remove').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = Number(btn.dataset.idx);
-      removeAttachment(idx);
-    });
-  });
-}
+// v0.2-alpha-18: removeAttachment + renderAttachmentPreviews moved
+// into the Preact <AttachmentStrip /> component. The × button on each
+// thumb now calls chatInputStore.removeAttachment(idx) directly.
 
 /**
  * Build the OpenAI-compatible multimodal content array for the API.
@@ -849,7 +842,6 @@ export function buildMultimodalContent(
 const VOICE_MAX_MS = 60_000; // 1 min cap to keep uploads sane
 
 async function startRecording(): Promise<void> {
-  const micBtn = document.getElementById('mic-btn');
   try {
     if (!navigator.mediaDevices?.getUserMedia) {
       showToast('不支持录音', '当前环境无麦克风 API (需 HTTPS 或 localhost)', 'error');
@@ -877,7 +869,10 @@ async function startRecording(): Promise<void> {
       void onRecordingComplete();
     };
     mediaRecorder.start(100); // emit a chunk every 100ms
-    micBtn?.classList.add('recording');
+    // v0.2-alpha-18: the .recording class is now driven by
+    // chatInputStore.isRecording — the Preact view subscribes and
+    // re-renders the mic button. We just toggle the store.
+    chatInputStore.setRecording(true);
     showToast('开始录音', '再次点击麦克风停止 (上限 1 分钟)', 'info');
     // Auto-stop after VOICE_MAX_MS as a safety net.
     setTimeout(() => {
@@ -898,7 +893,9 @@ function stopRecording(): void {
     recordingStream.getTracks().forEach(t => t.stop());
     recordingStream = null;
   }
-  document.getElementById('mic-btn')?.classList.remove('recording');
+  // v0.2-alpha-18: clear the .recording class via the store; the
+  // Preact mic button subscriber drops the class automatically.
+  chatInputStore.setRecording(false);
 }
 
 async function onRecordingComplete(): Promise<void> {
@@ -939,14 +936,13 @@ async function onRecordingComplete(): Promise<void> {
       showToast('转写为空', '识别结果为空字符串', 'info');
       return;
     }
-    // Fill the message input with the transcript. Append if there's
-    // already text, otherwise replace.
-    if (messageInput) {
-      const current = messageInput.value.trim();
-      messageInput.value = current ? `${current} ${text}` : text;
-      messageInput.dispatchEvent(new Event('input'));
-      messageInput.focus();
-    }
+    // v0.2-alpha-18: append the transcript via the imperative
+    // handle. It both writes the DOM value AND dispatches an input
+    // event so the Preact <ChatInput /> state stays in sync (the
+    // view's controlled input relies on onInput firing to pick up
+    // external mutations).
+    const handle = getChatInputHandle();
+    if (handle) handle.appendText(text);
     showToast('已转写', `${text.length} 字符 — 检查后发送`, 'success');
   } catch (e) {
     showToast('转写失败', String(e), 'error');
@@ -1017,41 +1013,42 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // v0.2-alpha-16: the messages container is owned by <ChatViewWithWelcome />
   // (mounted via mountChatView() below). We no longer query it here.
-  messageInput = document.getElementById('message-input') as HTMLTextAreaElement;
-  sendBtn = document.getElementById('send-btn') as HTMLButtonElement;
+  // v0.2-alpha-18: textarea / send button / char count DOM refs are
+  // also gone — the Preact <ChatInput /> component owns them.
+  // We still keep a ref to <form id="chat-form"> for the drag/drop
+  // listeners (DragEvent.files doesn't go through Preact cleanly).
   connectionStatusEl = document.getElementById('connection-status');
   statusText = document.getElementById('status-text');
   modelName = document.getElementById('model-name');
-  charCount = document.getElementById('char-count');
-  chatForm = document.getElementById('chat-form') as HTMLFormElement;
 
-  chatForm?.addEventListener('submit', handleSubmit);
-
-  // T-Q-S13: mic button — toggle recording. While recording, the
-  // button pulses red. On stop, the audio blob is sent to hermes-agent
-  // for transcription; the text fills the message input.
-  const micBtn = document.getElementById('mic-btn');
-  micBtn?.addEventListener('click', () => {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-      stopRecording();
-    } else {
-      void startRecording();
-    }
+  // v0.2-alpha-18: mount the Preact <ChatInput /> component into the
+  // existing <form id="chat-form"> shell. The view owns the textarea
+  // (controlled state), send button (disabled when isLoading + length
+  // over cap), mic button (pulse red when isRecording), attach button
+  // (triggers the hidden <input type="file">), and attachment preview
+  // strip. main.ts provides callbacks for the three external actions
+  // it owns: onSubmit (the SSE pipeline), onAttach (fileToAttachment +
+  // store writes), onMicToggle (startRecording / stopRecording).
+  mountChatInput({
+    isLoading: state.isLoading,
+    onSubmit: handleSubmit,
+    onAttach: (files) => void addAttachments(files),
+    onMicToggle: () => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        stopRecording();
+      } else {
+        void startRecording();
+      }
+    },
   });
 
-  // T-Q-S14: attach button + drag/drop handlers. We listen on the
-  // form (not the textarea) so a drop anywhere in the input area
-  // works. preventDefault on dragenter/over is required to enable
-  // the drop event; we toggle a CSS class for a visual highlight.
-  const attachBtn = document.getElementById('attach-btn');
-  const attachFileInput = document.getElementById('attach-file-input') as HTMLInputElement | null;
-  attachBtn?.addEventListener('click', () => attachFileInput?.click());
-  attachFileInput?.addEventListener('change', () => {
-    if (attachFileInput.files && attachFileInput.files.length > 0) {
-      void addAttachments(attachFileInput.files);
-      attachFileInput.value = ''; // reset so re-picking same file works
-    }
-  });
+  // T-Q-S14: drag/drop handlers. We listen on the form (not the
+  // textarea) so a drop anywhere in the input area works. The
+  // `dragCounter` pattern handles nested dragenter/dragleave events
+  // fired when the cursor crosses internal element boundaries —
+  // .dragging stays on until the drag actually leaves the form.
+  // preventDefault on dragenter/over is required to enable the drop
+  // event. We toggle a CSS class for a visual highlight.
   let dragCounter = 0;
   chatForm?.addEventListener('dragenter', (e) => {
     e.preventDefault();
@@ -1079,8 +1076,6 @@ window.addEventListener('DOMContentLoaded', async () => {
       void addAttachments(dt.files);
     }
   });
-  messageInput?.addEventListener('input', handleInput);
-  messageInput?.addEventListener('keydown', handleKeydown);
 
   // Setup SSE stream listeners
   unlistenChunk = await listen<string>('hermes-stream-chunk', (event) => {
@@ -1305,13 +1300,16 @@ function openStatsModal(): void {
       const newId = await createSession();
       if (!newId) {
         console.warn('[GlobalShortcut] createSession returned null');
-        messageInput?.focus();
+        getChatInputHandle()?.focus();
         return;
       }
       // 收掉侧边栏到 focus 模式、清空输入、focus 让用户立刻打字
+      // v0.2-alpha-18: drive the textarea via the imperative handle —
+      // it both clears the value (dispatching an input event so the
+      // Preact view picks it up) and re-focuses in one call.
       if (sidebarStore.get()) sidebarStore.setVisible(false);
-      if (messageInput) messageInput.value = '';
-      messageInput?.focus();
+      const handle = getChatInputHandle();
+      if (handle) handle.clearText();
     });
     console.log('[GlobalShortcut] Ctrl+Shift+H registered (quick capture)');
   } catch (e) {
@@ -1339,37 +1337,23 @@ function openStatsModal(): void {
 // see top-of-file imports. Toaster mounted via mountAppToaster() at
 // DOMContentLoaded below.
 
-function handleInput() {
-  if (!messageInput || !sendBtn || !charCount) return;
-  const length = messageInput.value.length;
-  charCount.textContent = `${length} / ${CONFIG.maxInputLength}`;
-  sendBtn.disabled = state.isLoading || length > CONFIG.maxInputLength;
-  charCount.style.color = length > CONFIG.maxInputLength ? 'var(--error)' : '';
-  // Auto-resize: reset then set to scrollHeight
-  messageInput.style.height = 'auto';
-  const newHeight = Math.min(messageInput.scrollHeight, 200);
-  messageInput.style.height = newHeight + 'px';
-}
+// v0.2-alpha-18: handleInput / handleKeydown moved into the Preact
+// <ChatInput /> component. The textarea is now controlled by the
+// view's local state; char count + auto-resize + Enter-to-submit all
+// happen in JSX. main.ts no longer needs to listen on the form or
+// textarea directly — handleSubmit (below) is invoked by the view's
+// <form onSubmit> handler via the onSubmit callback prop.
 
-function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    if (!sendBtn?.disabled) chatForm?.dispatchEvent(new Event('submit'));
-  }
-}
-
-async function handleSubmit(e: Event) {
-  e.preventDefault();
-  if (!messageInput || state.isLoading) return;
-  const content = messageInput.value.trim();
+async function handleSubmit(content: string, attachmentsAtSend: PendingAttachment[]) {
   // T-Q-S14: allow send if attachments are present even when text is empty.
-  if (!content && pendingAttachments.length === 0) return;
-  const attachmentsAtSend = pendingAttachments;
-  messageInput.value = '';
-  messageInput.dispatchEvent(new Event('input'));
-  if (messageInput) messageInput.style.height = 'auto';
-  pendingAttachments = [];
-  renderAttachmentPreviews();
+  if (!content && attachmentsAtSend.length === 0) return;
+  // Clear the form immediately so the user can keep typing while
+  // the SSE pipeline spins up. The Preact view's controlled input
+  // resets via chatInputHandle.clearText(); pendingAttachments goes
+  // through chatInputStore.clearAttachments().
+  const handle = getChatInputHandle();
+  if (handle) handle.clearText();
+  chatInputStore.clearAttachments();
 
   // Ensure we have an active session
   if (!currentSessionId) {
@@ -1563,12 +1547,17 @@ async function finishStream() {
   lastStreamUsage = null;
   lastStreamRouting = null;
   lastStreamElapsedMs = null;
-  updateSendButton();
+  // v0.2-alpha-18: updateSendButton() call removed — the Preact
+  // <SendButton> reads chatStore.isLoading (which mirrors state.isLoading
+  // — see the chatStore subscribe in ChatInput view) and toggles the
+  // disabled + label automatically. We still flip state.isLoading so
+  // the prop on <ChatInput isLoading={state.isLoading} /> is correct.
 }
 
 async function sendMessage() {
   state.isLoading = true;
-  updateSendButton();
+  // v0.2-alpha-18: see comment above — the SendButton re-renders from
+  // the isLoading prop on the next Preact tick.
 
   // v0.2-alpha-16: open the streaming bubble via the store. The Preact
   // <ChatViewWithWelcome /> subscriber picks up the change and renders
@@ -1633,7 +1622,8 @@ async function sendMessage() {
     // error channel — the Preact view renders a red error bubble.
     chatStore.abortStream();
     chatStore.setError(`连接失败: ${errorMsg} (${getGatewayUrl()})`);
-    updateSendButton();
+    // v0.2-alpha-18: updateSendButton() call removed — see finishStream
+    // for the same rationale.
   }
 }
 
@@ -1684,20 +1674,10 @@ function updateConnectionStatus(status: 'disconnected' | 'connecting' | 'connect
   }
 }
 
-function updateSendButton() {
-  if (!sendBtn) return;
-  const label = document.getElementById('send-btn-label');
-  const icon = document.getElementById('send-btn-icon');
-  if (!label || !icon) return;
-  sendBtn.disabled = state.isLoading;
-  if (state.isLoading) {
-    label.textContent = '生成中...';
-    icon.style.display = 'none';
-  } else {
-    label.textContent = '';
-    icon.style.display = '';
-  }
-}
+// v0.2-alpha-18: updateSendButton deleted — the Preact <SendButton>
+// sub-component reads `isLoading` from chatStore and renders the
+// disabled + label + icon state directly. No more imperative DOM
+// patching needed.
 
 // v0.2-alpha-16: scrollToBottom / messagesContainer moved into the
 // Preact <ChatViewWithWelcome /> component. The view tracks its own
