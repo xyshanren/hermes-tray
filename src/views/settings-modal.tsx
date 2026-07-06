@@ -1,25 +1,33 @@
-// v0.2-alpha-11 — SettingsModal (Preact JSX).
+// v0.2-alpha-12 — SettingsModal (Preact JSX) with unified Gateway group.
 //
 // Renders the settings panel into the existing <div id="settings-modal">
 // overlay root. The store in ./settings-modal-store drives visibility;
-// main.ts owns openSettings wrapper + the sidebar/tray-menu entry
-// points.
+// main.ts owns openSettings wrapper + the sidebar/tray-menu entry points.
 //
 // Groups (in order):
-//   1. Theme segmented control (☀️/🌙/💻) — live preview, persisted on save.
-//   2. Gateway 连接 (NEW in alpha-11) — gateway URL override + API Key
-//      with eye icon + 测试连接 button + status indicator. Enabling
-//      remote-hermes support: leave URL empty to use the legacy
-//      WSL-distro + port resolve path; set URL to point at a remote
-//      gateway.
-//   3. 本地 WSL Gateway — distro + port (used by the legacy resolve path).
-//   4. 默认值 — default project path + default model (db_config keys).
+//   1. 主题 — segmented control (☀️/🌙/💻), live preview, persisted on save.
+//   2. Gateway 连接 — single unified group for both local + remote.
+//      - Radio toggle: 「自动（本机 WSL）」 vs 「自定义（远程）」.
+//      - Auto mode: WSL distro + port + read-only "当前 URL" preview
+//        (what tray auto-resolved). Same UX as v0.1.5.
+//      - Remote mode: single URL input. User fills in remote gateway.
+//      - API Key + 测试连接 button + status badge are always visible.
+//   3. 默认值 — default project path + default model (db_config keys).
 //
-// Save flow:
+// Why the unified group (alpha-12 redesign over alpha-11):
+//   alpha-11 split Gateway 连接 (remote URL) and 本地 WSL Gateway (distro
+//   + port) into two separate sections. That made local users feel they
+//   "lost" the auto-resolve convenience compared to v0.1.5, because the
+//   new "Gateway 连接" group required manually typing a URL. The radio
+//   toggle here keeps the v0.1.5 local-UX identical while still exposing
+//   the remote override as a peer option.
+//
+// Save flow (mode-aware, single state.gatewayUrl):
 //   - hermes_save_config for legacy keys (wsl_distro / port / api_key).
 //   - db_config_set for db-backed keys (theme / default_project_path / default_model).
-//   - On save: setApiKey + setGatewayUrl (state.ts). If Gateway URL is
-//     non-empty, skip resolveGatewayUrl and use the override directly.
+//   - On save: setApiKey + setGatewayUrl (state.ts).
+//       - Auto mode: resolveGatewayUrl() + applyPortOverride(port).
+//       - Remote mode: setGatewayUrl(userFilledUrl).
 //   - onDefaultsChanged callback so main.ts can refresh its module-level
 //     defaultProjectPath / defaultModel lets used by sendMessage + model picker.
 
@@ -57,6 +65,10 @@ export interface SettingsModalProps {
   }) => void;
 }
 
+// ── Gateway mode ──────────────────────────────────────────────────────────
+
+type GatewayMode = "auto" | "remote";
+
 // ── Connection test state ─────────────────────────────────────────────────
 
 interface ConnectionTestState {
@@ -74,7 +86,9 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
   // Form fields (controlled). Re-init on each open to capture current
   // external state (e.g. someone updated the URL via another route).
   const [theme, setThemeMode] = useState<ThemeMode>(getStoredTheme());
+  const [mode, setMode] = useState<GatewayMode>("auto");
   const [gatewayUrl, setGatewayUrlField] = useState<string>(getGatewayUrl());
+  const [autoUrlPreview, setAutoUrlPreview] = useState<string>(getGatewayUrl());
   const [apiKey, setApiKeyField] = useState<string>(getApiKey());
   const [wslDistros, setWslDistros] = useState<string[]>([]);
   const [wslDistro, setWslDistro] = useState<string>("");
@@ -82,7 +96,7 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
   const [defaultProjectPath, setDefaultProjectPathField] = useState<string>("");
   const [defaultModel, setDefaultModelField] = useState<string>("");
 
-  // Connection test state for the new Gateway 连接 group.
+  // Connection test state for the Gateway 连接 group.
   const [test, setTest] = useState<ConnectionTestState>({
     status: "idle",
     detail: "未测试",
@@ -142,9 +156,14 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
       setThemeMode(dbTheme);
     }
 
-    // Sync current runtime URL/Key into the form (in case another path
-    // mutated them since last save).
-    setGatewayUrlField(getGatewayUrl());
+    // Sync current runtime URL/Key into the form. The current URL
+    // becomes the auto-mode preview; if it doesn't match any local
+    // resolution (i.e. someone set it manually via a previous remote
+    // session), we leave mode='auto' so the user can opt into remote
+    // mode explicitly to see their URL.
+    const currentUrl = getGatewayUrl();
+    setAutoUrlPreview(currentUrl);
+    setGatewayUrlField(currentUrl);
     setApiKeyField(getApiKey());
 
     setTest({ status: "idle", detail: "未测试", latencyMs: null });
@@ -176,11 +195,11 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
       // Apply at runtime.
       if (apiKey) setApiKey(apiKey);
 
-      // Gateway URL: non-empty overrides the legacy resolve path.
-      // Empty means "fall back to WSL distro + port resolve".
-      if (gatewayUrl.trim()) {
+      // Mode-aware gateway resolution.
+      if (mode === "remote" && gatewayUrl.trim()) {
         setGatewayUrl(gatewayUrl.trim());
       } else {
+        // Auto mode: fall back to the WSL distro + port resolve path.
         try {
           await resolveGatewayUrl();
           if (port) applyPortOverride(port);
@@ -188,6 +207,8 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
           /* keep old URL on resolve failure */
         }
       }
+      // Refresh auto-mode preview to reflect whatever the runtime state is now.
+      setAutoUrlPreview(getGatewayUrl());
 
       showToast(
         "设置已保存",
@@ -208,16 +229,40 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
   }
 
   async function handleTestConnection(): Promise<void> {
-    setTest({ status: "testing", detail: "正在连接…", latencyMs: null });
+    // Decide which URL to test based on the current mode + form input.
+    let proposedUrl: string;
+    if (mode === "remote" && gatewayUrl.trim()) {
+      proposedUrl = gatewayUrl.trim();
+    } else if (mode === "auto") {
+      // Auto mode: ask the tray to resolve from the current distro + port.
+      // resolveGatewayUrl mutates state.gatewayUrl as a side effect — we
+      // capture its return and restore the original URL in `finally` so
+      // the test is non-destructive (the running app is unaffected).
+      const savedUrl = getGatewayUrl();
+      try {
+        proposedUrl = await resolveGatewayUrl();
+        if (port) {
+          proposedUrl = proposedUrl.replace(/:\d+$/, `:${port}`);
+        }
+      } finally {
+        setGatewayUrl(savedUrl);
+      }
+    } else {
+      // Remote mode with empty URL — nothing to test.
+      setTest({
+        status: "fail",
+        detail: "请先填写 Gateway URL",
+        latencyMs: null,
+      });
+      return;
+    }
 
-    // Use the user's proposed values WITHOUT saving — restore runtime
-    // state in `finally` so the app doesn't see a half-applied config.
-    const proposedUrl = gatewayUrl.trim();
     const proposedKey = apiKey.trim();
+    setTest({ status: "testing", detail: "正在连接…", latencyMs: null });
 
     const savedUrl = getGatewayUrl();
     const savedKey = getApiKey();
-    setGatewayUrl(proposedUrl || savedUrl);
+    setGatewayUrl(proposedUrl);
     if (proposedKey) setApiKey(proposedKey);
 
     const t0 = performance.now();
@@ -227,7 +272,7 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
       if (res.ok && res.status >= 200 && res.status < 300) {
         setTest({
           status: "ok",
-          detail: `已连接 ${proposedUrl || savedUrl}`,
+          detail: `已连接 ${proposedUrl}`,
           latencyMs,
         });
       } else {
@@ -268,19 +313,20 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
       <div class="modal-body">
         <ThemeGroup theme={theme} onChange={setThemeMode} />
         <GatewayConnectionGroup
+          mode={mode}
+          onModeChange={setMode}
           gatewayUrl={gatewayUrl}
           onUrlChange={setGatewayUrlField}
+          autoUrlPreview={autoUrlPreview}
           apiKey={apiKey}
           onApiKeyChange={setApiKeyField}
-          test={test}
-          onTest={handleTestConnection}
-        />
-        <LocalGatewayGroup
-          distros={wslDistros}
-          distro={wslDistro}
+          wslDistros={wslDistros}
+          wslDistro={wslDistro}
           onDistroChange={setWslDistro}
           port={port}
           onPortChange={setPort}
+          test={test}
+          onTest={handleTestConnection}
         />
         <DefaultsGroup
           defaultProjectPath={defaultProjectPath}
@@ -357,20 +403,41 @@ function ThemeGroup({
   );
 }
 
-// ── Gateway 连接 (NEW in alpha-11) ─────────────────────────────────────────
+// ── Gateway 连接 (unified group, alpha-12) ────────────────────────────────
+//
+// One group, two modes via radio toggle:
+//   - auto:   WSL distro + port, with auto-resolved URL shown as preview.
+//   - remote: single URL input.
+// API Key + 测试连接 button are always visible regardless of mode.
 
 function GatewayConnectionGroup({
+  mode,
+  onModeChange,
   gatewayUrl,
   onUrlChange,
+  autoUrlPreview,
   apiKey,
   onApiKeyChange,
+  wslDistros,
+  wslDistro,
+  onDistroChange,
+  port,
+  onPortChange,
   test,
   onTest,
 }: {
+  mode: GatewayMode;
+  onModeChange: (m: GatewayMode) => void;
   gatewayUrl: string;
   onUrlChange: (v: string) => void;
+  autoUrlPreview: string;
   apiKey: string;
   onApiKeyChange: (v: string) => void;
+  wslDistros: string[];
+  wslDistro: string;
+  onDistroChange: (v: string) => void;
+  port: string;
+  onPortChange: (v: string) => void;
   test: ConnectionTestState;
   onTest: () => void;
 }) {
@@ -379,20 +446,92 @@ function GatewayConnectionGroup({
   return (
     <section class="settings-group" aria-labelledby="settings-gateway-title">
       <h3 id="settings-gateway-title">Gateway 连接</h3>
-      <span class="form-hint">
-        留空 = 使用本机 WSL Gateway（按下面的「本地 WSL Gateway」解析）。
-        填地址 = 直连远程 hermes gateway。
-      </span>
-      <div class="form-group">
-        <label for="setting-gateway-url">Gateway 地址</label>
-        <input
-          id="setting-gateway-url"
-          type="text"
-          placeholder="例如 http://192.168.1.100:8642"
-          value={gatewayUrl}
-          onInput={(e) => onUrlChange((e.currentTarget as HTMLInputElement).value)}
-        />
+      <div
+        class="settings-mode-toggle"
+        role="radiogroup"
+        aria-labelledby="settings-gateway-title"
+      >
+        <label
+          class={`settings-mode-option${mode === "auto" ? " active" : ""}`}
+        >
+          <input
+            type="radio"
+            name="gateway-mode"
+            value="auto"
+            checked={mode === "auto"}
+            onChange={() => onModeChange("auto")}
+          />
+          <span>自动（本机 WSL，自动解析 IP）</span>
+        </label>
+        <label
+          class={`settings-mode-option${mode === "remote" ? " active" : ""}`}
+        >
+          <input
+            type="radio"
+            name="gateway-mode"
+            value="remote"
+            checked={mode === "remote"}
+            onChange={() => onModeChange("remote")}
+          />
+          <span>自定义（远程，手动输入 URL）</span>
+        </label>
       </div>
+
+      {mode === "auto" ? (
+        <div class="form-group">
+          <label for="setting-wsl-distro">WSL 发行版</label>
+          <select
+            id="setting-wsl-distro"
+            value={wslDistro}
+            onChange={(e) =>
+              onDistroChange((e.currentTarget as HTMLSelectElement).value)
+            }
+          >
+            {wslDistros.length === 0 ? (
+              <option value="">(未检测到 WSL)</option>
+            ) : (
+              wslDistros.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))
+            )}
+          </select>
+          <div class="form-group">
+            <label for="setting-port">Gateway 端口</label>
+            <input
+              id="setting-port"
+              type="number"
+              min="1024"
+              max="65535"
+              placeholder="8642"
+              value={port}
+              onInput={(e) =>
+                onPortChange((e.currentTarget as HTMLInputElement).value)
+              }
+            />
+          </div>
+          <div class="settings-url-preview">
+            <span class="form-hint">当前 URL（自动解析）</span>
+            <code>{autoUrlPreview || "(未解析)"}</code>
+          </div>
+        </div>
+      ) : (
+        <div class="form-group">
+          <label for="setting-gateway-url">Gateway URL</label>
+          <input
+            id="setting-gateway-url"
+            type="text"
+            placeholder="例如 http://192.168.1.100:8642"
+            value={gatewayUrl}
+            onInput={(e) => onUrlChange((e.currentTarget as HTMLInputElement).value)}
+          />
+          <span class="form-hint">
+            远程 hermes gateway 的完整地址。
+          </span>
+        </div>
+      )}
+
       <div class="form-group">
         <label for="setting-gateway-api-key">API Key</label>
         <div class="password-input-row">
@@ -400,10 +539,14 @@ function GatewayConnectionGroup({
             id="setting-gateway-api-key"
             type={keyVisible ? "text" : "password"}
             class="password-input"
-            placeholder="远程 hermes 的 API Key"
+            placeholder={
+              mode === "remote" ? "远程 hermes 的 API Key" : "本地 WSL Gateway 的 API Key"
+            }
             autocomplete="current-password"
             value={apiKey}
-            onInput={(e) => onApiKeyChange((e.currentTarget as HTMLInputElement).value)}
+            onInput={(e) =>
+              onApiKeyChange((e.currentTarget as HTMLInputElement).value)
+            }
           />
           <button
             type="button"
@@ -416,6 +559,7 @@ function GatewayConnectionGroup({
           </button>
         </div>
       </div>
+
       <div class="settings-test-row">
         <button
           type="button"
@@ -450,61 +594,6 @@ function ConnectionStatusBadge({ test }: { test: ConnectionTestState }) {
         {latency}
       </span>
     </span>
-  );
-}
-
-// ── 本地 WSL Gateway ──────────────────────────────────────────────────────
-
-function LocalGatewayGroup({
-  distros,
-  distro,
-  onDistroChange,
-  port,
-  onPortChange,
-}: {
-  distros: string[];
-  distro: string;
-  onDistroChange: (v: string) => void;
-  port: string;
-  onPortChange: (v: string) => void;
-}) {
-  return (
-    <section class="settings-group" aria-labelledby="settings-local-title">
-      <h3 id="settings-local-title">本地 WSL Gateway</h3>
-      <span class="form-hint">
-        仅当 Gateway 地址留空时使用。Hermes Gateway 监听在选中的 WSL 发行版内。
-      </span>
-      <div class="form-group">
-        <label for="setting-wsl-distro">WSL 发行版</label>
-        <select
-          id="setting-wsl-distro"
-          value={distro}
-          onChange={(e) => onDistroChange((e.currentTarget as HTMLSelectElement).value)}
-        >
-          {distros.length === 0 ? (
-            <option value="">(未检测到 WSL)</option>
-          ) : (
-            distros.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))
-          )}
-        </select>
-      </div>
-      <div class="form-group">
-        <label for="setting-port">Gateway 端口</label>
-        <input
-          id="setting-port"
-          type="number"
-          min="1024"
-          max="65535"
-          placeholder="8642"
-          value={port}
-          onInput={(e) => onPortChange((e.currentTarget as HTMLInputElement).value)}
-        />
-      </div>
-    </section>
   );
 }
 
@@ -557,5 +646,3 @@ function DefaultsGroup({
     </section>
   );
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────

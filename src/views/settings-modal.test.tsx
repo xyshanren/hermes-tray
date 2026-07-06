@@ -1,10 +1,10 @@
-// v0.2-alpha-11 — SettingsModal component tests.
+// v0.2-alpha-12 — SettingsModal component tests (unified Gateway group).
 //
-// Scope: store + render shell + group structure + 测试连接 button
-// states (idle → testing → ok/fail). Per the test scoping policy from
-// alpha-7 through alpha-10, we don't drive the full save flow or
-// hermes_proxy_get / hermes_save_config / db_config_set invokes through
-// happy-dom — that's exercised in the real Tauri WebView.
+// Scope: store + 3-group render shell + radio toggle (auto/remote) +
+// autoUrlPreview + 测试连接 button states. Per the test scoping policy
+// from alpha-7 through alpha-11, we don't drive the full save flow or
+// invoke pipeline through happy-dom — that's exercised in the real
+// Tauri WebView.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "preact";
@@ -88,48 +88,151 @@ describe("settingsStore", () => {
   });
 });
 
-describe("SettingsModal rendering", () => {
+describe("SettingsModal rendering (3-group structure)", () => {
   it("renders nothing when store is closed", () => {
     const root = mountSettingsModalInto();
     expect(root.children).toHaveLength(0);
   });
 
-  it("renders panel + 4 form groups when store opens", async () => {
+  it("renders panel + 3 form groups when store opens", async () => {
     const root = mountSettingsModalInto();
     await flushRender();
     settingsStore.setOpen(true);
     await flushRender();
     expect(root.querySelector(".modal-close-btn")).not.toBeNull();
-    // 4 settings-group sections: Theme, Gateway 连接, 本地 WSL Gateway, 默认值.
+    // 3 settings-group sections: 主题, Gateway 连接, 默认值.
     const groups = root.querySelectorAll(".settings-group");
-    expect(groups.length).toBe(4);
+    expect(groups.length).toBe(3);
     const titles = Array.from(groups).map((g) =>
       g.querySelector("h3")?.textContent,
     );
-    expect(titles).toEqual([
-      "主题",
-      "Gateway 连接",
-      "本地 WSL Gateway",
-      "默认值",
-    ]);
+    expect(titles).toEqual(["主题", "Gateway 连接", "默认值"]);
   });
 
-  it("Gateway 连接 group has URL + API Key + 测试连接 button + status badge", async () => {
+  it("Gateway 连接 group has mode toggle + API Key + 测试连接 button + status badge", async () => {
     const root = mountSettingsModalInto();
     await flushRender();
     settingsStore.setOpen(true);
     await flushRender();
-    expect(root.querySelector("#setting-gateway-url")).not.toBeNull();
+    // Radio toggle for mode (auto / remote).
+    const radios = root.querySelectorAll(
+      '.settings-mode-toggle input[type="radio"]',
+    );
+    expect(radios.length).toBe(2);
+    // API Key field — always visible.
     expect(root.querySelector("#setting-gateway-api-key")).not.toBeNull();
+    // Test button + status badge.
     expect(root.querySelector(".settings-test-row button")).not.toBeNull();
     expect(root.querySelector(".settings-status")).not.toBeNull();
-    // Status badge initial text — "未测试".
-    expect(root.querySelector(".settings-status")?.textContent).toContain(
-      "未测试",
+  });
+});
+
+describe("Gateway 连接 auto mode (default)", () => {
+  it("默认进入 auto 模式", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    const radios = root.querySelectorAll<HTMLInputElement>(
+      '.settings-mode-toggle input[type="radio"]',
     );
+    expect(radios[0].value).toBe("auto");
+    expect(radios[0].checked).toBe(true);
+    expect(radios[1].value).toBe("remote");
+    expect(radios[1].checked).toBe(false);
   });
 
-  it("主题 group has 3 segmented buttons", async () => {
+  it("auto 模式显示 WSL 发行版 + 端口 + URL 预览，隐藏 URL 输入框", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    expect(root.querySelector("#setting-wsl-distro")).not.toBeNull();
+    expect(root.querySelector("#setting-port")).not.toBeNull();
+    expect(root.querySelector(".settings-url-preview")).not.toBeNull();
+    // URL input only renders in remote mode.
+    expect(root.querySelector("#setting-gateway-url")).toBeNull();
+  });
+
+  it("auto 模式的 URL 预览显示当前 tray 解析的 URL", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    const preview = root.querySelector(".settings-url-preview code");
+    expect(preview).not.toBeNull();
+    // default state.ts gatewayUrl is empty, so preview falls back to
+    // "(未解析)" — verifies the preview surfaces real state.
+    expect(preview?.textContent).toBe("(未解析)");
+  });
+});
+
+describe("Gateway 连接 remote mode", () => {
+  it("点击 remote radio 切换到 remote 模式，显示 URL 输入框", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    const remoteRadio = root.querySelector<HTMLInputElement>(
+      '.settings-mode-toggle input[value="remote"]',
+    );
+    remoteRadio?.click();
+    await flushRender();
+    // URL input appears.
+    expect(root.querySelector("#setting-gateway-url")).not.toBeNull();
+    // WSL distro + port hidden in remote mode.
+    expect(root.querySelector("#setting-wsl-distro")).toBeNull();
+    expect(root.querySelector("#setting-port")).toBeNull();
+    // URL preview hidden in remote mode (only auto mode shows it).
+    expect(root.querySelector(".settings-url-preview")).toBeNull();
+  });
+
+  it("remote 模式 URL 输入框可输入", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    const remoteRadio = root.querySelector<HTMLInputElement>(
+      '.settings-mode-toggle input[value="remote"]',
+    );
+    remoteRadio?.click();
+    await flushRender();
+    const input = root.querySelector<HTMLInputElement>("#setting-gateway-url");
+    expect(input).not.toBeNull();
+    input!.value = "http://192.168.1.100:8642";
+    input!.dispatchEvent(new Event("input", { bubbles: true }));
+    await flushRender();
+    expect(input!.value).toBe("http://192.168.1.100:8642");
+  });
+
+  it("切回 auto 模式再次显示 WSL distro + port + URL preview", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    // Switch to remote.
+    root
+      .querySelector<HTMLInputElement>(
+        '.settings-mode-toggle input[value="remote"]',
+      )
+      ?.click();
+    await flushRender();
+    // Switch back to auto.
+    root
+      .querySelector<HTMLInputElement>(
+        '.settings-mode-toggle input[value="auto"]',
+      )
+      ?.click();
+    await flushRender();
+    expect(root.querySelector("#setting-wsl-distro")).not.toBeNull();
+    expect(root.querySelector("#setting-port")).not.toBeNull();
+    expect(root.querySelector(".settings-url-preview")).not.toBeNull();
+    expect(root.querySelector("#setting-gateway-url")).toBeNull();
+  });
+});
+
+describe("主题 group", () => {
+  it("has 3 segmented buttons", async () => {
     const root = mountSettingsModalInto();
     await flushRender();
     settingsStore.setOpen(true);
@@ -141,17 +244,10 @@ describe("SettingsModal rendering", () => {
     const labels = Array.from(buttons).map((b) => b.textContent);
     expect(labels).toEqual(["☀️ 浅色", "🌙 深色", "💻 跟随系统"]);
   });
+});
 
-  it("本地 WSL Gateway group has distro select + port input", async () => {
-    const root = mountSettingsModalInto();
-    await flushRender();
-    settingsStore.setOpen(true);
-    await flushRender();
-    expect(root.querySelector("#setting-wsl-distro")).not.toBeNull();
-    expect(root.querySelector("#setting-port")).not.toBeNull();
-  });
-
-  it("默认值 group has project path + default model inputs", async () => {
+describe("默认值 group", () => {
+  it("has project path + default model inputs", async () => {
     const root = mountSettingsModalInto();
     await flushRender();
     settingsStore.setOpen(true);
@@ -159,7 +255,9 @@ describe("SettingsModal rendering", () => {
     expect(root.querySelector("#setting-default-project-path")).not.toBeNull();
     expect(root.querySelector("#setting-default-model")).not.toBeNull();
   });
+});
 
+describe("Modal footer + close handlers", () => {
   it("modal footer has 取消 + 保存 buttons", async () => {
     const root = mountSettingsModalInto();
     await flushRender();
@@ -191,25 +289,14 @@ describe("SettingsModal rendering", () => {
     cancelBtn?.click();
     expect(settingsStore.getOpen()).toBe(false);
   });
+});
 
-  it("Gateway URL input is controlled — typing updates the value", async () => {
-    const root = mountSettingsModalInto();
-    await flushRender();
-    settingsStore.setOpen(true);
-    await flushRender();
-    const input = root.querySelector<HTMLInputElement>("#setting-gateway-url");
-    expect(input).not.toBeNull();
-    input!.value = "http://192.168.1.100:8642";
-    input!.dispatchEvent(new Event("input", { bubbles: true }));
-    await flushRender();
-    expect(input!.value).toBe("http://192.168.1.100:8642");
-  });
-
-  it("测试连接 button shows '测试中…' label while invoking", async () => {
+describe("测试连接 button", () => {
+  it("shows '测试中…' label while invoking (remote mode)", async () => {
     // Override the invoke mock for this test only — return a never-
     // resolving promise so the test state stays in 'testing'.
     const { invoke } = await import("@tauri-apps/api/core");
-    vi.mocked(invoke).mockImplementationOnce(
+    vi.mocked(invoke).mockImplementation(
       () => new Promise(() => { /* hang */ }),
     );
 
@@ -217,12 +304,26 @@ describe("SettingsModal rendering", () => {
     await flushRender();
     settingsStore.setOpen(true);
     await flushRender();
+    // Switch to remote mode and fill in a URL so handleTestConnection
+    // skips the resolveGatewayUrl() call (which would also hit invoke).
+    root
+      .querySelector<HTMLInputElement>(
+        '.settings-mode-toggle input[value="remote"]',
+      )
+      ?.click();
+    await flushRender();
+    const urlInput = root.querySelector<HTMLInputElement>(
+      "#setting-gateway-url",
+    );
+    urlInput!.value = "http://192.168.1.100:8642";
+    urlInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    await flushRender();
     const testBtn = root.querySelector<HTMLButtonElement>(
       ".settings-test-row button",
     );
     testBtn?.click();
     await flushRender();
-    // After click, button text should flip to "测试中…" (or button is disabled).
+    // After click, button text should flip to "测试中…".
     expect(testBtn?.textContent).toContain("测试中");
   });
 });
