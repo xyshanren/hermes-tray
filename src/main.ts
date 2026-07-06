@@ -305,6 +305,13 @@ async function copySessionShareLink(sessionId: string): Promise<void> {
  * For MVP we only show a preview toast ("Found a shared session
  * from <title>. Click to import.") and a confirmation flow.
  */
+// alpha-13: factor out hash-clearing so every early return path
+// doesn't leave a stale #share=... in the URL (which would re-trigger
+// this flow on every reload).
+function clearShareHash(): void {
+  history.replaceState(null, '', window.location.pathname + window.location.search);
+}
+
 async function maybeImportFromHash(): Promise<void> {
   // parseShareHash returns null on no-match OR decode failure, so the only
   // way to reach the body is a successfully-decoded document.
@@ -317,6 +324,9 @@ async function maybeImportFromHash(): Promise<void> {
       messages: Array<{ role: string; content: string }>;
     };
     if (doc.version !== 1) {
+      // alpha-13 fix: clear the hash BEFORE returning so the unsupported
+      // link doesn't re-trigger this error toast on every reload.
+      clearShareHash();
       showToast('分享链接版本不支持', `version=${doc.version}`, 'error');
       return;
     }
@@ -340,17 +350,17 @@ async function maybeImportFromHash(): Promise<void> {
         });
       }
       // Clear the hash to prevent re-import on next reload.
-      history.replaceState(null, '', window.location.pathname);
+      clearShareHash();
       showToast('已导入', `${msgCount} 条消息 → ${newSession.id}`, 'success');
       await loadSessionList(true);
       await selectSession(newSession.id);
     } else {
       // User declined — clear hash so the dialog doesn't reappear.
-      history.replaceState(null, '', window.location.pathname);
+      clearShareHash();
     }
   } catch (e) {
     showToast('分享链接解析失败', String(e), 'error');
-    history.replaceState(null, '', window.location.pathname);
+    clearShareHash();
   }
 }
 

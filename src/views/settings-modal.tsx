@@ -1,41 +1,35 @@
-// v0.2-alpha-12 — SettingsModal (Preact JSX) with unified Gateway group.
+// v0.2-alpha-13 — SettingsModal (Preact JSX) per SVG 11 design.
 //
 // Renders the settings panel into the existing <div id="settings-modal">
 // overlay root. The store in ./settings-modal-store drives visibility;
 // main.ts owns openSettings wrapper + the sidebar/tray-menu entry points.
 //
-// Groups (in order):
-//   1. 主题 — segmented control (☀️/🌙/💻), live preview, persisted on save.
-//   2. Gateway 连接 — single unified group for both local + remote.
-//      - Radio toggle: 「自动（本机 WSL）」 vs 「自定义（远程）」.
-//      - Auto mode: WSL distro + port + read-only "当前 URL" preview
-//        (what tray auto-resolved). Same UX as v0.1.5.
-//      - Remote mode: single URL input. User fills in remote gateway.
-//      - API Key + 测试连接 button + status badge are always visible.
-//   3. 默认值 — default project path + default model (db_config keys).
+// Groups per SVG 11 (in order):
+//   1. 连接 — Gateway mode toggle (auto/remote), distro+port in auto mode,
+//      single URL in remote mode, API Key + 测试连接 button always visible.
+//      Preserves alpha-12's UX where local users don't type a URL.
+//   2. 新建会话默认值 — default project path + default model (db_config keys).
+//   3. 偏好 — 主题 segmented + 费用货币 segmented + auto_connect / auto_rename
+//      switches + 会话列表排序 select. NEW alpha-13: 4 new fields wired to
+//      db_config_set/get via the schema in src/lib/config-schema.ts.
+//   4. 数据危险操作区 — 4 destructive-action buttons in a red-outlined
+//      panel. Backup create/restore open the backup modal (existing
+//      alpha-9 view, reused). "清除所有会话" + "重置所有设置" are stubs
+//      that show a toast — Rust commands land in alpha-14.
 //
-// Why the unified group (alpha-12 redesign over alpha-11):
-//   alpha-11 split Gateway 连接 (remote URL) and 本地 WSL Gateway (distro
-//   + port) into two separate sections. That made local users feel they
-//   "lost" the auto-resolve convenience compared to v0.1.5, because the
-//   new "Gateway 连接" group required manually typing a URL. The radio
-//   toggle here keeps the v0.1.5 local-UX identical while still exposing
-//   the remote override as a peer option.
-//
-// Save flow (mode-aware, single state.gatewayUrl):
+// Save flow (unchanged from alpha-12):
 //   - hermes_save_config for legacy keys (wsl_distro / port / api_key).
-//   - db_config_set for db-backed keys (theme / default_project_path / default_model).
-//   - On save: setApiKey + setGatewayUrl (state.ts).
-//       - Auto mode: resolveGatewayUrl() + applyPortOverride(port).
-//       - Remote mode: setGatewayUrl(userFilledUrl).
-//   - onDefaultsChanged callback so main.ts can refresh its module-level
-//     defaultProjectPath / defaultModel lets used by sendMessage + model picker.
+//   - db_config_set for db-backed keys (theme / default_project_path /
+//     default_model / currency / auto_connect / auto_rename / sort_order).
+//   - On save: setApiKey + setGatewayUrl (state.ts). Mode-aware (auto vs
+//     remote). onDefaultsChanged callback so main.ts can refresh its
+//     module-level defaultProjectPath / defaultModel lets used by
+//     sendMessage + model picker.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { Eye, EyeOff } from "lucide-preact";
 import {
-  getStoredTheme,
   setTheme,
   applyTheme,
   type ThemeMode,
@@ -50,7 +44,16 @@ import {
 } from "../lib/state";
 import { hermesGet } from "../lib/api";
 import { showToast } from "../lib/toast";
+import {
+  coerceConfigValue,
+  formatBoolPref,
+  parseBoolPref,
+  type Currency,
+  type SortOrder,
+} from "../lib/config-schema";
+import { Switch } from "../components/ui/switch";
 import { settingsStore } from "./settings-modal-store";
+import { backupStore } from "./backup-modal-store";
 
 // ── Mount props ───────────────────────────────────────────────────────────
 
@@ -83,9 +86,10 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
   const [open, setOpen] = useState(settingsStore.getOpen());
   useEffect(() => settingsStore.subscribe(setOpen), []);
 
-  // Form fields (controlled). Re-init on each open to capture current
-  // external state (e.g. someone updated the URL via another route).
-  const [theme, setThemeMode] = useState<ThemeMode>(getStoredTheme());
+  // ── Form fields ────────────────────────────────────────────────────────
+  const [theme, setThemeMode] = useState<ThemeMode>(
+    coerceConfigValue("theme", undefined) as ThemeMode,
+  );
   const [mode, setMode] = useState<GatewayMode>("auto");
   const [gatewayUrl, setGatewayUrlField] = useState<string>(getGatewayUrl());
   const [autoUrlPreview, setAutoUrlPreview] = useState<string>(getGatewayUrl());
@@ -93,19 +97,36 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
   const [wslDistros, setWslDistros] = useState<string[]>([]);
   const [wslDistro, setWslDistro] = useState<string>("");
   const [port, setPort] = useState<string>("8642");
-  const [defaultProjectPath, setDefaultProjectPathField] = useState<string>("");
-  const [defaultModel, setDefaultModelField] = useState<string>("");
 
-  // Connection test state for the Gateway 连接 group.
+  // 新建会话默认值
+  const [defaultProjectPath, setDefaultProjectPathField] = useState<string>(
+    coerceConfigValue("default_project_path", undefined),
+  );
+  const [defaultModel, setDefaultModelField] = useState<string>(
+    coerceConfigValue("default_model", undefined),
+  );
+
+  // 偏好 (alpha-13 new)
+  const [currency, setCurrency] = useState<Currency>(
+    coerceConfigValue("currency", undefined) as Currency,
+  );
+  const [autoConnect, setAutoConnect] = useState<boolean>(
+    parseBoolPref(coerceConfigValue("auto_connect", undefined)),
+  );
+  const [autoRename, setAutoRename] = useState<boolean>(
+    parseBoolPref(coerceConfigValue("auto_rename", undefined)),
+  );
+  const [sortOrder, setSortOrder] = useState<SortOrder>(
+    coerceConfigValue("sort_order", undefined) as SortOrder,
+  );
+
   const [test, setTest] = useState<ConnectionTestState>({
     status: "idle",
     detail: "未测试",
     latencyMs: null,
   });
 
-  // Load everything on open rising edge. Using a ref guard prevents the
-  // effect from re-running and clobbering in-flight form state on every
-  // re-render — same pattern search-modal.tsx uses.
+  // Load everything on open rising edge.
   const prevOpenRef = useRef(false);
   useEffect(() => {
     if (open && !prevOpenRef.current) {
@@ -133,34 +154,40 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
       /* no config yet */
     }
 
-    // DB-backed keys.
+    // DB-backed keys via the schema.
     const dbGet = async (key: string): Promise<string | null> => {
       try {
         const entry = (await invoke("db_config_get", { key })) as {
           value: string;
         } | null;
-        return entry?.value?.trim() || null;
+        return entry?.value?.trim() ?? null;
       } catch {
         return null;
       }
     };
 
     const projPath = await dbGet("default_project_path");
-    if (projPath) setDefaultProjectPathField(projPath);
+    if (projPath !== null) setDefaultProjectPathField(projPath);
 
     const model = await dbGet("default_model");
-    if (model) setDefaultModelField(model);
+    if (model !== null) setDefaultModelField(model);
 
     const dbTheme = await dbGet("theme");
-    if (dbTheme === "light" || dbTheme === "dark" || dbTheme === "system") {
-      setThemeMode(dbTheme);
-    }
+    if (dbTheme) setThemeMode(coerceConfigValue("theme", dbTheme) as ThemeMode);
 
-    // Sync current runtime URL/Key into the form. The current URL
-    // becomes the auto-mode preview; if it doesn't match any local
-    // resolution (i.e. someone set it manually via a previous remote
-    // session), we leave mode='auto' so the user can opt into remote
-    // mode explicitly to see their URL.
+    const dbCurrency = await dbGet("currency");
+    if (dbCurrency) setCurrency(coerceConfigValue("currency", dbCurrency) as Currency);
+
+    const dbAutoConnect = await dbGet("auto_connect");
+    if (dbAutoConnect !== null) setAutoConnect(parseBoolPref(dbAutoConnect));
+
+    const dbAutoRename = await dbGet("auto_rename");
+    if (dbAutoRename !== null) setAutoRename(parseBoolPref(dbAutoRename));
+
+    const dbSortOrder = await dbGet("sort_order");
+    if (dbSortOrder) setSortOrder(coerceConfigValue("sort_order", dbSortOrder) as SortOrder);
+
+    // Sync current runtime URL/Key into the form.
     const currentUrl = getGatewayUrl();
     setAutoUrlPreview(currentUrl);
     setGatewayUrlField(currentUrl);
@@ -190,7 +217,18 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
         value: newDefaultModel.length > 0 ? newDefaultModel : "",
       });
 
+      // 偏好 (alpha-13 new keys)
       await invoke("db_config_set", { key: "theme", value: theme });
+      await invoke("db_config_set", { key: "currency", value: currency });
+      await invoke("db_config_set", {
+        key: "auto_connect",
+        value: formatBoolPref(autoConnect),
+      });
+      await invoke("db_config_set", {
+        key: "auto_rename",
+        value: formatBoolPref(autoRename),
+      });
+      await invoke("db_config_set", { key: "sort_order", value: sortOrder });
 
       // Apply at runtime.
       if (apiKey) setApiKey(apiKey);
@@ -199,7 +237,6 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
       if (mode === "remote" && gatewayUrl.trim()) {
         setGatewayUrl(gatewayUrl.trim());
       } else {
-        // Auto mode: fall back to the WSL distro + port resolve path.
         try {
           await resolveGatewayUrl();
           if (port) applyPortOverride(port);
@@ -207,7 +244,6 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
           /* keep old URL on resolve failure */
         }
       }
-      // Refresh auto-mode preview to reflect whatever the runtime state is now.
       setAutoUrlPreview(getGatewayUrl());
 
       showToast(
@@ -216,7 +252,6 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
         "success",
       );
 
-      // Let main.ts refresh its module-level lets used by sendMessage + model picker.
       onDefaultsChanged({
         defaultProjectPath: newDefaultPath.length > 0 ? newDefaultPath : null,
         defaultModel: newDefaultModel.length > 0 ? newDefaultModel : null,
@@ -229,15 +264,10 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
   }
 
   async function handleTestConnection(): Promise<void> {
-    // Decide which URL to test based on the current mode + form input.
     let proposedUrl: string;
     if (mode === "remote" && gatewayUrl.trim()) {
       proposedUrl = gatewayUrl.trim();
     } else if (mode === "auto") {
-      // Auto mode: ask the tray to resolve from the current distro + port.
-      // resolveGatewayUrl mutates state.gatewayUrl as a side effect — we
-      // capture its return and restore the original URL in `finally` so
-      // the test is non-destructive (the running app is unaffected).
       const savedUrl = getGatewayUrl();
       try {
         proposedUrl = await resolveGatewayUrl();
@@ -248,7 +278,6 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
         setGatewayUrl(savedUrl);
       }
     } else {
-      // Remote mode with empty URL — nothing to test.
       setTest({
         status: "fail",
         detail: "请先填写 Gateway URL",
@@ -290,10 +319,41 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
         latencyMs,
       });
     } finally {
-      // Restore runtime state — the test is non-destructive.
       setGatewayUrl(savedUrl);
       setApiKey(savedKey);
     }
+  }
+
+  // ── Danger zone handlers (alpha-13) ────────────────────────────────────
+
+  function handleBackupCreate(): void {
+    // Open the backup modal in "create" mode. Close settings first so
+    // only one overlay is visible at a time.
+    settingsStore.setOpen(false);
+    backupStore.setOpen(true);
+  }
+
+  function handleBackupRestore(): void {
+    settingsStore.setOpen(false);
+    backupStore.setOpen(true);
+  }
+
+  function handleClearAllSessions(): void {
+    // Stub for alpha-14 (needs Rust session_clear_all command).
+    showToast(
+      "清除所有会话",
+      "即将在 v0.3-alpha-14 实现（需要 Rust 端 session_clear_all 命令）",
+      "info",
+    );
+  }
+
+  function handleResetAllSettings(): void {
+    // Stub for alpha-14 (needs Rust settings_reset_all command).
+    showToast(
+      "重置所有设置",
+      "即将在 v0.3-alpha-14 实现（需要 Rust 端 settings_reset_all 命令）",
+      "info",
+    );
   }
 
   if (!open) return null;
@@ -311,8 +371,7 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
         </button>
       </div>
       <div class="modal-body">
-        <ThemeGroup theme={theme} onChange={setThemeMode} />
-        <GatewayConnectionGroup
+        <ConnectionGroup
           mode={mode}
           onModeChange={setMode}
           gatewayUrl={gatewayUrl}
@@ -328,11 +387,29 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
           test={test}
           onTest={handleTestConnection}
         />
-        <DefaultsGroup
+        <NewSessionDefaultsGroup
           defaultProjectPath={defaultProjectPath}
           onProjectPathChange={setDefaultProjectPathField}
           defaultModel={defaultModel}
           onDefaultModelChange={setDefaultModelField}
+        />
+        <PreferencesGroup
+          theme={theme}
+          onThemeChange={setThemeMode}
+          currency={currency}
+          onCurrencyChange={setCurrency}
+          autoConnect={autoConnect}
+          onAutoConnectChange={setAutoConnect}
+          autoRename={autoRename}
+          onAutoRenameChange={setAutoRename}
+          sortOrder={sortOrder}
+          onSortOrderChange={setSortOrder}
+        />
+        <DangerZoneGroup
+          onBackupCreate={handleBackupCreate}
+          onBackupRestore={handleBackupRestore}
+          onClearAllSessions={handleClearAllSessions}
+          onResetAllSettings={handleResetAllSettings}
         />
       </div>
       <div class="modal-footer">
@@ -355,62 +432,9 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
   );
 }
 
-// ── Theme segmented control ───────────────────────────────────────────────
+// ── 连接 (per SVG 11) ─────────────────────────────────────────────────────
 
-function ThemeGroup({
-  theme,
-  onChange,
-}: {
-  theme: ThemeMode;
-  onChange: (next: ThemeMode) => void;
-}) {
-  // Live preview on click — apply immediately, persist on save.
-  function handleClick(mode: ThemeMode): void {
-    onChange(mode);
-    applyTheme(mode); // sets .dark on <html>
-    setTheme(mode); // localStorage update + a11y tag
-  }
-
-  return (
-    <section class="settings-group" aria-labelledby="settings-theme-title">
-      <h3 id="settings-theme-title">主题</h3>
-      <div class="form-group">
-        <label id="setting-theme-label">主题</label>
-        <div
-          class="segmented"
-          role="radiogroup"
-          aria-labelledby="setting-theme-label"
-        >
-          {(["light", "dark", "system"] as ThemeMode[]).map((m) => (
-            <button
-              key={m}
-              type="button"
-              class={`segmented-btn${theme === m ? " active" : ""}`}
-              role="radio"
-              data-theme={m}
-              aria-checked={theme === m ? "true" : "false"}
-              onClick={() => handleClick(m)}
-            >
-              {m === "light" ? "☀️ 浅色" : m === "dark" ? "🌙 深色" : "💻 跟随系统"}
-            </button>
-          ))}
-        </div>
-        <span class="form-hint">
-          界面外观。点击立即生效，重启后保留（写入配置数据库）。
-        </span>
-      </div>
-    </section>
-  );
-}
-
-// ── Gateway 连接 (unified group, alpha-12) ────────────────────────────────
-//
-// One group, two modes via radio toggle:
-//   - auto:   WSL distro + port, with auto-resolved URL shown as preview.
-//   - remote: single URL input.
-// API Key + 测试连接 button are always visible regardless of mode.
-
-function GatewayConnectionGroup({
+function ConnectionGroup({
   mode,
   onModeChange,
   gatewayUrl,
@@ -444,16 +468,14 @@ function GatewayConnectionGroup({
   const [keyVisible, setKeyVisible] = useState(false);
 
   return (
-    <section class="settings-group" aria-labelledby="settings-gateway-title">
-      <h3 id="settings-gateway-title">Gateway 连接</h3>
+    <section class="settings-group" aria-labelledby="settings-connection-title">
+      <h3 id="settings-connection-title">连接</h3>
       <div
         class="settings-mode-toggle"
         role="radiogroup"
-        aria-labelledby="settings-gateway-title"
+        aria-labelledby="settings-connection-title"
       >
-        <label
-          class={`settings-mode-option${mode === "auto" ? " active" : ""}`}
-        >
+        <label class={`settings-mode-option${mode === "auto" ? " active" : ""}`}>
           <input
             type="radio"
             name="gateway-mode"
@@ -498,7 +520,7 @@ function GatewayConnectionGroup({
             )}
           </select>
           <div class="form-group">
-            <label for="setting-port">Gateway 端口</label>
+            <label for="setting-port">端口</label>
             <input
               id="setting-port"
               type="number"
@@ -526,9 +548,7 @@ function GatewayConnectionGroup({
             value={gatewayUrl}
             onInput={(e) => onUrlChange((e.currentTarget as HTMLInputElement).value)}
           />
-          <span class="form-hint">
-            远程 hermes gateway 的完整地址。
-          </span>
+          <span class="form-hint">远程 hermes gateway 的完整地址。</span>
         </div>
       )}
 
@@ -540,7 +560,9 @@ function GatewayConnectionGroup({
             type={keyVisible ? "text" : "password"}
             class="password-input"
             placeholder={
-              mode === "remote" ? "远程 hermes 的 API Key" : "本地 WSL Gateway 的 API Key"
+              mode === "remote"
+                ? "远程 hermes 的 API Key"
+                : "本地 WSL Gateway 的 API Key"
             }
             autocomplete="current-password"
             value={apiKey}
@@ -584,8 +606,7 @@ function ConnectionStatusBadge({ test }: { test: ConnectionTestState }) {
         : test.status === "testing"
           ? "settings-status-dot-testing"
           : "settings-status-dot-idle";
-  const latency =
-    test.latencyMs !== null ? ` (${test.latencyMs}ms)` : "";
+  const latency = test.latencyMs !== null ? ` (${test.latencyMs}ms)` : "";
   return (
     <span class="settings-status" role="status" aria-live="polite">
       <span class={`settings-status-dot ${dot}`} aria-hidden="true" />
@@ -597,9 +618,9 @@ function ConnectionStatusBadge({ test }: { test: ConnectionTestState }) {
   );
 }
 
-// ── 默认值 ───────────────────────────────────────────────────────────────
+// ── 新建会话默认值 (per SVG 11) ──────────────────────────────────────────
 
-function DefaultsGroup({
+function NewSessionDefaultsGroup({
   defaultProjectPath,
   onProjectPathChange,
   defaultModel,
@@ -611,8 +632,11 @@ function DefaultsGroup({
   onDefaultModelChange: (v: string) => void;
 }) {
   return (
-    <section class="settings-group" aria-labelledby="settings-defaults-title">
-      <h3 id="settings-defaults-title">默认值</h3>
+    <section
+      class="settings-group"
+      aria-labelledby="settings-newsession-title"
+    >
+      <h3 id="settings-newsession-title">新建会话默认值</h3>
       <div class="form-group">
         <label for="setting-default-project-path">默认项目路径 (T-Q-S8)</label>
         <input
@@ -629,7 +653,7 @@ function DefaultsGroup({
         </span>
       </div>
       <div class="form-group">
-        <label for="setting-default-model">默认 Model (T-Q-S12-light)</label>
+        <label for="setting-default-model">默认模型 (T-Q-S12-light)</label>
         <input
           id="setting-default-model"
           type="text"
@@ -642,6 +666,205 @@ function DefaultsGroup({
         <span class="form-hint">
           无 persona 绑定时使用的 model 名称。留空 = gateway 默认。路由/重试由 hermes-agent 处理（不在 tray）。
         </span>
+      </div>
+    </section>
+  );
+}
+
+// ── 偏好 (per SVG 11, alpha-13 new fields) ───────────────────────────────
+
+function PreferencesGroup({
+  theme,
+  onThemeChange,
+  currency,
+  onCurrencyChange,
+  autoConnect,
+  onAutoConnectChange,
+  autoRename,
+  onAutoRenameChange,
+  sortOrder,
+  onSortOrderChange,
+}: {
+  theme: ThemeMode;
+  onThemeChange: (m: ThemeMode) => void;
+  currency: Currency;
+  onCurrencyChange: (c: Currency) => void;
+  autoConnect: boolean;
+  onAutoConnectChange: (v: boolean) => void;
+  autoRename: boolean;
+  onAutoRenameChange: (v: boolean) => void;
+  sortOrder: SortOrder;
+  onSortOrderChange: (s: SortOrder) => void;
+}) {
+  function handleThemeClick(mode: ThemeMode): void {
+    onThemeChange(mode);
+    applyTheme(mode);
+    setTheme(mode);
+  }
+
+  const currencyLabels: Record<Currency, string> = {
+    CNY: "人民币",
+    USD: "美元",
+    model: "按模型",
+  };
+
+  const sortOrderLabels: Record<SortOrder, string> = {
+    recent: "最近活跃",
+    created: "创建时间",
+    name: "按名称",
+  };
+
+  return (
+    <section class="settings-group" aria-labelledby="settings-prefs-title">
+      <h3 id="settings-prefs-title">偏好</h3>
+
+      <div class="form-group">
+        <label id="setting-theme-label">主题</label>
+        <div
+          class="segmented"
+          role="radiogroup"
+          aria-labelledby="setting-theme-label"
+        >
+          {(["light", "dark", "system"] as ThemeMode[]).map((m) => (
+            <button
+              key={m}
+              type="button"
+              class={`segmented-btn${theme === m ? " active" : ""}`}
+              role="radio"
+              data-theme={m}
+              aria-checked={theme === m ? "true" : "false"}
+              onClick={() => handleThemeClick(m)}
+            >
+              {m === "light"
+                ? "☀️ 浅色"
+                : m === "dark"
+                  ? "🌙 深色"
+                  : "💻 跟随系统"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label id="setting-currency-label">费用货币</label>
+        <div
+          class="segmented"
+          role="radiogroup"
+          aria-labelledby="setting-currency-label"
+        >
+          {(["CNY", "USD", "model"] as Currency[]).map((c) => (
+            <button
+              key={c}
+              type="button"
+              class={`segmented-btn${currency === c ? " active" : ""}`}
+              role="radio"
+              data-currency={c}
+              aria-checked={currency === c ? "true" : "false"}
+              onClick={() => onCurrencyChange(c)}
+            >
+              {currencyLabels[c]}
+            </button>
+          ))}
+        </div>
+        <span class="form-hint">
+          用于统计面板的费用展示。「按模型」按模型原生货币显示（gpt 用 USD，国产模型用 RMB）。
+        </span>
+      </div>
+
+      <div class="form-group settings-toggle-row">
+        <label for="setting-auto-connect">启动时自动连接</label>
+        <Switch
+          id="setting-auto-connect"
+          checked={autoConnect}
+          onCheckedChange={onAutoConnectChange}
+          ariaLabel="启动时自动连接"
+        />
+      </div>
+
+      <div class="form-group settings-toggle-row">
+        <label for="setting-auto-rename">自动生成会话名</label>
+        <Switch
+          id="setting-auto-rename"
+          checked={autoRename}
+          onCheckedChange={onAutoRenameChange}
+          ariaLabel="自动生成会话名"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="setting-sort-order">会话列表排序</label>
+        <select
+          id="setting-sort-order"
+          value={sortOrder}
+          onChange={(e) =>
+            onSortOrderChange(
+              (e.currentTarget as HTMLSelectElement).value as SortOrder,
+            )
+          }
+        >
+          {(["recent", "created", "name"] as SortOrder[]).map((s) => (
+            <option key={s} value={s}>
+              {sortOrderLabels[s]}
+            </option>
+          ))}
+        </select>
+      </div>
+    </section>
+  );
+}
+
+// ── 数据危险操作区 (per SVG 11) ──────────────────────────────────────────
+
+function DangerZoneGroup({
+  onBackupCreate,
+  onBackupRestore,
+  onClearAllSessions,
+  onResetAllSettings,
+}: {
+  onBackupCreate: () => void;
+  onBackupRestore: () => void;
+  onClearAllSessions: () => void;
+  onResetAllSettings: () => void;
+}) {
+  return (
+    <section class="settings-group settings-danger-zone" aria-labelledby="settings-danger-title">
+      <h3 id="settings-danger-title">
+        <span aria-hidden="true">⚠️</span> 数据 <span aria-hidden="true">⚠️</span> 危险操作区
+      </h3>
+      <p class="form-hint">操作不可逆，请谨慎。</p>
+      <div class="settings-danger-grid">
+        <button
+          type="button"
+          class="settings-danger-btn"
+          onClick={onBackupCreate}
+        >
+          <span class="settings-danger-icon" aria-hidden="true">🛡️</span>
+          <span>创建加密备份</span>
+        </button>
+        <button
+          type="button"
+          class="settings-danger-btn"
+          onClick={onBackupRestore}
+        >
+          <span class="settings-danger-icon" aria-hidden="true">📥</span>
+          <span>恢复备份</span>
+        </button>
+        <button
+          type="button"
+          class="settings-danger-btn"
+          onClick={onClearAllSessions}
+        >
+          <span class="settings-danger-icon" aria-hidden="true">🗑️</span>
+          <span>清除所有会话</span>
+        </button>
+        <button
+          type="button"
+          class="settings-danger-btn"
+          onClick={onResetAllSettings}
+        >
+          <span class="settings-danger-icon" aria-hidden="true">↺</span>
+          <span>重置所有设置</span>
+        </button>
       </div>
     </section>
   );
