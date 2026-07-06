@@ -45,16 +45,19 @@ import { settingsStore } from './views/settings-modal-store';
 import { escapeHtml } from './lib/sanitize';
 import type { Persona } from './types';
 import {
-  encodeShareDoc,
-  buildShareUrl,
-  parseShareHash,
-} from './shareLink';
-import {
   getGatewayUrl,
   setApiKey,
   resolveGatewayUrl,
   applyPortOverride,
 } from './lib/state';
+import {
+  copySessionAsMarkdown,
+  copySessionShareLink,
+  validateShareHash,
+  clearShareHash,
+} from './views/share-flow';
+import { shareStore } from './views/share-modal-store';
+import { mountShareImportModal } from './views/share-modal-mount';
 
 const UNKNOWN_MODEL = '-';
 
@@ -257,112 +260,10 @@ const SESSION_PAGE = 50;
 
 // ── Session export + share (T-Q-S10) ───────────────────────────────────────────
 //
-// Frontend calls `export_session_markdown` / `export_session_json`
-// (Rust commands in `db::export`) and then either:
-//   - writes the markdown to clipboard via `navigator.clipboard.writeText`
-//   - encodes the JSON as a base64url URL fragment for sharing
-//
-// The share link is `https://<host>/<path>#share=<base64url(JSON.stringify(...))>`.
-// Self-contained (no server), no signature in MVP (acceptable for
-// personal use; future T-Q-S10.x could add HMAC).
-
-async function copySessionAsMarkdown(sessionId: string): Promise<void> {
-  try {
-    const md = await invoke<string>('export_session_markdown', { sessionId });
-    await navigator.clipboard.writeText(md);
-    showToast('已复制', `Markdown ${md.length} 字符到剪贴板`, 'success');
-  } catch (e) {
-    showToast('导出失败', String(e), 'error');
-  }
-}
-
-/**
- * Build a self-contained share link. The session's full state
- * (title, messages, persona, project) is encoded in the URL fragment
- * so the receiving end can preview the import without any server.
- *
- * Encoding lives in `./shareLink` (encodeShareDoc + buildShareUrl);
- * this wrapper just owns the Tauri invoke + clipboard + toast bits.
- */
-async function copySessionShareLink(sessionId: string): Promise<void> {
-  try {
-    const json = await invoke<unknown>('export_session_json', { sessionId });
-    const encoded = encodeShareDoc(json);
-    const url = buildShareUrl(encoded, window.location.origin, window.location.pathname);
-    await navigator.clipboard.writeText(url);
-    showToast('分享链接已复制', `${url.length} 字符 — 接收方打开即可导入`, 'success');
-  } catch (e) {
-    showToast('生成链接失败', String(e), 'error');
-  }
-}
-
-/**
- * T-Q-S10: import flow. On app launch, if the URL has a #share=
- * fragment, decode the base64url-encoded JSON and offer to import
- * the session into the local DB. We do not auto-import — the user
- * confirms via a toast action.
- *
- * For MVP we only show a preview toast ("Found a shared session
- * from <title>. Click to import.") and a confirmation flow.
- */
-// alpha-13: factor out hash-clearing so every early return path
-// doesn't leave a stale #share=... in the URL (which would re-trigger
-// this flow on every reload).
-function clearShareHash(): void {
-  history.replaceState(null, '', window.location.pathname + window.location.search);
-}
-
-async function maybeImportFromHash(): Promise<void> {
-  // parseShareHash returns null on no-match OR decode failure, so the only
-  // way to reach the body is a successfully-decoded document.
-  const decoded = parseShareHash(window.location.hash);
-  if (decoded === null) return;
-  try {
-    const doc = decoded as {
-      version: number;
-      session: { id: string; title: string };
-      messages: Array<{ role: string; content: string }>;
-    };
-    if (doc.version !== 1) {
-      // alpha-13 fix: clear the hash BEFORE returning so the unsupported
-      // link doesn't re-trigger this error toast on every reload.
-      clearShareHash();
-      showToast('分享链接版本不支持', `version=${doc.version}`, 'error');
-      return;
-    }
-    const msgCount = doc.messages?.length ?? 0;
-    if (confirm(`导入分享的会话？\n\n标题: ${doc.session.title}\n消息数: ${msgCount}\n\n点击确定导入到本地，取消则忽略。`)) {
-      // Re-import: for MVP, we just create a new local session and
-      // append the messages. The persona/project from the share
-      // document are dropped (different local IDs would be needed).
-      const newSession = await invoke<Session>('session_create', {
-        title: `[分享] ${doc.session.title}`,
-        personaId: null,
-        projectDir: null,
-        projectContext: null,
-      });
-      for (const m2 of doc.messages) {
-        await invoke('message_append', {
-          sessionId: newSession.id,
-          role: m2.role,
-          content: m2.content,
-          toolCalls: null,
-        });
-      }
-      // Clear the hash to prevent re-import on next reload.
-      clearShareHash();
-      showToast('已导入', `${msgCount} 条消息 → ${newSession.id}`, 'success');
-      await loadSessionList(true);
-      await selectSession(newSession.id);
-    } else {
-      // User declined — clear hash so the dialog doesn't reappear.
-      clearShareHash();
-    }
-  } catch (e) {
-    showToast('分享链接解析失败', String(e), 'error');
-    clearShareHash();
-  }
-}
+// Outbound + inbound share logic lives in src/views/share-flow.ts (alpha-15).
+// main.ts only wires the share-link-btn click + the boot-time URL hash
+// check. The import confirmation is a Preact modal mounted into
+// <div id="share-import-modal">.
 
 /**
  * T-Q-S9: refresh just the sidebar row for the current session.
@@ -480,7 +381,7 @@ async function loadSessionList(resetOffset = true): Promise<void> {
       exportBtn.textContent = '📤';
       exportBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        void copySessionAsMarkdown(s.id);
+        void copySessionAsMarkdown(invoke, showToast, s.id);
       });
       el.appendChild(exportBtn);
       el.appendChild(deleteBtn);
@@ -1384,16 +1285,35 @@ function openStatsModal(): void {
   // ── T-Q-S10: share link button + import from URL hash ─────────
   // The share button copies a self-contained URL to the clipboard.
   // On app launch, if the URL has #share=<base64url-json>, show an
-  // import confirmation modal.
+  // import confirmation modal (alpha-15 — replaces v0.1.5's native
+  // window.confirm() with a proper Preact modal).
   document.getElementById('share-link-btn')?.addEventListener('click', () => {
     if (currentSessionId) {
-      void copySessionShareLink(currentSessionId);
+      void copySessionShareLink(invoke, showToast, currentSessionId);
     } else {
       showToast('没有当前会话', '请先创建或选择一个会话', 'info');
     }
   });
   // Check URL hash on startup for a pending share import.
-  void maybeImportFromHash();
+  const hashResult = validateShareHash(window.location.hash);
+  if (hashResult.ok) {
+    shareStore.setPending(hashResult.doc);
+  } else if (hashResult.reason === "unsupported-version") {
+    // alpha-13 fix: clear stale hash BEFORE returning so the link
+    // doesn't re-trigger this error toast on every reload.
+    clearShareHash();
+    showToast(
+      "分享链接版本不支持",
+      `version=${hashResult.version ?? "?"}`,
+      "error",
+    );
+  } else if (hashResult.reason === "decode-failed") {
+    // Stale or malformed #share= fragment. Clear so we don't retry.
+    clearShareHash();
+    showToast("分享链接解析失败", "URL 片段格式错误或已损坏", "error");
+  }
+  // no-match: silently ignore (the URL had no #share= fragment).
+  mountShareImportModal();
 
   // ── T-Q-S11: backup modal wiring ──────────────────────────
   document.getElementById('sidebar-backup-btn')?.addEventListener('click', () => openBackupModal());

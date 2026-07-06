@@ -186,3 +186,21 @@ export type StatsPeriod = 'day' | 'week' | 'month' | 'all';
 // ── Connection status ─────────────────────────────────────────────────────────
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
+
+// ── Share-link document (T-Q-S10) ────────────────────────────────────────────
+//
+// Embedded in the URL fragment as a base64url-encoded JSON payload. The
+// receiving end decodes it via parseShareHash() and offers to import.
+// Future iterations may add an HMAC signature or versioned envelope.
+
+export interface ShareDoc {
+  version: number;
+  session: {
+    id: string;
+    title: string;
+  };
+  messages: Array<{
+    role: string;
+    content: string;
+  }>;
+}
