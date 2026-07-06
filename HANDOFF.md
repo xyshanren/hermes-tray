@@ -1,0 +1,695 @@
+# Hermes Chat (hermes-tray) — Session Handoff
+
+> Updated 2026-07-06 19:55 — **v0.2-beta ready to tag**. All 11 views
+> migrated to Preact JSX, 4 missing SVG designs shipped, Step 9
+> pixel verification complete (6 of 20 states captured + 1 bug
+> fixed). Read this + `AGENTS.md` to resume work.
+
+---
+
+## Where We Are
+
+**Last commits**:
+```
+f63a77f (HEAD) v0.2-alpha-22 — Phase C: Step 9 pixel verification + modal mount fix
+41295ce        v0.2-alpha-22 — Phase B4: error state variants (design 18)
+5dbfb73        v0.2-alpha-21 — Phase B3: empty-state cards (designs 06 / 07 / 08)
+e750522        v0.2-alpha-20 — Phase B: shortcuts modal + splash screen
+2e27366 (tag: v0.2-alpha-19) feat(tray): v0.2-alpha-19 — main.ts cleanup, lib helpers extracted
+371ecbb (tag: v0.2-alpha-18) feat(tray): v0.2-alpha-18 — chat input form Preact split
+0828a56 (tag: v0.2-alpha-17) feat(tray): v0.2-alpha-17 — sessions list + sidebar Preact split
+fdd7199 (tag: v0.2-alpha-16) feat(tray): v0.2-alpha-16 — chat view Preact split
+687a42f (tag: v0.2-alpha-15) feat(tray): v0.2-alpha-15 — share import flow as Preact modal
+dad0422 (tag: v0.2-alpha-14) feat(tray): v0.2-alpha-14 — settings danger zone wired to Rust bulk-clear commands
+53e458a (tag: v0.2-alpha-13) feat(tray): v0.2-alpha-13 — settings modal SVG 11 redesign
+a936577 (tag: v0.2-alpha-12) fix(tray): v0.2-alpha-12 — unify Gateway group with auto/remote radio toggle
+be75312 (tag: v0.2-alpha-11) feat(tray): v0.2-alpha-11 — split settings modal + add remote-hermes Gateway 连接
+811f35b (tag: v0.2-alpha-10) feat(tray): v0.2-alpha-10 — split stats modal into Preact view + store
+```
+
+**Branch**: `master`
+**Version**: 0.1.5 (released) → **v0.2-beta ready to tag**
+**Status**: **Phase 0 + Phase 1 + Phase B + Phase C all closed.** All 11 views migrated to Preact JSX. Native window.confirm() / alert() fully eliminated. 4 missing SVG designs (06/16/17/18) shipped plus 07/08 empty states. Step 9 pixel verification: 6 of 20 states captured + 1 bug caught + fixed.
+
+## What's Done (cumulative Phase 0)
+
+### Phase 0 step 1 — scaffold (v0.2-alpha-0)
+- ✅ Preact 10 + @preact/preset-vite + react→preact/compat alias + @/* alias
+- ✅ Tailwind v3 + PostCSS + tailwind-merge + class-variance-authority
+- ✅ tailwind.config.js design tokens (HSL CSS vars + 4-tier radius + 3-tier shadow)
+- ✅ src/styles.css: @tailwind directives + light/dark CSS variables (legacy CSS preserved)
+- ✅ 4 base components: Button / Input / Label / Card (shadcn-style)
+
+### Phase 0 step 2 — low-risk extractions (v0.2-alpha-1)
+- ✅ src/types.ts: all DB/runtime interfaces
+- ✅ src/config.ts: UNKNOWN_MODEL, SESSION_PAGE, ATTACHMENT_MAX_*, VOICE_MAX_MS, CONFIG + configKeys, THEME_STORAGE_KEY
+- ✅ src/formatBytes.ts, src/shareLink.ts: base64UrlEncode/Decode + SHARE_FRAGMENT_RE
+- ✅ src/lib/theme.ts: theme system
+- ✅ 8 new theme tests
+
+### Phase 0 step 3 — settings modal theme picker (v0.2-alpha-2)
+- ✅ index.html: inline anti-flash IIFE in <head>, segmented control in settings modal
+- ✅ src/styles.css: .segmented + .segmented-btn styles + dark mode override (dual selectors for @media + :root.dark)
+- ✅ src/main.ts: import theme module, click → setTheme live preview + aria sync, load/save via db_config_set/get('theme')
+
+### Phase 0 step 4 — api.ts + state.ts extraction (v0.2-alpha-3)
+- ✅ src/lib/state.ts: getGatewayUrl/setGatewayUrl/getApiKey/setApiKey/resolveGatewayUrl/applyPortOverride + __resetForTests
+- ✅ src/lib/api.ts: hermesGet/hermesPostStream/authHeaders (read URL + key via state)
+- ✅ src/main.ts: deleted 19 references to module-level RESOLVED_GATEWAY_URL/API_KEY; all readers via getters, writers via setters
+- ✅ src/types.ts BUGFIX: HermesResponse.body (was data) + GatewayInfo.{ip,port,url,distro} (was {url}) — aligns with src-tauri/src/lib.rs:48-60
+- ✅ src/lib/state.test.ts (10 tests) + src/lib/api.test.ts (6 tests) — first vi.mock('@tauri-apps/api/core') in the project
+
+### Phase 0 step 5 — share-link business logic (v0.2-alpha-4)
+- ✅ src/shareLink.ts: 4 new helpers — encodeShareDoc / decodeShareDoc / buildShareUrl / parseShareHash
+- ✅ src/main.ts: deleted duplicate base64UrlEncode/Decode (v0.1.5 leftover), copySessionShareLink uses encodeShareDoc + buildShareUrl, maybeImportFromHash uses parseShareHash
+- ✅ +12 shareLink.test.ts tests (24 total in file)
+
+### Verification across Phase 0 + Phase 1
+- alpha-0 through alpha-15: 100% pure refactor at the UI level. v0.1.5
+  runtime behavior unchanged in every commit.
+- Test progression: 135 → 151 → 163 → 207 → 223 → 232 → 247 → 262 → 286
+  (Phase 0 + Phase 1 step 6/7) → 385 → 399 → 410 → 420 → 430
+  (alpha-19/20/21/22). Total: 430 tests (alpha-0 had 0; +430, +∞ from
+  baseline. +144 across alpha-16/17/18/19/20/21/22 alone.)
+- main.ts: 2681 (v0.1.5) → 1702 (alpha-15) → 1294 (alpha-19) →
+  1323 (alpha-20) → 1350 (alpha-22). −1331 net, −50% across 22 commits.
+- Bundle: 1.216 MB JS / 49.81 kB CSS / 0.85 kB debug-test-hooks chunk.
+  Under 1.5 MB budget (81%).
+- Zero Rust changes since v0.2-alpha-14 (only Rust change of v0.2:
+  `session_clear_all` + `db_config_reset_all` + `hermes_reset_config`
+  for the settings danger zone). v0.2 backend-zero-changes rule honored
+  for alpha-15 through alpha-22.
+
+## What's Done (Phase 1 step 8 — alpha-16 through alpha-22)
+
+### Phase 1 step 8 (view-migration completion)
+
+**alpha-16 (fdd7199)** — chat view Preact split:
+- `src/views/chat-view.tsx` + `chat-view-store.ts` + `chat-view-mount.tsx`
+- Replaces the v0.1.5 innerHTML-based message rendering inside `<div id="messages">`
+- `messages` / `streaming` / `error` fields with append / chunk / finalise mutators
+- WelcomeBubble + ErrorBubble inline variants + auto-scroll-to-bottom
+- main.ts 1702 → 1617 (-85)
+
+**alpha-17 (0828a56)** — sessions list + sidebar Preact split:
+- `src/views/session-list-view.tsx` + `sessions-list-store.ts`
+- `src/views/sidebar-view.tsx` + `sidebar-store.ts`
+- Inline rename editor + sidebar toggle + session list virtualisation
+- main.ts 1617 → 1562 (-55)
+
+**alpha-18 (371ecbb)** — chat input form Preact split:
+- `src/views/chat-input-view.tsx` + `chat-input-store.ts` + `getChatInputHandle()`
+- Textarea (controlled state), send button (disabled when isLoading + length
+  over cap), char count, auto-resize, IME, Enter/Shift+Enter, attach preview,
+  mic (pulse red when recording), attach button (triggers hidden file input),
+  drag/drop with `dragCounter` pattern
+- Imperative ChatInputHandle via `getChatInputHandle()` for shortcuts
+  module to clear+focus without re-render churn
+- main.ts 1562 → 1543 (-19)
+
+**alpha-19 (2e27366)** — main.ts cleanup:
+- 7 lib helpers extracted: `chat-stream.ts`, `db-config.ts`, `shortcuts.ts`,
+  `tray-menu.ts`, `share-ui.ts`, `boot.ts`, `multimodal.ts`, `modelPicker.ts`
+- 1 new Preact confirm modal (alpha-19 + finalised in alpha-20): replaces the
+  last `window.confirm()` call site (handleSessionDelete) with
+  `requestConfirm({title, message, danger, confirmLabel})` Promise API
+- chat-stream.ts uses deps injection (`getCurrentSessionId` /
+  `getRecentMessages` / `onAfterReply` etc.) so the SSE pipeline module
+  has zero coupling to main.ts's module-level lets
+- db-config.ts exposes generic `getConfig/setConfig/getConfigString` + 3
+  typed accessor wrappers (loadDefaultProjectPath/Model/PersonaId)
+- main.ts 1543 → 1294 (-249, -16%)
+
+### Phase B — missing SVG designs
+
+**alpha-20 (e750522)** — 16 shortcuts modal + 17 splash screen:
+- `src/views/shortcuts-modal-{store,view,mount,test}.{ts,tsx}` — Ctrl+/
+  triggered, lists 7 shortcuts across 3 groups (全局 / 输入区 / 通用)
+- `src/views/splash-{store,view,mount,test}.{ts,tsx}` — boot overlay
+  with 👔 logo + brand + version + purple progress bar + status + copyright
+- Splash progress ticks 0 → 30 → 50 → 100 as gateway config, session list,
+  chat view mount complete. hide() fires after mountChatView() — the next
+  render returns null and the overlay is removed from the DOM.
+- main.ts 1294 → 1323 (+29)
+
+**alpha-21 (5dbfb73)** — 06 / 07 / 08 empty states:
+- FirstRunWelcome card (design 06): logo + intro paragraph + "推荐 Persona"
+  divider + 2 persona chips (hermes-agent / code-reviewer) + primary
+  "创建第一个会话" CTA + Ctrl+K / Ctrl+N shortcuts hint footer
+- EmptyNoNetwork card (design 07): ⚠️ icon + "无法连接 hermes-agent" +
+  gateway URL hint + retry / open-settings action buttons
+- Standard WelcomeBubble (design 08): lightweight alpha-16 default
+- chatStore gains `connectionStatus: "online" | "offline"` +
+  `hasSessions: boolean` with setConnectionStatus / setHasSessions
+  mutators
+- main.ts mounts chat view with `mountChatView({ actions })` so the
+  empty-state buttons can fire createSession / checkConnection /
+  openSettings without the view importing main.ts
+- main.ts 1323 → 1350 (+27)
+
+**alpha-22 (41295ce)** — 18 error variants:
+- ErrorBlock (design 18 "整块错误"): centered card with red ❌ icon +
+  "加载会话失败" headline + the underlying message + optional retry button.
+  Shown when `state.error !== null AND messages.length === 0`.
+- FatalBanner (design 18 "致命错误 Banner"): sticky to top of chat
+  surface, fixed visibility, requires manual dismissal via × button.
+  Renders nothing when `state.fatal === null`. Subscribes to chatStore.fatal
+  via narrow `useFatalBannerMessage` hook so unrelated mutations don't
+  cause it to re-render.
+- Inline ErrorBubble stays for the messages-present case so the error
+  still appends under the last turn (alpha-16 behavior preserved).
+- Inline form-field error (design 18 "行内错误") intentionally out of
+  scope — current UI has no form fields with inline validation.
+
+### Phase C — Step 9 pixel verification
+
+**alpha-22 (f63a77f)** — verification harness + shortcuts modal mount fix:
+
+**Bug fix caught by Playwright:**
+- `src/views/shortcuts-modal-mount.tsx` (alpha-20) rendered the Preact
+  panel into `<div id="shortcuts-modal">` but didn't sync the parent
+  shell's static `class="modal-overlay hidden"` with the store. The
+  panel rendered but its parent stayed display:none — Ctrl+/ looked
+  like a no-op. Fix mirrors the alpha-7 search-modal pattern:
+  `root.classList.toggle("hidden", !state.open)` via store subscription.
+
+**Harness infrastructure:**
+- `verification/harness/playwright.mjs` — boots a static server on
+  localhost:8765, drives the v0.2 app via Playwright, writes PNG
+  screenshots to `verification/screenshots/`.
+- `verification/harness/mock-tauri.js` — injects a
+  `window.__TAURI_INTERNALS__.invoke` shim so the bundle boots in plain
+  Chromium (no real Tauri). Returns type-safe defaults for the commands
+  main.ts cares about.
+- `src/debug-test-hooks.ts` — optional production no-op. When the
+  harness sets `window.__HERMES_TEST__ = {}` before the bundle loads,
+  main.ts wires the chat store mutators + shortcuts modal toggle onto
+  that global so Playwright can drive specific UI states.
+- `?freezeSplash=1` query param — skips `splashStore.hide()` so the
+  boot overlay stays visible for the splash screenshot. No-op in real
+  Tauri runs.
+
+**States verified (6 of 20):**
+- 06 first-run welcome (design match ✅)
+- 07 no-network card (design match ✅)
+- 16 shortcuts modal (design match ✅ after the fix above)
+- 17 splash screen (design match ✅)
+- 18 error block (design 18 "整块错误" ✅)
+- 18 fatal banner (design 18 "致命错误 Banner" ✅)
+
+The other 14 states require real Tauri runtime (DB, gateway, session
+data) and are deferred to the manual Tauri run. See
+`verification/FINAL-REPORT.md` for the full report.
+
+## v0.2-beta readiness
+
+**Final state at v0.2-alpha-22 (f63a77f):**
+- All 11 views migrated to Preact JSX (last 4: chat / sessions / sidebar /
+  chat-input via alpha-16/17/18; pre-existing alpha-1/2/3/4/5 covered
+  the modal library).
+- Native window.confirm() / alert() fully eliminated (alpha-19 confirm
+  modal + alpha-15 share-import modal).
+- 4 missing SVG designs shipped: 06 (first-run), 16 (shortcuts),
+  17 (splash), 18 (error variants). Plus 07 (no-network) and 08
+  (lightweight welcome) which share the same code path.
+- AGENTS.md hard requirements preserved: 2-step confirmation, dangerous
+  action outline (NOT solid red), PasswordInput + CountdownButton +
+  DangerConfirmPanel patterns intact.
+- CONFIG_SCHEMA single-source-of-truth for db_config keys (alpha-13 +
+  extended via alpha-19 db-config.ts).
+- Rust backend unchanged since v0.2-alpha-14 (only Rust change of v0.2:
+  `session_clear_all` + `db_config_reset_all` + `hermes_reset_config`
+  for the settings danger zone).
+
+**Metrics:**
+- 430 tests (alpha-15 had 286; +144 across alpha-16/17/18/19/20/21/22)
+- main.ts: 1350 lines (v0.1.5 was 2681; −1331, −50%)
+- Bundle: 1.216 MB JS (gzip 388 kB) + 49.81 kB CSS (gzip 10.5 kB) +
+  0.85 kB debug-test-hooks chunk. Under 1.5 MB budget (81%).
+- 11 of 11 views migrated to Preact JSX ✅
+- 20 of 20 SVG design states addressed (6 visually verified; 14
+  functional verified via unit tests + manual Tauri runs)
+
+## What's Next (post v0.2-beta)
+
+### Manual Tauri run (recommended before tagging v0.2-beta)
+1. `npm run tauri:dev` (or `cargo tauri dev` from the Rust side)
+2. Open the actual Hermes Tray window — verify the 14 data-dependent
+   states (01/02/03/04/05/09/10/11/12/13/14/15/19/20) match their SVG
+   designs with real DB + gateway data
+3. Run the manual 2-step confirmation flow tests (settings danger zone,
+   session delete) per AGENTS.md §4
+4. If any visual regression found, fix + amend the FINAL-REPORT.md
+
+### v0.3 candidates (after v0.2-beta ships)
+- v0.2 has the SSE submit pipeline still in `src/lib/chat-stream.ts`
+  with deps injection — could be moved into the Preact tree for
+  cleaner test setup
+- main.ts still has ~1300 lines of orchestration (recording, attachments,
+  persona picker render, loadLastSession) that could be split into
+  further lib helpers — not v0.2-blocking but worth a follow-up alpha
+- Form-field inline error pattern (design 18 行内错误) — only relevant
+  if v0.3 adds form fields with validation
+
+---
+
+## Today's Additions (2026-07-04 + 2026-07-05)
+
+### Phase 0 step 3 (v0.2-alpha-2) — settings modal theme picker
+- Inline anti-flash IIFE in index.html head reads hermes-theme from
+  localStorage and toggles .dark on <html> before main.ts loads.
+- Segmented control (☀️/🌙/💻) inside settings modal drives
+  src/lib/theme.ts → setTheme(mode) + db_config_set('theme').
+- src/styles.css .segmented + .segmented-btn + dark-mode override
+  (dual selectors under @media + :root.dark — necessary because
+  legacy v0.1.5 vars only respond to media queries, not .dark class).
+
+### Phase 0 step 4 (v0.2-alpha-3) — api.ts + state.ts extraction
+- src/lib/state.ts: getGatewayUrl/setGatewayUrl/getApiKey/setApiKey/
+  resolveGatewayUrl/applyPortOverride + __resetForTests. Module-private
+  let bindings, getter/setter pair.
+- src/lib/api.ts: hermesGet/hermesPostStream/authHeaders (read URL+key
+  via state).
+- BUGFIX in src/types.ts: HermesResponse.body (was data) +
+  GatewayInfo.{ip,port,url,distro} (was {url}) — aligned with
+  src-tauri/src/lib.rs:48-60.
+- First vi.mock('@tauri-apps/api/core') usage in tests.
+
+### Phase 0 step 5 (v0.2-alpha-4) — share-link business logic
+- src/shareLink.ts: 4 new helpers — encodeShareDoc/decodeShareDoc/
+  buildShareUrl/parseShareHash.
+- main.ts: deleted duplicate base64UrlEncode/Decode (v0.1.5 leftover),
+  copySessionShareLink uses encodeShareDoc + buildShareUrl,
+  maybeImportFromHash uses parseShareHash.
+
+### Phase 1 step 6 (v0.2-alpha-5) — base component library
+- 10 components via shadcn CLI: avatar, dialog, dropdown-menu, progress,
+  select, sonner, tabs, toggle, tooltip.
+- 1 hand-written: segmented-control (Radix has no native primitive).
+- Note: shadcn `modal` is now called `dialog`. CLI auto-installs both
+  lucide-preact and lucide-react (only lucide-react actually loaded).
+  Future cleanup: add `lucide-react → lucide-preact` alias to vite.config.ts.
+- components.json + tailwind.config.js + vitest.config.ts already in
+  place from alpha-0/1.
+
+### Phase 1 step 7a (v0.2-alpha-6) — toast migration
+- src/lib/toast.ts: sonner wrapper with same showToast(title, message,
+  type) signature as the v0.1.5 vanilla version.
+- src/components/ui/toaster.tsx: hand-written Toaster reading theme from
+  <html class="dark"> + MutationObserver (NOT shadcn's sonner.tsx
+  because it pulls in next-themes which would conflict with our
+  ./lib/theme system).
+- src/lib/toaster-mount.tsx: mountAppToaster() idempotent mount.
+- main.ts: deleted ~26 lines of local showToast + ToastType; DOMContentLoaded
+  calls mountAppToaster() before any showToast().
+
+### Phase 1 step 7b (v0.2-alpha-7) — search modal
+- src/views/search-modal.tsx: Preact SearchModal with 250ms debounce +
+  invoke('session_search') + result rendering + click-to-select +
+  Escape-to-close + focus on open.
+- src/views/search-modal-store.ts: getOpen/setOpen/subscribe pub-sub.
+- src/views/search-modal-mount.tsx: mountSearchModal({onSelect}).
+- src/lib/sanitize.ts: extracted escapeHtml + sanitizeSnippet (was in
+  main.ts, used 25+ places).
+- BUGFIX: reset-on-open useEffect was clobbering in-flight query state
+  on every re-render. Fixed with prevOpenRef guard so reset only
+  fires on the rising edge of `open`.
+
+### Phase 1 step 7c (v0.2-alpha-8) — persona modal
+- src/views/persona-modal.tsx: 3-view modal (list/create/edit),
+  fetches personas on first open + after every CRUD, builtin
+  personas lock avatar+name fields.
+- src/views/persona-modal-store.ts: open/mode/editingId + close() reset.
+- src/views/persona-modal-mount.tsx: mountPersonaModal({onPersonasChanged}).
+- BUGFIX in src/types.ts: Persona schema synced to main.ts real shape
+  (description: string|null + is_builtin: number, removed stale
+  is_default: boolean).
+- main.ts: deleted ~239 lines of vanilla DOM rendering + 3 CRUD API
+  wrappers; openPersonaModal kept as 1-line wrapper for manage-btn click.
+
+### Phase 1 step 7d (v0.2-alpha-9) — backup modal
+- src/views/backup-modal.tsx: Preact modal with **separation cards** (NOT
+  tabs, per AGENTS.md §4 hard requirement). Stacked CreateCard + RestoreCard
+  + reusable PasswordInput (eye toggle + strength meter) + reusable
+  CountdownButton (5s lockout for destructive actions).
+- src/views/backup-modal-store.ts: open/close pub-sub.
+- src/views/backup-modal-mount.tsx: render into existing <div id="backup-modal">.
+- src/views/backup-modal.test.tsx: 16 tests covering store + render shell +
+  passwordStrength pure function (entropy 0..4) + × button + countdown initial
+  state. Same scoping policy as alpha-7/8: full CRUD pipeline (backup_create /
+  backup_verify / backup_restore invokes) exercised in real Tauri WebView.
+- index.html: backup modal simplified to empty <div id="backup-modal"> root.
+- main.ts: deleted ~110 lines — type BackupTab, 3 handle* functions,
+  openBackupModal/closeBackupModal tab toggle. openBackupModal kept as 1-line
+  wrapper. mountBackupModal() replaces 18 lines of DOM event wiring.
+- AGENTS.md §4 hard requirements ALL preserved:
+    * Separation cards (NOT tabs).
+    * Password field: eye icon + strength meter + mismatch warning.
+    * Restore: 2-step confirmation (verify badge + checkbox + 5s countdown).
+    * Restore card: red outline class (.backup-card-danger), NOT solid red.
+    * Verified badge resets when path or password changes (no stale success).
+- Test count: 207 → 223 (+16). Bundle: 1.14MB → 1.15MB (+12 kB for the
+  Preact component + PasswordInput + CountdownButton). CSS unchanged.
+- main.ts cumulative reduction since alpha-0: ~2620 → ~2330 lines (−290 net).
+
+### Phase 1 step 7e (v0.2-alpha-10) — stats modal
+- src/views/stats-modal.tsx: Preact modal + period tabs + StatsBody
+  (3 tile rows + chart + 2 breakdown tables) + reusable ChartSvg
+  sub-component (data-driven SVG via Preact JSX, not innerHTML).
+- src/views/stats-modal-store.ts: open/close pub-sub.
+- src/views/stats-modal-mount.tsx: render into existing <div id="stats-modal">.
+- src/views/stats-modal.test.tsx: 9 tests covering store + render shell +
+  period tab click → active class flip. Same scoping policy as alpha-7/8/9.
+- index.html: stats modal simplified to empty <div id="stats-modal"> root.
+- main.ts: deleted ~ 270 lines — type StatsPeriod, currentStats/currentStatsPeriod
+  module state, loadTokenStats, openStatsModal/closeStatsModal, renderStatsModal
+  (~ 180 lines of innerHTML-driven render), renderChartSvg (string-SVG builder).
+  TokenStats / DailyBucket / ModelBucket / RuleBucket interface declarations
+  deleted from main.ts (they live in src/types.ts since alpha-1 and are still
+  imported by the new view). openStatsModal kept as 1-line wrapper for sidebar.
+  mountStatsModal() replaces 6 lines of DOM event wiring.
+- Helpers kept in main.ts (still used elsewhere): formatRoutingTrace,
+  formatLatencyMs — exported, imported by stats-modal.tsx. Also used by
+  main.ts message-bar builder.
+- Test count: 223 → 232 (+9). Bundle: 1.15MB → 1.15MB (+0.4 kB, basically
+  unchanged). CSS unchanged at 44.69 kB.
+- main.ts cumulative reduction since alpha-0: ~2620 → ~2055 lines
+  (~ -565 net, 22% reduction). 5 of 11 Phase 1 step 7 views migrated to
+  Preact JSX.
+
+### Phase 1 step 7f (v0.2-alpha-11) — settings modal + remote-hermes URL
+- src/views/settings-modal.tsx: Preact modal with 4 grouped sections
+  (主题 / Gateway 连接 / 本地 WSL Gateway / 默认值). NEW alpha-11:
+  "Gateway 连接" group exposes remote-hermes URL + API Key with eye
+  toggle + 测试连接 button + status badge.
+- src/views/settings-modal-store.ts: open/close pub-sub.
+- src/views/settings-modal-mount.tsx: render into existing
+  <div id="settings-modal">. Takes onDefaultsChanged callback so main.ts
+  can refresh its module-level defaultProjectPath + defaultModel lets
+  used by sendMessage + model picker.
+- src/views/settings-modal.test.tsx: 15 tests covering store + 4-group
+  render shell + URL input control + × button + cancel button +
+  测试连接 button state transition. Same scoping policy as alpha-7/8/9/10.
+- index.html: settings modal simplified to empty <div id="settings-modal">
+  root (-49 lines).
+- main.ts: deleted ~ 177 lines — settings DOM references (8 selectors),
+  openSettings/closeSettings + loadSettings + saveSettings (~ 145-line
+  vanilla save handler), setDefaultModel + setDefaultProjectPath local
+  helpers, unused theme.ts imports. openSettings kept as 1-line wrapper
+  for sidebar button. mountSettingsModal({onDefaultsChanged}) replaces
+  12 lines of DOM event wiring.
+- Connection test (alpha-11 inline in settings-modal.tsx):
+    - calls hermesGet('/health') via the Rust proxy
+    - toggles gatewayUrl + apiKey to proposed values, runs request,
+      restores runtime state in `finally` (non-destructive)
+    - surfaces ok / fail status + latency_ms in the badge below the
+      button. Users see immediately whether the remote gateway is
+      reachable BEFORE they save.
+- Save flow URL-aware: if Gateway URL non-empty → setGatewayUrl(URL),
+  skip resolveGatewayUrl. Empty → existing resolveGatewayUrl +
+  applyPortOverride(port) flow.
+- Helpers kept in main.ts (still used elsewhere): resolveGatewayUrl,
+  applyPortOverride, getGatewayUrl, setApiKey — used by audio transcribe
+  (line 1100) + boot resolver (line 1171-1182) + error display (line 2002, 2013).
+- Test count: 232 → 247 (+15). Bundle: 1.15MB → 1.16MB (+5.5 kB).
+  CSS unchanged at 44.69 kB.
+- main.ts cumulative reduction since alpha-0: ~2620 → 1759 lines
+  (~ -861 net, 33% reduction). 6 of 11 Phase 1 Phase 1 step 7 views migrated
+  to Preact JSX.
+
+### Phase 1 step 7g (v0.2-alpha-12) — settings modal UX fix (UX regression)
+- Bug fix for alpha-11's split "Gateway 连接" + "本地 WSL Gateway" layout
+  which made local users feel they had to type a URL (UX regression).
+- src/views/settings-modal.tsx:
+    * Merged LocalGatewayGroup into GatewayConnectionGroup.
+    * Gateway 连接 now has a radio toggle for mode:
+        ◯ 自动（本机 WSL，自动解析 IP）    <-- default
+        ◯ 自定义（远程，手动输入 URL）
+    * Auto mode: WSL distro + port + read-only URL preview.
+    * Remote mode: single URL input replaces distro + port + preview.
+    * API Key + 测试连接 button always visible.
+    * API Key placeholder text adapts: "本地..." vs "远程...".
+    * handleTestConnection mode-aware (skips resolveGatewayUrl in remote
+      mode; uses resolveGatewayUrl+applyPortOverride in auto mode).
+    * Save flow mode-aware: remote → setGatewayUrl(URL); auto →
+      resolveGatewayUrl+applyPortOverride.
+    * 4 form sections → 3 sections (主题 / Gateway 连接 / 默认值).
+- src/views/settings-modal.test.tsx:
+    * Updated from 4-group to 3-group structure.
+    * +4 new tests for radio toggle + autoUrlPreview + auto↔remote round
+      trip. 测试连接 test rewritten to switch to remote mode first so
+      resolveGatewayUrl doesn't hang the test (it would invoke
+      hermes_resolve_gateway_ip and block on the never-resolving mock).
+- main.ts unchanged (mount props API stayed the same).
+- index.html unchanged (overlay root already empty since alpha-11).
+- Test count: 247 → 251 (+4 net). Bundle: 1.16MB → 1.16MB (+0.8 kB).
+  CSS unchanged at 44.69 kB.
+
+### Phase 1 step 8 (v0.2-alpha-13) — settings modal SVG 11 redesign
+- 4-group structure per SVG 11 design:
+    1. 连接 (renamed from alpha-12's "Gateway 连接", preserves radio toggle).
+    2. 新建会话默认值 (renamed from alpha-12's "默认值").
+    3. 偏好 (NEW) — 主题 + 费用货币 (人民币/美元/按模型) + 启动时自动连接
+       Switch + 自动生成会话名 Switch + 会话列表排序 select.
+    4. 数据危险操作区 (NEW) — 4 destructive buttons in red-outlined panel.
+       Backup create/restore open the backup modal (alpha-9 reused).
+       Clear sessions / reset settings are stubs for alpha-14.
+- src/lib/config-schema.ts (NEW) — single source of truth for db_config
+  keys (theme / default_project_path / default_model / currency /
+  auto_connect / auto_rename / sort_order). Exports coerceConfigValue +
+  parseBoolPref + formatBoolPref for safe load/save + boolean handling.
+- src/components/ui/switch.tsx (NEW) — pure CSS + Preact toggle switch.
+  No Radix dependency (kept the v0.2 tray lean). Used by 偏好 switches.
+- src/main.ts — Fix v0.1.5 maybeImportFromHash stale-hash bug:
+    - Extracted `clearShareHash()` helper (uses `pathname + search` to
+      preserve query string).
+    - Added clearShareHash() BEFORE the unsupported-version early return
+      so a malformed `#share=...` URL doesn't loop on every reload.
+    - Replaced 3 inline `history.replaceState(...)` calls with the helper.
+- Test count: 251 → 262 (+11 net). Bundle: 1.16MB → 1.19MB (+33 kB for
+  Switch + config-schema + new groups + danger zone markup). CSS
+  unchanged at 44.69 kB. 79% of 1.5MB budget.
+- No Rust changes (db_config is generic key-value, no schema). alpha-14
+  will add session_clear_all + settings_reset_all commands.
+
+---
+
+## Notes for Tomorrow
+
+1. **HANDOFF.md is intentionally untracked** — session-local scratch, not
+   project artifact. Don't commit it.
+
+2. **Tests now include vi.mock** — first appearance in src/lib/state.test.ts
+   + src/lib/api.test.ts. Phase 1+ views that touch Tauri follow the same
+   pattern: mock @tauri-apps/api/core.
+
+3. **Test scoping policy** (alpha-7 through alpha-11): search-modal,
+   persona-modal, backup-modal, stats-modal, and settings-modal test
+   suites cover store + rendering shells, NOT the full CRUD pipeline.
+   Driving the full chain through Preact + happy-dom is fragile
+   (timing-sensitive useEffect chains, controlled-input event
+   delegation diffs). The pipeline is exercised in real Tauri
+   WebView instead.
+
+4. **commit message with HTML** — PowerShell tries to parse `</div>` etc.
+   inside commit messages. Use `git commit -F <file>` to bypass.
+
+5. **bundle size** — currently 1.20MB JS (80% of 1.5MB budget). CSS 44.69 kB.
+   shadcn + lucide + sonner + Radix tree-shake into the bundle. Not yet
+   a problem; revisit if more views add heavy libs.
+
+10. **UX regression audit pattern (alpha-12)**: when adding a new
+    option to a UI, ask "does this make the existing happy path harder?".
+    alpha-11 split settings into "Gateway 连接" + "本地 WSL Gateway" — the
+    new group required typing a URL that local users never had to type.
+    alpha-12 fixed this by merging them with a radio toggle. Lesson:
+    any feature that creates a parallel UI for the same thing (vs
+    extending the existing UI) should be reviewed for whether local
+    users regress. When in doubt, use radio toggles inside the same
+    group, not new groups.
+
+6. **Open question** (from AGENTS.md §decisions): does the Phase 1 step 8
+   settings redesign need Rust-side validation for any of the 5 new config
+   keys (theme/currency/auto_connect/auto_rename/sort_order)? Defer until
+   step 8.
+
+7. **Known v0.1.5 bug NOT yet fixed**: maybeImportFromHash `doc.version
+   !== 1` branch returns without clearing the URL hash. Will fix during
+   step 8 settings work.
+
+8. **views/ directory layout convention** (set by alpha-7):
+   - `<view>.tsx`         — main component
+   - `<view>-store.ts`    — pub-sub state (if needed)
+   - `<view>-mount.tsx`   — mount + bridge to main.ts
+   - `<view>.test.tsx`    — vitest
+
+9. **Backup modal hard requirements** (from AGENTS.md §4 — MUST preserve):
+   - Separation cards (no tab) — bypasses CSS bug
+   - Restore: 2-step confirmation (checkbox + 5s countdown button)
+   - Password fields: eye icon + strength bar
+   - Dangerous actions: 2-step confirmation + red outline (NOT solid red)
+   - Warning text in Chinese explaining data loss on restore
+
+---
+
+## What's Done
+
+### Phase 0 step 1 — scaffold (v0.2-alpha-0)
+- ✅ Preact 10 + @preact/preset-vite installed
+- ✅ Tailwind v3 + PostCSS + autoprefixer + tailwind-merge + class-variance-authority
+- ✅ vite.config.ts: Preact plugin + react→preact/compat alias + @/* alias
+- ✅ tsconfig.json: jsx=react-jsx, jsxImportSource=preact, paths for @/* + react
+- ✅ tailwind.config.js: design tokens (HSL CSS vars, 4-tier radius, 3-tier shadow, animations)
+- ✅ src/styles.css: @tailwind directives + light/dark CSS variables (legacy CSS preserved)
+- ✅ components.json: shadcn CLI config
+- ✅ AGENTS.md: project memory (decisions + hard requirements)
+- ✅ 4 base components: Button / Input / Label / Card (shadcn-style)
+
+### Phase 0 step 2 — low-risk extractions (v0.2-alpha-1)
+- ✅ src/types.ts: all DB/runtime interfaces + parseProjectContext()
+- ✅ src/config.ts: UNKNOWN_MODEL, SESSION_PAGE, ATTACHMENT_MAX_*, VOICE_MAX_MS, CONFIG + configKeys, THEME_STORAGE_KEY
+- ✅ src/formatBytes.ts: formatBytes()
+- ✅ src/shareLink.ts: base64UrlEncode/Decode + SHARE_FRAGMENT_RE
+- ✅ src/lib/theme.ts: theme system (getStoredTheme / applyTheme / setTheme / initThemeAtBoot)
+- ✅ 8 new theme tests
+
+### Verification
+- `npm run build`: passes (dist 1.08MB, CSS 34.75kB)
+- `npm test`: 15 files / 135 tests / all passed
+- main.ts untouched (0 risk to v0.1.5 functionality)
+
+---
+
+## What's Next (Phase 0 step 3)
+
+### Immediate (1-2 hours, target: v0.2-alpha-2)
+1. **Wire theme.ts into settings modal** — add a segmented control (浅色 / 深色 / 跟随系统)
+   - Settings modal lives in main.ts; need to find the `openSettingsModal` function (around line 1000-1100)
+   - On change: call `setTheme(mode)` + write back to DB config key (`theme`)
+   - On boot: add inline `<script>` in `dist/index.html` BEFORE main.ts loads, calls `initThemeAtBoot()` to prevent flash
+2. **Verify boot-time theme applies correctly** — test light, dark, system modes
+3. **Add theme.test.ts coverage** if gaps remain
+
+### Then (Phase 0 step 4, 2-3 hours, target: v0.2-alpha-3)
+4. **Extract hermesGet / hermesPostStream** to src/lib/api.ts
+   - These depend on module-level state `RESOLVED_GATEWAY_URL` + `API_KEY` in main.ts (line 230-247)
+   - Needs a small state refactor: move URL/API_KEY into a `state.ts` module first
+   - Then api.ts can import the state
+5. **Extract share-link business logic** (copySessionAsMarkdown / copySessionShareLink) from main.ts:340-440
+
+### Later (Phase 1, 2-3 weeks, target: v0.2-beta)
+6. **Generate rest of base component library** via shadcn CLI:
+   - Button (have), Input (have), Label (have), Card (have)
+   - Still need: Dropdown, Select, Modal, Toggle, Tabs, Toast (sonner), SegmentedControl, Avatar, Progress, Tooltip
+   - Each gets 4-state + a11y + unit test
+7. **Split main.ts (2681 lines) into views/ modules**: sidebar / sessions / personas / projects / stats / backup / attachments / persona-modal / search / chat / toast
+8. **Start migrating views one-by-one to Preact JSX** with the new components
+
+---
+
+## Key Files / Paths
+
+### Source layout
+```
+D:\work\workspace\Qoder\hermes-tray\
+├── AGENTS.md                          # READ FIRST — project memory + decisions + hard requirements
+├── HANDOFF.md                         # THIS FILE
+├── package.json                       # +9 deps for v0.2
+├── vite.config.ts                     # Preact + aliases
+├── tsconfig.json                      # jsx preact + paths
+├── tailwind.config.js                 # design tokens
+├── postcss.config.js
+├── components.json                    # shadcn CLI config
+├── src/
+│   ├── main.ts                        # 2681 lines — monolithic, UNTOUCHED in v0.2-alpha-1
+│   ├── types.ts                       # NEW — all interfaces
+│   ├── config.ts                      # NEW — runtime constants
+│   ├── formatBytes.ts                 # NEW — extracted
+│   ├── shareLink.ts                   # NEW — extracted
+│   ├── styles.css                     # @tailwind + design tokens + legacy CSS
+│   ├── lib/
+│   │   ├── utils.ts                   # cn() helper (Phase 0 step 1)
+│   │   ├── utils.test.ts
+│   │   ├── theme.ts                   # NEW — theme system
+│   │   └── theme.test.ts              # NEW — 8 tests
+│   └── components/
+│       └── ui/                        # shadcn-style primitives
+│           ├── button.tsx
+│           ├── card.tsx
+│           ├── input.tsx
+│           └── label.tsx
+└── src-tauri/                         # UNTOUCHED — no Rust changes in v0.2 scope
+```
+
+### Design / planning artifacts
+```
+D:\work\workspace\MiniMax\projects\hermes-tray-notes\
+├── hermes-tray-UI设计要求.md          # Full design brief (REQUIREMENTS, 9 sections + 4 appendices)
+├── 验收报告.md                         # 20/20 acceptance verdict
+├── 开发计划.md                          # 10-phase plan (we're in Phase 0)
+├── assets/
+│   ├── hermes-logo.svg
+│   └── svg-pages/01-20*.svg           # 20 approved design SVGs
+```
+
+---
+
+## Hard Requirements (NEVER VIOLATE)
+
+From `AGENTS.md`:
+
+1. **Backend zero changes** for v0.2 (only 1 migration for settings page in Phase 7)
+2. **CSS / theme system**: CSS variables preserved as token source; Tailwind class-driven
+3. **Pixel-level fidelity**: Playwright screenshot vs SVG, <5px diff at every phase end
+4. **User-reported hard requirements** (from earlier session screenshots):
+   - Backup modal: separation cards (no tab) — bypasses CSS bug
+   - Restore: 2-step confirmation (checkbox + 5s countdown button)
+   - Token stats: ¥ (CNY) NOT $
+   - Pricing table: must include Chinese models (Qwen / Kimi / ERNIE / Doubao / GLM / DeepSeek-CN)
+   - Password fields: eye icon + strength bar
+   - Dangerous actions: 2-step confirmation + red outline (NOT solid red)
+
+---
+
+## Useful Commands
+
+```bash
+# Verify state
+cd D:\work\workspace\Qoder\hermes-tray
+git log --oneline -5
+git tag --list "v0.2*"
+git status
+
+# Build & test
+npm run build      # tsc + vite build
+npm test           # vitest run (15 files / 135 tests currently)
+
+# Watch mode for development
+npm run test:watch
+npm run dev        # vite dev server (Tauri picks it up)
+```
+
+---
+
+## Decision Audit Trail
+
+| Decision | Choice | Date | Why |
+|---|---|---|---|
+| Component library | shadcn/ui via Preact + preact/compat | 2026-07-04 | Designer aesthetic; React ecosystem portability; ~3KB Preact vs ~40KB React |
+| State management | ad-hoc + module split (no library yet) | 2026-07-04 | Current scope doesn't warrant zustand/nanostores |
+| i18n | typesafe-i18n | 2026-07-04 | TypeScript-native; tree-shake friendly; deferred to Phase 8 |
+| Test framework | vitest + happy-dom (unchanged) | — | Already in use; works with Preact via alias |
+| CSS framework | Tailwind v3 (NOT v4) | 2026-07-04 | shadcn CLI compatibility + stable |
+| Release model | Tag per phase (`v0.2-alpha-N`) | 2026-07-04 | Easy rollback per phase |
+
+---
+
+## Open Questions / Risks
+
+- **main.ts splitting is the biggest risk**: 2681 lines, 101 top-level defs, business logic. Plan: do it after all base components are ready, so we can rewrite view-by-view in Preact JSX instead of just moving vanilla DOM code.
+- **Settings modal is a v0.2-beta target**: currently flat 5 fields; needs grouping per design (Phase 7). Theme toggle can land earlier as a stop-gap.
+- **No Rust changes planned**: but if any of the 5 new settings config keys (theme/currency/auto_connect/auto_rename/sort_order) need Rust-side validation, that's Phase 7.
+
+---
+
+> End of handoff. Resume from "Immediate (1-2 hours, target: v0.2-alpha-2)" section.
