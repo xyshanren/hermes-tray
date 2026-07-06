@@ -396,6 +396,150 @@ html, body {
   color: var(--text-muted);
 }
 
+/* v0.2-alpha-20 — Empty-state cards (designs 06 / 07 / 08).
+   Shared layout for the centered welcome / error cards. Each card
+   is a vertical flex column with logo + title + description +
+   actions. All three cards reuse .welcome-card so the spacing is
+   consistent across the variants. */
+.welcome-card {
+  max-width: 520px;
+  margin: 60px auto;
+  padding: 32px 36px;
+  border-radius: 16px;
+  background: var(--bg-secondary, #1e293b);
+  border: 1px solid var(--border-color, rgba(148, 163, 184, 0.12));
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.welcome-card-logo,
+.welcome-card-error-icon,
+.welcome-card-icon {
+  font-size: 48px;
+  line-height: 1;
+}
+.welcome-card-error-icon {
+  /* Slightly muted to read as an error rather than a celebratory icon. */
+  filter: grayscale(0.3);
+}
+.welcome-card-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary, #f1f5f9);
+  margin: 0;
+}
+.welcome-card-desc {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-secondary, #94a3b8);
+  margin: 0;
+  max-width: 420px;
+}
+.welcome-card-hint {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  margin: 0;
+}
+.welcome-card-divider {
+  width: 100%;
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.welcome-card-divider::before,
+.welcome-card-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-color, rgba(148, 163, 184, 0.12));
+}
+.welcome-card-personas {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  width: 100%;
+}
+.persona-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color, rgba(148, 163, 184, 0.12));
+  background: var(--bg-tertiary, rgba(148, 163, 184, 0.06));
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.persona-chip:hover {
+  border-color: var(--accent-color, #6366f1);
+  background: rgba(99, 102, 241, 0.08);
+}
+.persona-chip-avatar {
+  font-size: 22px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.12);
+  flex-shrink: 0;
+}
+.persona-chip-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.persona-chip-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary, #f1f5f9);
+}
+.persona-chip-tag {
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+}
+.welcome-card-cta {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 15px;
+  margin-top: 6px;
+}
+.welcome-card-actions {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  margin-top: 6px;
+}
+.welcome-card-actions .btn {
+  flex: 1;
+}
+.welcome-card-shortcuts {
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+  margin: 0;
+}
+.welcome-card-shortcuts kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  margin: 0 1px;
+  border-radius: 3px;
+  border: 1px solid var(--border-color, rgba(148, 163, 184, 0.18));
+  background: var(--bg-tertiary, rgba(148, 163, 184, 0.06));
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  color: var(--text-secondary, #94a3b8);
+}
+
 /* Message Bubbles */
 .message {
   display: flex;

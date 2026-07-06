@@ -5,8 +5,9 @@
 // stays in main.ts until alpha-17, and we test the helpers it consumes
 // (formatMessage / formatMessageBar) separately in chat-formatters.test.ts.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render } from "preact";
+import { act } from "preact/test-utils";
 import {
   chatStore,
   type ChatMessage,
@@ -284,5 +285,179 @@ describe("<ChatView /> (render shell)", () => {
     render(<ChatView welcomeContext={chatWelcomeStore.get().context} />, host);
     const welcome = host.querySelector(".welcome-message");
     expect(welcome!.textContent).toContain("项目路径已设置但扫描失败");
+  });
+
+  // v0.2-alpha-20 — empty-state cards (designs 06 / 07).
+  // The view wiring tests below cover the three branches that
+  // <ChatView /> picks when messages.length === 0 +
+  // streaming === null + error === null:
+  //   - offline → EmptyNoNetwork (design 07)
+  //   - online + !hasSessions → FirstRunWelcome (design 06)
+  //   - online + hasSessions → standard WelcomeBubble (alpha-16 default)
+
+  it("renders the no-network card when connectionStatus=offline (design 07)", () => {
+    const onRetry = vi.fn();
+    const onOpenSettings = vi.fn();
+    chatStore.setConnectionStatus("offline");
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    render(
+      <ChatView
+        onRetryConnection={onRetry}
+        onOpenSettings={onOpenSettings}
+        gatewayHint="当前 Gateway: http://127.0.0.1:8788"
+      />,
+      host,
+    );
+    const card = host.querySelector(".no-network-card");
+    expect(card).not.toBeNull();
+    expect(card!.textContent).toContain("无法连接 hermes-agent");
+    expect(card!.textContent).toContain("http://127.0.0.1:8788");
+    const retryBtn = card!.querySelector(".btn-primary") as HTMLButtonElement;
+    expect(retryBtn.textContent).toBe("重试连接");
+    retryBtn.click();
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    const settingsBtn = card!.querySelector(".btn-secondary") as HTMLButtonElement;
+    expect(settingsBtn.textContent).toBe("查看连接设置");
+    settingsBtn.click();
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the first-run welcome card when online + !hasSessions (design 06)", () => {
+    const onCreateSession = vi.fn();
+    chatStore.setConnectionStatus("online");
+    chatStore.setHasSessions(false);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    render(
+      <ChatView
+        onCreateSession={onCreateSession}
+        recommendedPersonas={[
+          { avatar: "🦊", name: "hermes-agent", tag: "通用助手" },
+          { avatar: "🛡", name: "code-reviewer", tag: "代码审查" },
+        ]}
+      />,
+      host,
+    );
+    const card = host.querySelector(".first-run-welcome");
+    expect(card).not.toBeNull();
+    expect(card!.textContent).toContain("欢迎使用 Hermes Chat");
+    expect(card!.textContent).toContain("hermes-agent");
+    expect(card!.textContent).toContain("code-reviewer");
+    expect(card!.textContent).toContain("通用助手");
+    expect(card!.textContent).toContain("代码审查");
+    const cta = card!.querySelector(".welcome-card-cta") as HTMLButtonElement;
+    expect(cta.textContent).toContain("创建第一个会话");
+    cta.click();
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+    // Persona chip click should also call onCreateSession.
+    const chip = card!.querySelector(".persona-chip") as HTMLButtonElement;
+    chip.click();
+    expect(onCreateSession).toHaveBeenCalledTimes(2);
+    // Restore for subsequent tests.
+    chatStore.setHasSessions(true);
+  });
+
+  it("renders the standard welcome when online + hasSessions", () => {
+    chatStore.setConnectionStatus("online");
+    chatStore.setHasSessions(true);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    render(<ChatView />, host);
+    const welcome = host.querySelector(".welcome-message");
+    expect(welcome).not.toBeNull();
+    expect(host.querySelector(".no-network-card")).toBeNull();
+    expect(host.querySelector(".first-run-welcome")).toBeNull();
+  });
+
+  it("does NOT render any empty-state card when messages are present", () => {
+    chatStore.setConnectionStatus("offline"); // would normally trigger 07
+    chatStore.setHasSessions(false); // would normally trigger 06
+    chatStore.appendMessage({
+      role: "user",
+      content: "hi",
+      timestamp: new Date(),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    render(<ChatView />, host);
+    expect(host.querySelector(".no-network-card")).toBeNull();
+    expect(host.querySelector(".first-run-welcome")).toBeNull();
+    expect(host.querySelector(".welcome-message")).toBeNull();
+  });
+
+  it("switches from standard welcome to no-network when status flips offline", async () => {
+    chatStore.setConnectionStatus("online");
+    chatStore.setHasSessions(true);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    // First act: mount the component (flushes useEffect that
+    // subscribes to chatStore). See splash.test.tsx for the same
+    // act() sequencing lesson.
+    await act(async () => {
+      render(<ChatView />, host);
+    });
+    expect(host.querySelector(".welcome-message")).not.toBeNull();
+    // Second act: flip the status. The subscription re-renders,
+    // and <ChatView /> picks the no-network card.
+    await act(async () => {
+      chatStore.setConnectionStatus("offline");
+    });
+    expect(host.querySelector(".welcome-message")).toBeNull();
+    expect(host.querySelector(".no-network-card")).not.toBeNull();
+  });
+});
+
+// v0.2-alpha-20 — chatStore.setConnectionStatus + setHasSessions.
+describe("chatStore (empty-state mutators)", () => {
+  beforeEach(() => {
+    chatStore.__resetForTests();
+  });
+
+  it("setConnectionStatus updates the connectionStatus field", () => {
+    expect(chatStore.get().connectionStatus).toBe("online");
+    chatStore.setConnectionStatus("offline");
+    expect(chatStore.get().connectionStatus).toBe("offline");
+    chatStore.setConnectionStatus("online");
+    expect(chatStore.get().connectionStatus).toBe("online");
+  });
+
+  it("setConnectionStatus is a no-op on the same value", () => {
+    let calls = 0;
+    const unsub = chatStore.subscribe(() => calls++);
+    // After __resetForTests the initial status is "online". Flip
+    // to "offline" first so the value actually changes — the
+    // no-op check below needs a previous change to compare against.
+    chatStore.setConnectionStatus("offline");
+    expect(calls).toBe(2); // initial subscribe fire + online→offline
+    chatStore.setConnectionStatus("offline");
+    expect(calls).toBe(2); // same value, NO fire
+    unsub();
+  });
+
+  it("setHasSessions updates the hasSessions field", () => {
+    expect(chatStore.get().hasSessions).toBe(true);
+    chatStore.setHasSessions(false);
+    expect(chatStore.get().hasSessions).toBe(false);
+    chatStore.setHasSessions(true);
+    expect(chatStore.get().hasSessions).toBe(true);
+  });
+
+  it("setHasSessions is a no-op on the same value", () => {
+    let calls = 0;
+    const unsub = chatStore.subscribe(() => calls++);
+    chatStore.setHasSessions(false); // true→false, fires
+    expect(calls).toBe(2); // initial + change
+    chatStore.setHasSessions(false); // same, no-op
+    expect(calls).toBe(2);
+    unsub();
+  });
+
+  it("reset() restores connectionStatus=online + hasSessions=true", () => {
+    chatStore.setConnectionStatus("offline");
+    chatStore.setHasSessions(false);
+    chatStore.reset();
+    expect(chatStore.get().connectionStatus).toBe("online");
+    expect(chatStore.get().hasSessions).toBe(true);
   });
 });

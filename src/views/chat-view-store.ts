@@ -18,6 +18,12 @@
 //                  (null when no stream is in flight)
 //   - isLoading:   true between handleSubmit() and finishStream()
 //   - error:       last transient error message (cleared on next send)
+//   - connectionStatus: "online" | "offline" — driven by checkConnection()
+//                  in main.ts. The view switches to the no-network empty
+//                  state (design 07) when offline + no messages.
+//   - hasSessions: true once at least one session has been loaded from
+//                  the DB. Drives the default-welcome vs first-run empty
+//                  state choice (designs 06 vs 08).
 //
 // Backward compat: this replaces the `state` object + DOM refs that
 // were inlined in main.ts. Existing code keeps working because
@@ -82,6 +88,8 @@ interface ChatStoreState {
   streaming: StreamingBubble | null;
   isLoading: boolean;
   error: string | null;
+  connectionStatus: "online" | "offline";
+  hasSessions: boolean;
 }
 
 type Listener = (state: ChatStoreState) => void;
@@ -91,6 +99,12 @@ let state: ChatStoreState = {
   streaming: null,
   isLoading: false,
   error: null,
+  connectionStatus: "online",
+  hasSessions: true, // optimistic default so the first paint shows the
+                     // standard welcome instead of flashing the
+                     // first-run empty state during boot. main.ts
+                     // calls setHasSessions(false) when session_list
+                     // returns [].
 };
 
 const listeners = new Set<Listener>();
@@ -213,8 +227,39 @@ export const chatStore = {
    * and on `session_clear_all` from settings).
    */
   reset(): void {
-    state = { messages: [], streaming: null, isLoading: false, error: null };
+    state = {
+      messages: [],
+      streaming: null,
+      isLoading: false,
+      error: null,
+      connectionStatus: "online",
+      hasSessions: true,
+    };
     nextId = 1;
+    notify();
+  },
+
+  /**
+   * Mark the gateway as reachable (or unreachable). Drives the
+   * no-network empty state choice in <ChatView />. We don't fire this
+   * for transient SSE failures — main.ts surfaces those as the
+   * red error bubble via setError() instead.
+   */
+  setConnectionStatus(status: "online" | "offline"): void {
+    if (state.connectionStatus === status) return;
+    state = { ...state, connectionStatus: status };
+    notify();
+  },
+
+  /**
+   * Tell the view whether at least one session exists in the DB.
+   * Called by main.ts after loadSessionList() resolves so the view
+   * can pick between design 06 (default welcome with personas) and
+   * design 08 (first-run empty state with the create CTA).
+   */
+  setHasSessions(hasSessions: boolean): void {
+    if (state.hasSessions === hasSessions) return;
+    state = { ...state, hasSessions };
     notify();
   },
 
@@ -233,7 +278,14 @@ export const chatStore = {
 
   /** Test-only: lets the test suite reset the module-level state. */
   __resetForTests(): void {
-    state = { messages: [], streaming: null, isLoading: false, error: null };
+    state = {
+      messages: [],
+      streaming: null,
+      isLoading: false,
+      error: null,
+      connectionStatus: "online",
+      hasSessions: true,
+    };
     nextId = 1;
     listeners.clear();
   },

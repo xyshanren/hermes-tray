@@ -344,12 +344,23 @@ async function loadSessionList(reset = true): Promise<void> {
     });
     if (reset) {
       sessionListStore.setFirstPage(sessions);
+      // v0.2-alpha-20: tell the chat view whether the DB has any
+      // sessions so it can pick between the first-run welcome card
+      // (design 06) and the standard WelcomeBubble. Only update on
+      // the first page load — append-more doesn't change the flag.
+      chatStore.setHasSessions(sessions.length > 0);
     } else {
       sessionListStore.appendMorePage(sessions);
     }
   } catch (e) {
     console.error('[Session] load error:', e);
-    if (reset) sessionListStore.setFirstPage([]);
+    if (reset) {
+      sessionListStore.setFirstPage([]);
+      // v0.2-alpha-20: a load failure shouldn't pretend to be empty
+      // — keep the optimistic default (hasSessions=true) so the
+      // user sees the standard welcome instead of a misleading
+      // "first run" state.
+    }
   }
 }
 
@@ -1226,7 +1237,17 @@ function openStatsModal(): void {
   // the v0.1.5 innerHTML-based message rendering inside <div id="messages">.
   // Must run after the modal mounts above so chatStore / chatWelcomeStore
   // subscribers are already wired (we share the store imports).
-  mountChatView();
+  //
+  // v0.2-alpha-20: thread the empty-state action callbacks (CTA +
+  // retry + open settings + gateway hint). The first-run welcome
+  // card (design 06) and the no-network error card (design 07) both
+  // surface these buttons.
+  mountChatView({
+    onCreateSession: () => void createSession(),
+    onRetryConnection: () => void checkConnection(),
+    onOpenSettings: () => openSettings(),
+    gatewayHint: `当前 Gateway: ${getGatewayUrl()}`,
+  });
 
   // v0.2-alpha-19: chat view mounted + initial state fetched. Mark
   // the boot as complete and fade the splash out. The store snaps
@@ -1436,6 +1457,12 @@ async function fetchModelInfo() {
 
 function updateConnectionStatus(status: 'disconnected' | 'connecting' | 'connected') {
   state.connectionStatus = status;
+  // v0.2-alpha-20: mirror the connection status into chatStore so
+  // <ChatView /> can pick between the standard welcome / first-run
+  // card (designs 06 / 08) and the no-network error card (design 07).
+  // Only the "connected" state maps to online; the other two
+  // transitional states count as offline for empty-state purposes.
+  chatStore.setConnectionStatus(status === 'connected' ? 'online' : 'offline');
   if (connectionStatusEl) connectionStatusEl.className = `status-dot ${status}`;
   if (statusText) {
     const labels: Record<string, string> = { disconnected: '未连接', connecting: '连接中...', connected: '已连接' };

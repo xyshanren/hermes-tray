@@ -13,7 +13,7 @@
 //   mountChatView();
 
 import { render } from "preact";
-import { ChatViewWithWelcome } from "./chat-view";
+import { ChatViewWithWelcome, type ChatViewActions } from "./chat-view";
 
 // Re-export the chat view stores from the mount module so main.ts only
 // needs one import path. chatStore lives in ./chat-view-store.ts (the
@@ -23,7 +23,7 @@ import { ChatViewWithWelcome } from "./chat-view";
 export { chatStore } from "./chat-view-store";
 export { chatWelcomeStore } from "./chat-view";
 
-export function mountChatView(): void {
+export function mountChatView(actions?: ChatViewActions): void {
   const root = document.getElementById("messages");
   if (!root) {
     console.warn("[Hermes] #messages mount point missing in index.html");
@@ -34,5 +34,5 @@ export function mountChatView(): void {
   // store is empty (no session loaded yet), <WelcomeBubble /> renders
   // an equivalent welcome into the same slot.
   root.innerHTML = "";
-  render(<ChatViewWithWelcome />, root);
+  render(<ChatViewWithWelcome actions={actions} />, root);
 }

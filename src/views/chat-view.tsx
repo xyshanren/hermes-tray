@@ -36,6 +36,17 @@ interface WelcomeContext {
   project?: { name: string; version?: string; path?: string; scanFailed?: boolean } | null;
 }
 
+/**
+ * v0.2-alpha-20 — Default welcome (design 06).
+ *
+ * Shown when the user has at least one session + the gateway is
+ * reachable + the current view has no messages + no active error.
+ * Matches the v0.1.5 lightweight welcome (👋 headline + persona /
+ * project hint lines) — see design 06 for the simpler v0.2 variant
+ * (persona chips + CTA + shortcuts hint). The persona / project
+ * "badge" rows from the v0.1.5 welcome still appear when context
+ * supplies them, so the personalisation line isn't lost.
+ */
 function WelcomeBubble({ context }: { context: WelcomeContext | null }) {
   const headline = context?.headline ?? "👋 欢迎使用 Hermes Chat";
   const persona = context?.persona;
@@ -65,6 +76,119 @@ function WelcomeBubble({ context }: { context: WelcomeContext | null }) {
     </div>
   );
 }
+
+/**
+ * v0.2-alpha-20 — First-run welcome (design 06 main-card variant).
+ *
+ * Bigger, friendlier version of WelcomeBubble used on first launch
+ * (no sessions in DB yet). Centered card with logo, description,
+ * recommended-persona chips, the primary "create first session" CTA,
+ * and a keyboard-shortcuts hint footer. main.ts wires the CTA to
+ * createSession(); the chips surface the same personas the user
+ * will see in the picker (cosmetic for now — clicking a chip also
+ * creates the session).
+ */
+function FirstRunWelcome({
+  onCreateSession,
+  recommendedPersonas,
+}: {
+  onCreateSession: () => void;
+  recommendedPersonas: { avatar: string; name: string; tag: string }[];
+}) {
+  return (
+    <div class="welcome-card first-run-welcome" role="region" aria-label="首次使用引导">
+      <div class="welcome-card-logo" aria-hidden="true">💬</div>
+      <h2 class="welcome-card-title">欢迎使用 Hermes Chat</h2>
+      <p class="welcome-card-desc">
+        Hermes 是你的本地 AI 对话助手，支持多会话管理、Token 成本统计与加密备份。
+        选择一个 Persona 开始你的第一次对话。
+      </p>
+      <div class="welcome-card-divider">推荐 Persona</div>
+      <div class="welcome-card-personas">
+        {recommendedPersonas.map((p) => (
+          <button
+            key={p.name}
+            type="button"
+            class="persona-chip"
+            onClick={onCreateSession}
+          >
+            <span class="persona-chip-avatar" aria-hidden="true">{p.avatar}</span>
+            <span class="persona-chip-text">
+              <span class="persona-chip-name">{p.name}</span>
+              <span class="persona-chip-tag">{p.tag}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        class="btn btn-primary welcome-card-cta"
+        onClick={onCreateSession}
+      >
+        创建第一个会话 →
+      </button>
+      <p class="welcome-card-shortcuts">
+        或按 <kbd>Ctrl</kbd>+<kbd>K</kbd> 快速搜索 · <kbd>Ctrl</kbd>+<kbd>N</kbd> 新建会话
+      </p>
+    </div>
+  );
+}
+
+/**
+ * v0.2-alpha-20 — Empty (no network, design 07).
+ *
+ * Shown when checkConnection() reports the gateway is offline + no
+ * messages are loaded. Centered card with an error icon, the
+ * human-readable reason ("无法连接 hermes-agent"), the gateway URL
+ * (passed in via `gatewayHint` so we don't pull it from a global),
+ * and two action buttons: retry the connection, or open the
+ * settings modal to fix the URL / API key.
+ */
+function EmptyNoNetwork({
+  gatewayHint,
+  onRetry,
+  onOpenSettings,
+}: {
+  gatewayHint: string;
+  onRetry: () => void;
+  onOpenSettings: () => void;
+}) {
+  return (
+    <div class="welcome-card no-network-card" role="status" aria-live="polite">
+      <div class="welcome-card-error-icon" aria-hidden="true">⚠️</div>
+      <h2 class="welcome-card-title">无法连接 hermes-agent</h2>
+      <p class="welcome-card-desc">
+        请检查 hermes-agent 服务是否启动，或确认 Gateway 地址是否正确。
+      </p>
+      <p class="welcome-card-hint">{gatewayHint}</p>
+      <div class="welcome-card-actions">
+        <button type="button" class="btn btn-primary" onClick={onRetry}>
+          重试连接
+        </button>
+        <button type="button" class="btn btn-secondary" onClick={onOpenSettings}>
+          查看连接设置
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * v0.2-alpha-20 — design 08 mapping.
+ *
+ * The "online + has sessions in DB but the user just deleted the
+ * active one" case (design 08) is currently unreachable in our boot
+ * flow because loadLastSession() always picks the most recent
+ * session — there's no path where currentSessionId=null while
+ * hasSessions=true. When we eventually add a "create new session,
+ * no auto-select" UX we'll re-introduce EmptyNoSessions as a slim
+ * variant of FirstRunWelcome (persona chips don't apply when the
+ * user is past first-run). For now the standard WelcomeBubble
+ * covers design 08 — see ChatView's `showStandardWelcome` branch.
+ *
+ * Keeping this comment block as a marker so the next person knows
+ * where design 08 lives in the wiring.
+ */
 
 function UserBubble({ msg }: { msg: ChatMessage }) {
   // User messages render attachments as a thumbnail strip + the raw
@@ -181,7 +305,25 @@ function renderBarText(bar: ChatMessageBar): string | null {
   return parts.join(" · ");
 }
 
-export function ChatView({ welcomeContext }: { welcomeContext?: WelcomeContext | null }) {
+export function ChatView({
+  welcomeContext,
+  onCreateSession,
+  onRetryConnection,
+  onOpenSettings,
+  recommendedPersonas,
+  gatewayHint,
+}: {
+  welcomeContext?: WelcomeContext | null;
+  onCreateSession?: () => void;
+  onRetryConnection?: () => void;
+  onOpenSettings?: () => void;
+  /** Persona chips shown in the first-run welcome card. Defaults to
+   *  the built-in `hermes-agent` + `code-reviewer` pair from design 06
+   *  when the caller doesn't supply a list. */
+  recommendedPersonas?: { avatar: string; name: string; tag: string }[];
+  /** Human-readable gateway hint shown in the no-network card. */
+  gatewayHint?: string;
+}) {
   const [state, setState] = useState<ChatStoreState>(chatStore.get());
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -197,8 +339,27 @@ export function ChatView({ welcomeContext }: { welcomeContext?: WelcomeContext |
     if (el) el.scrollTop = el.scrollHeight;
   }, [state]);
 
-  const showWelcome =
+  const isEmpty =
     state.messages.length === 0 && state.streaming === null && state.error === null;
+
+  // v0.2-alpha-20: pick the empty-state variant based on
+  // connectionStatus + hasSessions. Priority:
+  //   1. no-network  (design 07 — error card)
+  //   2. first-run   (design 06 — welcome card with persona chips)
+  //   3. standard    (lightweight WelcomeBubble — alpha-16 default)
+  // No-network wins on first launch so the user sees the error early
+  // instead of a clean empty state that hides the bug.
+  const showNoNetwork = isEmpty && state.connectionStatus === "offline";
+  const showFirstRun =
+    isEmpty && state.connectionStatus === "online" && !state.hasSessions;
+  const showStandardWelcome =
+    isEmpty && state.connectionStatus === "online" && state.hasSessions;
+
+  // Default persona chips for the first-run card (design 06). The
+  // caller can override via the prop — main.ts will eventually pass
+  // the real personasCache here, but the static defaults keep the
+  // view self-contained for tests + the alpha-20 boot.
+  const personas = recommendedPersonas ?? DEFAULT_RECOMMENDED_PERSONAS;
 
   return (
     <div ref={scrollRef} class="chat-view">
@@ -211,10 +372,32 @@ export function ChatView({ welcomeContext }: { welcomeContext?: WelcomeContext |
       )}
       {state.streaming ? <StreamingBubble content={state.streaming.content} /> : null}
       {state.error ? <ErrorBubble message={state.error} /> : null}
-      {showWelcome ? <WelcomeBubble context={welcomeContext ?? null} /> : null}
+      {showNoNetwork ? (
+        <EmptyNoNetwork
+          gatewayHint={gatewayHint ?? "默认 Gateway: http://127.0.0.1:8788"}
+          onRetry={() => onRetryConnection?.()}
+          onOpenSettings={() => onOpenSettings?.()}
+        />
+      ) : null}
+      {showFirstRun ? (
+        <FirstRunWelcome
+          onCreateSession={() => onCreateSession?.()}
+          recommendedPersonas={personas}
+        />
+      ) : null}
+      {showStandardWelcome ? <WelcomeBubble context={welcomeContext ?? null} /> : null}
     </div>
   );
 }
+
+/** v0.2-alpha-20 — default persona chips for the first-run welcome
+ *  card (design 06). Matches the v0.1.5 picker defaults (通用助手
+ *  hermes-agent + 代码审查 code-reviewer). main.ts can override via
+ *  the `recommendedPersonas` prop once personasCache is wired in. */
+const DEFAULT_RECOMMENDED_PERSONAS: { avatar: string; name: string; tag: string }[] = [
+  { avatar: "🦊", name: "hermes-agent", tag: "通用助手" },
+  { avatar: "🛡", name: "code-reviewer", tag: "代码审查" },
+];
 
 /**
  * Stable key per message. We use `timestamp.getTime()` cast to string
@@ -260,13 +443,37 @@ export const chatWelcomeStore = {
 };
 
 /**
+ * v0.2-alpha-20 — Props for the empty-state action buttons (CTA +
+ * retry + settings). main.ts supplies these so the Preact view
+ * stays decoupled from the SSE / settings / session mutators.
+ */
+export interface ChatViewActions {
+  onCreateSession?: () => void;
+  onRetryConnection?: () => void;
+  onOpenSettings?: () => void;
+  /** Default Gateway hint shown in the no-network card. */
+  gatewayHint?: string;
+  /** Persona chips for the first-run welcome card. */
+  recommendedPersonas?: { avatar: string; name: string; tag: string }[];
+}
+
+/**
  * ChatViewWithWelcome — convenience wrapper that subscribes to
  * `chatWelcomeStore` and passes the latest context into <ChatView>.
  * main.ts renders this single component; the input form + sidebar +
  * header all stay outside the Preact tree for now (alpha-17 scope).
  */
-export function ChatViewWithWelcome() {
+export function ChatViewWithWelcome({ actions }: { actions?: ChatViewActions } = {}) {
   const [welcome, setWelcome] = useState<WelcomeStore>(chatWelcomeStore.get());
   useEffect(() => chatWelcomeStore.subscribe(setWelcome), []);
-  return <ChatView welcomeContext={welcome.context} />;
+  return (
+    <ChatView
+      welcomeContext={welcome.context}
+      onCreateSession={actions?.onCreateSession}
+      onRetryConnection={actions?.onRetryConnection}
+      onOpenSettings={actions?.onOpenSettings}
+      gatewayHint={actions?.gatewayHint}
+      recommendedPersonas={actions?.recommendedPersonas}
+    />
+  );
 }
