@@ -1253,8 +1253,14 @@ function openStatsModal(): void {
   // the boot as complete and fade the splash out. The store snaps
   // progress to 100 + sets visible=false; the Preact view returns
   // null on the next render, removing the overlay from the DOM.
-  splashStore.setProgress(100);
-  splashStore.hide();
+  //
+  // v0.2-alpha-22: ?freezeSplash=1 query param skips the hide()
+  // so the Playwright harness can capture the splash overlay
+  // before main.ts auto-dismisses it. No-op in real Tauri runs.
+  if (!new URLSearchParams(location.search).has("freezeSplash")) {
+    splashStore.setProgress(100);
+    splashStore.hide();
+  }
 
   // v0.2-alpha-19: register the Ctrl+Shift+H global shortcut via
   // src/lib/shortcuts.ts. We pass in the imperative callbacks
@@ -1300,6 +1306,12 @@ function openStatsModal(): void {
   // v0.2-alpha-19: mount the shortcuts modal (design 16). Triggered
   // by Ctrl+/ — see the global keydown listener above.
   mountShortcutsModal();
+
+  // v0.2-alpha-22: optional Playwright test hook. Only attaches
+  // when the harness set `window.__HERMES_TEST__ = {}` before the
+  // bundle loaded. No-op in real Tauri runs — see
+  // src/debug-test-hooks.ts for the full rationale.
+  await import('./debug-test-hooks');
 
   // Cleanup on unload
   window.addEventListener('unload', async () => {
