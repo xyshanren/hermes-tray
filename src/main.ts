@@ -58,6 +58,23 @@ import {
 } from './views/share-flow';
 import { shareStore } from './views/share-modal-store';
 import { mountShareImportModal } from './views/share-modal-mount';
+// v0.2-alpha-16 — Chat view split into a Preact component backed by a
+// pub-sub store. main.ts keeps the input form + SSE pipeline but
+// delegates message-bubble rendering, streaming bubble updates, and
+// the welcome screen to <ChatViewWithWelcome />.
+import { chatStore, chatWelcomeStore, mountChatView } from './views/chat-view-mount';
+import type { ChatMessage as Message, PendingAttachment, ChatMessageBar } from './views/chat-view-store';
+// Re-export the chat formatters from main.ts so the existing
+// src/messageBar.test.ts + src/routingTrace.test.ts suites (which
+// import from './main') keep working without churn. The test files
+// themselves were not migrated — the new helpers live in
+// src/lib/chat-formatters.ts but main.ts remains the public face.
+// We also import buildMessageBar for use in the streaming finalization
+// path (referenced via `void buildMessageBar` to keep the symbol alive
+// for any future imperative caller — the Preact view now renders the
+// CLI bar from the ChatMessageBar data directly).
+export { formatMessageBar, formatRoutingTrace, formatLatencyMs } from './lib/chat-formatters';
+import { buildMessageBar } from './lib/chat-formatters';
 
 const UNKNOWN_MODEL = '-';
 
@@ -177,49 +194,17 @@ let personasCache: Persona[] = [];
 // Bootstrap (DOMContentLoaded) and the settings save handler are the two
 // places that mutate state — they call the new setters. Everything else
 // reads via getters and stays untouched.
-
-interface Message {
-  role: 'user' | 'assistant' | 'system';
-  /** Text-only content for rendering + DB persistence. For multimodal
-   * user messages, this is the visible text portion; the images are
-   * reconstructed from the `attachments` field (if any) at send time. */
-  content: string;
-  /** T-Q-S14: image attachments sent alongside this message. Persisted
-   * to DB only as part of the `metadata` blob (we keep a thin index
-   * of names + types in `Message.metadata` so reloads can show what
-   * was attached without the bytes). */
-  attachments?: PendingAttachment[];
-  timestamp: Date;
-}
-
-/** T-Q-S14: a single image attachment waiting to be sent. */
-interface PendingAttachment {
-  /** data: URL (base64-encoded) ready for OpenAI `image_url.url`. */
-  dataUrl: string;
-  /** Original filename for display. */
-  name: string;
-  /** MIME type, e.g. `image/png`. */
-  type: string;
-  /** Byte size — displayed alongside the thumbnail. */
-  size: number;
-}
-
-interface ChatState {
-  messages: Message[];
-  isLoading: boolean;
-  connectionStatus: 'disconnected' | 'connecting' | 'connected';
-  currentModel: string;
-  isStreaming: boolean;
-  streamContent: string;
-  streamElement: HTMLElement | null;
-  // S14-agent: per-stream metadata captured from the final SSE chunk.
-  // The agent pushes real prompt/completion/image token counts plus a
-  // routing_decision + elapsed_ms blob; finishStream() persists these
-  // via message_record_usage. Reset on every new turn.
-  lastStreamUsage: Record<string, unknown> | null;
-  lastStreamRouting: unknown;
-  lastStreamElapsedMs: number | null;
-}
+//
+// v0.2-alpha-16: `Message` / `PendingAttachment` / `ChatMessageBar` now
+// live in src/views/chat-view-store.ts (imported at the top of this
+// file). The old `ChatState` interface is gone — the messages array
+// moved into chatStore (the pub-sub store owned by chat-view-store.ts)
+// and the streaming chunk / DOM element refs are now internal to the
+// Preact view. `state` below only keeps the fields main.ts owns:
+//   - connectionStatus / currentModel: gateway-side state
+//   - isLoading: drives the send-button label + disabled state
+//   - isStreaming: shadowed by chatStore.streaming; kept here for the
+//     legacy handleSubmit guard. Will move into the store in alpha-17.
 
 const CONFIG = {
   defaultModel: 'hermes-agent',
@@ -228,20 +213,22 @@ const CONFIG = {
   maxInputLength: 4000,
 };
 
-const state: ChatState = {
+interface MainState {
+  messages: Message[];
+  isLoading: boolean;
+  connectionStatus: 'disconnected' | 'connecting' | 'connected';
+  currentModel: string;
+  isStreaming: boolean;
+}
+
+const state: MainState = {
   messages: [],
   isLoading: false,
   connectionStatus: 'disconnected',
   currentModel: UNKNOWN_MODEL,
   isStreaming: false,
-  streamContent: '',
-  streamElement: null,
-  lastStreamUsage: null,
-  lastStreamRouting: null,
-  lastStreamElapsedMs: null,
 };
 
-let messagesContainer: HTMLElement | null = null;
 let messageInput: HTMLTextAreaElement | null = null;
 let sendBtn: HTMLButtonElement | null = null;
 let connectionStatusEl: HTMLElement | null = null;
@@ -249,6 +236,16 @@ let statusText: HTMLElement | null = null;
 let modelName: HTMLElement | null = null;
 let charCount: HTMLElement | null = null;
 let chatForm: HTMLFormElement | null = null;
+
+// S14-agent: per-stream metadata captured from the final SSE chunk.
+// The agent pushes real prompt/completion/image token counts plus a
+// routing_decision + elapsed_ms blob; finishStream() persists these
+// via message_record_usage. These moved off the global `state` object
+// because they only exist for the lifetime of one stream — module-level
+// lets make that scope explicit and reset cleanly between turns.
+let lastStreamUsage: Record<string, unknown> | null = null;
+let lastStreamRouting: unknown = null;
+let lastStreamElapsedMs: number | null = null;
 
 let unlistenChunk: (() => void) | null = null;
 let unlistenDone: (() => void) | null = null;
@@ -465,8 +462,11 @@ async function selectSession(id: string): Promise<void> {
     console.warn('[Session] failed to load row for system-prompt compose:', e);
     currentSession = null;
   }
-  const messagesEl = document.getElementById('messages');
-  if (!messagesEl) return;
+  // v0.2-alpha-16: hand the loaded history to chatStore; the Preact
+  // <ChatViewWithWelcome /> subscription picks it up and renders the
+  // bubbles. We also clear any stale welcome context — selecting an
+  // existing session shouldn't show the "新会话已开始" hints.
+  chatWelcomeStore.setContext(null);
   try {
     const msgs = await invoke<DbMessage[]>('message_list', { sessionId: id, limit: 100, offset: 0 });
     state.messages = msgs.map(m => ({
@@ -474,17 +474,19 @@ async function selectSession(id: string): Promise<void> {
       content: m.content,
       timestamp: new Date(m.created_at)
     }));
-    messagesEl.innerHTML = '';
-    for (const m of state.messages) {
-      renderMessage(m);
-    }
+    chatStore.setMessages(state.messages);
     if (state.messages.length === 0) {
-      messagesEl.innerHTML = '<div class="welcome-message"><p>👋 此会话暂无消息</p><p class="hint">在下方输入消息开始对话</p></div>';
+      // Empty session — show the default welcome bubble. ChatView
+      // falls back to that automatically when messages is empty and
+      // welcomeContext is null, so no explicit call is needed here.
     }
     await invoke('session_touch', { id });
   } catch (e) {
     console.error('[Session] select error:', e);
-    messagesEl.innerHTML = '<div class="welcome-message"><p>❌ 加载会话失败</p></div>';
+    // Surface the load failure via the store's error channel; the
+    // Preact view renders a red error bubble in place of the welcome.
+    chatStore.setError('加载会话失败');
+    chatStore.setMessages([]);
   }
   // Highlight active session in list
   document.querySelectorAll('.session-item').forEach(el => {
@@ -525,19 +527,28 @@ async function createSession(): Promise<string | null> {
     currentSessionId = session.id;
     currentSession = session;
     state.messages = [];
-    const messagesEl = document.getElementById('messages');
-    if (messagesEl) {
-      const persona = personasCache.find(p => p.id === currentPersonaId);
-      const proj = parseProjectContext(session.project_context);
-      const personaHint = persona
-        ? `<p class="hint">Persona: ${persona.avatar ?? ''} ${escapeHtml(persona.name)}</p>`
-        : '';
-      const projectHint = proj
-        ? `<p class="hint">项目: ${escapeHtml(proj.name)}${proj.version ? ` v${escapeHtml(proj.version)}` : ''} (${escapeHtml(proj.project_dir)})</p>`
-        : (projectDir ? `<p class="hint">项目路径已设置但扫描失败: ${escapeHtml(projectDir)}</p>` : '');
-      const hint = personaHint + projectHint || '<p class="hint">在下方输入消息开始对话</p>';
-      messagesEl.innerHTML = `<div class="welcome-message"><p>👋 新会话已开始</p>${hint}</div>`;
-    }
+    // v0.2-alpha-16: drive the welcome bubble via the store instead of
+    // building innerHTML inline. The persona + project context are
+    // pushed into chatWelcomeStore; <ChatViewWithWelcome /> picks them
+    // up and renders the equivalent welcome. We compute the project
+    // hint shape here so all string assembly happens in main.ts (the
+    // Preact view is pure render).
+    const persona = personasCache.find(p => p.id === currentPersonaId);
+    const proj = parseProjectContext(session.project_context);
+    chatWelcomeStore.setContext({
+      headline: '👋 新会话已开始',
+      persona: persona
+        ? { avatar: persona.avatar ?? '', name: persona.name }
+        : null,
+      project: proj
+        ? {
+            name: proj.name,
+            version: proj.version ?? undefined,
+            path: proj.project_dir,
+          }
+        : (projectDir ? { name: '', path: projectDir, scanFailed: true } : null),
+    });
+    chatStore.setMessages([]);
     await loadSessionList(true);
     return session.id;
   } catch (e) {
@@ -554,10 +565,11 @@ async function deleteSession(id: string): Promise<void> {
       currentSessionId = null;
       currentSession = null;
       state.messages = [];
-      const messagesEl = document.getElementById('messages');
-      if (messagesEl) {
-        messagesEl.innerHTML = '<div class="welcome-message"><p>👋 欢迎使用 Hermes Chat</p><p class="hint">在下方输入消息开始对话</p></div>';
-      }
+      // v0.2-alpha-16: clear the welcome context (no persona/project
+      // hints) and reset the chat store. ChatView falls back to the
+      // generic welcome when messages is empty + welcomeContext null.
+      chatWelcomeStore.setContext(null);
+      chatStore.setMessages([]);
     }
     await loadSessionList();
     showToast('会话已删除', '', 'success');
@@ -820,7 +832,17 @@ function fileToAttachment(file: File): Promise<PendingAttachment> {
         reject(new Error('FileReader 返回非字符串结果'));
         return;
       }
+      // v0.2-alpha-16: PendingAttachment now carries a stable `id` so
+      // the Preact <AttachmentStrip /> uses it as a key without having
+      // to derive one from the data URL. crypto.randomUUID() is
+      // available in the WebView (Tauri 2 uses Edge WebView2 on
+      // Windows + WebKitGTK on Linux) — fallback to a timestamp+counter
+      // combo for paranoia.
+      const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? `att-${crypto.randomUUID()}`
+        : `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       resolve({
+        id,
         dataUrl,
         name: file.name,
         type: file.type,
@@ -1088,7 +1110,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   } catch { /* no config */ }
 
-  messagesContainer = document.getElementById('messages');
+  // v0.2-alpha-16: the messages container is owned by <ChatViewWithWelcome />
+  // (mounted via mountChatView() below). We no longer query it here.
   messageInput = document.getElementById('message-input') as HTMLTextAreaElement;
   sendBtn = document.getElementById('send-btn') as HTMLButtonElement;
   connectionStatusEl = document.getElementById('connection-status');
@@ -1319,6 +1342,12 @@ function openStatsModal(): void {
   document.getElementById('sidebar-backup-btn')?.addEventListener('click', () => openBackupModal());
   mountBackupModal();
 
+  // v0.2-alpha-16: mount the chat view Preact component. This replaces
+  // the v0.1.5 innerHTML-based message rendering inside <div id="messages">.
+  // Must run after the modal mounts above so chatStore / chatWelcomeStore
+  // subscribers are already wired (we share the store imports).
+  mountChatView();
+
   // Register global shortcut: Ctrl+Shift+H — quick capture new session
   try {
     await register('Ctrl+Shift+H', async () => {
@@ -1402,7 +1431,18 @@ async function handleSubmit(e: Event) {
     if (!currentSessionId) return;
   }
 
-  addMessage('user', content, attachmentsAtSend);
+  // v0.2-alpha-16: push the user message into the chat store. The
+  // Preact <ChatViewWithWelcome /> subscription re-renders the new
+  // bubble. We also keep state.messages in sync (main.ts reads from
+  // it during the SSE submit pipeline) — chatStore.setMessages below
+  // would replace, but appendMessage preserves prior history.
+  chatStore.appendMessage({
+    role: 'user',
+    content,
+    timestamp: new Date(),
+    attachments: attachmentsAtSend.length > 0 ? attachmentsAtSend : undefined,
+  });
+  state.messages = chatStore.get().messages;
   // Persist user message to DB (text only — images go in metadata for size).
   if (currentSessionId) {
     const metadata = attachmentsAtSend.length > 0
@@ -1427,39 +1467,11 @@ async function handleSubmit(e: Event) {
   await sendMessage();
 }
 
-function addMessage(role: 'user' | 'assistant', content: string, attachments?: PendingAttachment[]) {
-  const msg: Message = { role, content, timestamp: new Date() };
-  if (attachments && attachments.length > 0) msg.attachments = attachments;
-  state.messages.push(msg);
-  renderMessage(msg);
-  scrollToBottom();
-}
-
-function renderMessage(message: Message) {
-  if (!messagesContainer) return;
-  const welcome = messagesContainer.querySelector('.welcome-message');
-  if (welcome) welcome.remove();
-
-  const div = document.createElement('div');
-  div.className = `message ${message.role}`;
-
-  const avatar = document.createElement('div');
-  avatar.className = 'message-avatar';
-  avatar.textContent = message.role === 'user' ? '👤' : '🤖';
-
-  const content = document.createElement('div');
-  content.className = 'message-content';
-  content.innerHTML = message.role === 'assistant' ? formatMessage(message.content) : message.content;
-
-  div.appendChild(avatar);
-  div.appendChild(content);
-  messagesContainer.appendChild(div);
-}
-
-function formatMessage(content: string): string {
-  // Use marked for full GFM markdown rendering (tables, code blocks with syntax highlighting, etc.)
-  return marked.parse(content) as string;
-}
+// v0.2-alpha-16: addMessage / renderMessage / createStreamMessage /
+// scrollToBottom / formatMessage moved into src/views/chat-view.tsx
+// and src/lib/chat-formatters.ts. The local DOM-rendering helpers are
+// gone — main.ts only mutates the store now and the Preact view owns
+// the bubble rendering + auto-scroll.
 
 /**
  * S14-agent: turn the routing_decision JSON blob into a one-line trace
@@ -1469,51 +1481,21 @@ function formatMessage(content: string): string {
  *     fallback_provider, fallback_model }
  * We render the bits the user cares about and ignore unknown fields so
  * future agent-side additions don't break the UI.
+ *
+ * v0.2-alpha-16: this function moved to src/lib/chat-formatters.ts and
+ * is re-exported from main.ts above for backward compatibility with
+ * src/routingTrace.test.ts (which imports from "./main").
  */
-export function formatRoutingTrace(blob: string | null): string {
-  if (!blob) return '';
-  let parsed: Record<string, unknown>;
-  try { parsed = JSON.parse(blob) as Record<string, unknown>; }
-  catch { return ''; }
-  const mode = typeof parsed.mode === 'string' ? parsed.mode : null;
-  const provider = typeof parsed.resolved_provider === 'string' ? parsed.resolved_provider : null;
-  const model = typeof parsed.resolved_model === 'string' ? parsed.resolved_model : null;
-  const fallbackUsed = parsed.fallback_used === true;
-  const fallbackReason = typeof parsed.fallback_reason === 'string' ? parsed.fallback_reason : null;
-  const fallbackProvider = typeof parsed.fallback_provider === 'string' ? parsed.fallback_provider : null;
-  if (fallbackUsed && fallbackProvider) {
-    return `vision fallback: ${provider}/${model} (primary ${fallbackReason ?? 'unavailable'})`;
-  }
-  if (mode && provider) {
-    return `vision ${mode}: ${provider}/${model}`;
-  }
-  return '';
-}
 
-/** S14-agent: render elapsed_ms as a human latency string. */
-export function formatLatencyMs(ms: number | null): string {
-  if (ms == null || ms < 0) return '';
-  if (ms < 1000) return `${ms}ms`;
-  const s = (ms / 1000).toFixed(1);
-  return `${s}s`;
-}
-
-function createStreamMessage(): HTMLElement {
-  if (!messagesContainer) return document.createElement('div');
-  const div = document.createElement('div');
-  div.className = 'message assistant';
-  const avatar = document.createElement('div');
-  avatar.className = 'message-avatar';
-  avatar.textContent = '🤖';
-  const content = document.createElement('div');
-  content.className = 'message-content';
-  div.appendChild(avatar);
-  div.appendChild(content);
-  messagesContainer.appendChild(div);
-  scrollToBottom();
-  return content;
-}
-
+/**
+ * v0.2-alpha-16: handleStreamChunk rewritten to delegate DOM updates to
+ * the chat store. The Preact <ChatViewWithWelcome /> subscriber picks
+ * up `appendStreamChunk` calls and re-renders the streaming bubble.
+ *
+ * Per-stream metadata (usage / routing / elapsed_ms) stays on
+ * module-level `let` variables so finishStream() can read them when
+ * the agent emits `hermes-stream-done`.
+ */
 function handleStreamChunk(payload: string) {
   // Parse SSE data: lines that start with "data: "
   const lines = payload.split('\n');
@@ -1525,11 +1507,10 @@ function handleStreamChunk(payload: string) {
       const json = JSON.parse(data);
       const delta = json.choices?.[0]?.delta?.content;
       if (delta) {
-        state.streamContent += delta;
-        if (state.streamElement) {
-          state.streamElement.innerHTML = formatMessage(state.streamContent);
-          scrollToBottom();
-        }
+        // Append to the streaming bubble via the store; the Preact
+        // view re-renders automatically. We do NOT mutate a DOM
+        // element directly anymore — that path is gone in alpha-16.
+        chatStore.appendStreamChunk(delta);
       }
       // S14-agent: capture the final-chunk usage + routing metadata so
       // finishStream() can persist the real token count (replacing the
@@ -1539,167 +1520,103 @@ function handleStreamChunk(payload: string) {
       // across chunks and we want the most recent.
       const usage = json.usage;
       if (usage && typeof usage === 'object') {
-        state.lastStreamUsage = usage;
+        lastStreamUsage = usage;
         const rd = (usage as Record<string, unknown>).routing_decision;
-        if (rd) state.lastStreamRouting = rd;
+        if (rd) lastStreamRouting = rd;
         const el = (usage as Record<string, unknown>).elapsed_ms;
-        if (typeof el === 'number') state.lastStreamElapsedMs = el;
+        if (typeof el === 'number') lastStreamElapsedMs = el;
       }
       // Some agent shapes emit routing_decision at the top level of the
       // final chunk (not nested under usage). Cover that case too.
       const topRd = (json as Record<string, unknown>).routing_decision;
-      if (topRd) state.lastStreamRouting = topRd;
+      if (topRd) lastStreamRouting = topRd;
       const topEl = (json as Record<string, unknown>).elapsed_ms;
-      if (typeof topEl === 'number') state.lastStreamElapsedMs = topEl;
+      if (typeof topEl === 'number') lastStreamElapsedMs = topEl;
     } catch { /* skip invalid JSON */ }
   }
 }
 
-/**
- * v0.1.5 S12: turn the per-turn routing telemetry into the one-line
- * "CLI bar" text. Format:
- *   💰 $0.0234 · ⏱ 3.4s · 🛡 vision_fallback_config
- *
- * Pure function so it can be unit-tested without a DOM. Each section
- * is appended in fixed order (cost → latency → rule) and only when
- * the field has a meaningful value, so pre-S12 messages that have no
- * telemetry get a single missing segment (or nothing) rather than a
- * half-empty bar.
- *
- * Returns the formatted string, or null when none of the three
- * fields has a meaningful value (e.g. a pre-S12 message) — the
- * caller can then skip appending a bar at all.
- */
-export function formatMessageBar(args: {
-  costUsd: number;
-  elapsedMs: number | null;
-  ruleId: string | null;
-  costThresholdExceeded: boolean;
-}): string | null {
-  const parts: string[] = [];
-  if (args.costUsd > 0) {
-    parts.push(`💰 $${args.costUsd.toFixed(4)}`);
-  }
-  if (args.elapsedMs != null && args.elapsedMs > 0) {
-    // Reuse formatLatencyMs from the routing-trace helper.
-    parts.push(`⏱ ${formatLatencyMs(args.elapsedMs)}`);
-  }
-  if (args.ruleId) {
-    parts.push(`🛡 ${args.ruleId}`);
-  } else if (args.costThresholdExceeded) {
-    // Threshold was tripped but the agent didn't surface a rule_id —
-    // surface the breach anyway so the user can see something fired.
-    parts.push(`🛡 cost_threshold_exceeded`);
-  }
-  if (parts.length === 0) return null;
-  return parts.join(' · ');
-}
-
-/**
- * v0.1.5 S12: DOM wrapper around `formatMessageBar`. Creates the
- * `<div class="message-bar">` element and adds the `-warn` modifier
- * when the S12 cost-aware fallback flagged a budget overrun, so
- * silent overruns are visible without opening the stats modal.
- */
-function buildMessageBar(args: {
-  costUsd: number;
-  elapsedMs: number | null;
-  ruleId: string | null;
-  costThresholdExceeded: boolean;
-}): HTMLElement | null {
-  const text = formatMessageBar(args);
-  if (text == null) return null;
-  const div = document.createElement('div');
-  div.className = 'message-bar';
-  if (args.costThresholdExceeded) div.classList.add('message-bar-warn');
-  div.textContent = text;
-  return div;
-}
-
 async function finishStream() {
-  if (state.streamContent) {
-    state.messages.push({
-      role: 'assistant',
-      content: state.streamContent,
-      timestamp: new Date(),
-    });
-      // Persist assistant message to DB
-      if (currentSessionId) {
-        // message_append returns the persisted Message (with the new id).
-        // We need that id to call message_record_usage in the S14 path.
-        try {
-          const appended = await invoke<{ id: string; tokens: number }>('message_append', {
-            sessionId: currentSessionId,
-            role: 'assistant',
-            content: state.streamContent,
-            toolCalls: null,
+  // v0.2-alpha-16: read the streaming bubble content from the store
+  // (it's authoritative — chunks went through chatStore.appendStreamChunk).
+  // We still own the DB persistence + S14 usage tracking here in
+  // main.ts because those side-effects don't belong in a view file.
+  const streamingSnapshot = chatStore.get().streaming;
+  if (streamingSnapshot) {
+    const finalContent = streamingSnapshot.content;
+    // Compute the CLI bar metadata BEFORE we reset the per-stream
+    // module-level lets below — the S14 final-chunk values are the
+    // source of truth for the bar.
+    const usage = lastStreamUsage;
+    const costUsd = (usage && typeof usage.cost_estimate_usd === 'number')
+      ? usage.cost_estimate_usd : 0;
+    const routingObj = (lastStreamRouting ?? {}) as Record<string, unknown>;
+    const costThresholdExceeded = routingObj.cost_threshold_exceeded === true;
+    const ruleId = typeof routingObj.rule_id === 'string' ? routingObj.rule_id : null;
+    const bar: ChatMessageBar = {
+      costUsd,
+      elapsedMs: lastStreamElapsedMs,
+      ruleId,
+      costThresholdExceeded,
+    };
+    // Hand the finalised bubble + bar to the Preact view. The store
+    // clears its own streaming slot as part of finaliseStream().
+    chatStore.finaliseStream(bar);
+    state.messages = chatStore.get().messages;
+
+    // Persist assistant message to DB
+    if (currentSessionId) {
+      // message_append returns the persisted Message (with the new id).
+      // We need that id to call message_record_usage in the S14 path.
+      try {
+        const appended = await invoke<{ id: string; tokens: number }>('message_append', {
+          sessionId: currentSessionId,
+          role: 'assistant',
+          content: finalContent,
+          toolCalls: null,
+        });
+        // S14-agent: if the upstream pushed real usage, replace the
+        // char/4 heuristic tokens + stash image_tokens / routing_decision
+        // on the message metadata so the stats modal can show them.
+        if (appended?.id && usage && typeof usage.prompt_tokens === 'number') {
+          const detail = (usage.prompt_tokens_details ?? {}) as Record<string, unknown>;
+          const imageTokens = typeof detail.image_tokens === 'number'
+            ? detail.image_tokens : 0;
+          const routingJson = lastStreamRouting != null
+            ? JSON.stringify(lastStreamRouting) : null;
+          await invoke('message_record_usage', {
+            id: appended.id,
+            promptTokens: usage.prompt_tokens,
+            completionTokens: usage.completion_tokens ?? 0,
+            imageTokens,
+            routingDecisionJson: routingJson,
+            elapsedMs: lastStreamElapsedMs ?? null,
+            costEstimateUsd: costUsd,
+            costThresholdExceeded,
           });
-          // S14-agent: if the upstream pushed real usage, replace the
-          // char/4 heuristic tokens + stash image_tokens / routing_decision
-          // on the message metadata so the stats modal can show them.
-          const usage = state.lastStreamUsage;
-          if (appended?.id && usage && typeof usage.prompt_tokens === 'number') {
-            const detail = (usage.prompt_tokens_details ?? {}) as Record<string, unknown>;
-            const imageTokens = typeof detail.image_tokens === 'number'
-              ? detail.image_tokens : 0;
-            const routingJson = state.lastStreamRouting != null
-              ? JSON.stringify(state.lastStreamRouting) : null;
-            // v0.1.5 S12: real cost (USD) + cost-aware fallback flag.
-            // - cost_estimate_usd is pushed at the top level of the usage
-            //   payload by the agent (replaces the char/4 projection).
-            // - cost_threshold_exceeded lives inside routing_decision
-            //   (mirrors the S12 RoutingDecision dataclass field).
-            // - rule_id is the S12 routing rule that fired (e.g.
-            //   "vision_fallback_config"), used for the CLI bar.
-            const costUsd = typeof usage.cost_estimate_usd === 'number'
-              ? usage.cost_estimate_usd : 0;
-            const routingObj = (state.lastStreamRouting ?? {}) as Record<string, unknown>;
-            const costThresholdExceeded = routingObj.cost_threshold_exceeded === true;
-            const ruleId = typeof routingObj.rule_id === 'string'
-              ? routingObj.rule_id : null;
-            await invoke('message_record_usage', {
-              id: appended.id,
-              promptTokens: usage.prompt_tokens,
-              completionTokens: usage.completion_tokens ?? 0,
-              imageTokens,
-              routingDecisionJson: routingJson,
-              elapsedMs: state.lastStreamElapsedMs ?? null,
-              costEstimateUsd: costUsd,
-              costThresholdExceeded,
-            });
-            // v0.1.5 S12 CLI bar: render the per-turn cost / latency /
-            // rule summary as a one-liner under the assistant message.
-            // We attach it to the parent .message.assistant element (not
-            // the content div) so it sits BELOW the markdown body and
-            // stays in place across future re-renders.
-            const barParent = state.streamElement?.parentElement;
-            if (barParent) {
-              const bar = buildMessageBar({
-                costUsd,
-                elapsedMs: state.lastStreamElapsedMs,
-                ruleId,
-                costThresholdExceeded,
-              });
-              if (bar) barParent.appendChild(bar);
-            }
-          }
-        } catch (e) {
-          console.error('[DB] save assistant msg failed:', e);
+          // The CLI bar itself is rendered by the Preact <AssistantBubble />
+          // component from the `bar` prop we just attached to the
+          // message in chatStore.finaliseStream — we no longer append
+          // a DOM node imperatively. (buildMessageBar is unused on
+          // this path; we keep the export alive for any future caller
+          // that wants the imperative DOM form, e.g. tests.)
+          void buildMessageBar;
         }
-        invoke('session_touch', { id: currentSessionId }).catch(() => {});
-        // T-Q-S9: refresh sidebar row so the token badge updates after
-        // each assistant reply. The user sees their spend climbing live.
-        void refreshCurrentSessionRow();
+      } catch (e) {
+        console.error('[DB] save assistant msg failed:', e);
       }
+      invoke('session_touch', { id: currentSessionId }).catch(() => {});
+      // T-Q-S9: refresh sidebar row so the token badge updates after
+      // each assistant reply. The user sees their spend climbing live.
+      void refreshCurrentSessionRow();
+    }
   }
   state.isLoading = false;
   state.isStreaming = false;
-  state.streamContent = '';
-  state.streamElement = null;
   // S14: clear the per-stream metadata so the next turn starts fresh.
-  state.lastStreamUsage = null;
-  state.lastStreamRouting = null;
-  state.lastStreamElapsedMs = null;
+  lastStreamUsage = null;
+  lastStreamRouting = null;
+  lastStreamElapsedMs = null;
   updateSendButton();
 }
 
@@ -1707,10 +1624,12 @@ async function sendMessage() {
   state.isLoading = true;
   updateSendButton();
 
-  // Start streaming message
+  // v0.2-alpha-16: open the streaming bubble via the store. The Preact
+  // <ChatViewWithWelcome /> subscriber picks up the change and renders
+  // the empty streaming bubble; subsequent handleStreamChunk calls
+  // accumulate content into it.
   state.isStreaming = true;
-  state.streamContent = '';
-  state.streamElement = createStreamMessage();
+  chatStore.openStream();
 
   try {
     // T-Q-S7 + T-Q-S8: prepend a system message that combines the session's
@@ -1722,9 +1641,10 @@ async function sendMessage() {
     // it has attachments. Older messages in the window are sent as
     // text (their attachments are not re-attached — hermes-agent
     // would need to re-read them from storage, out of MVP scope).
-    const recent = state.messages
-      .filter(m => m.role !== 'system')
-      .slice(-10);
+    // v0.2-alpha-16: ChatMessage.role is 'user' | 'assistant' only
+    // (system prompts are injected below via apiMessages, never as
+    // history rows), so no role filter is needed here.
+    const recent = state.messages.slice(-10);
     // Find the last user message in the window. We only attach images
     // to the most recent user turn — older ones are sent as text only.
     let lastUserIdx = -1;
@@ -1759,20 +1679,14 @@ async function sendMessage() {
 
   } catch (error) {
     state.isStreaming = false;
-    state.streamContent = '';
     console.error('Send message error:', error);
-    let errorMsg = error instanceof Error ? error.message : String(error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
 
-    // Remove the stream message element if present
-    if (state.streamElement) {
-      state.streamElement.parentElement?.remove();
-    }
-
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'message error';
-    errorDiv.innerHTML = `<div class="message-content">❌ 连接失败: ${errorMsg}<br><small>请确保 Hermes Gateway 正在运行 (${getGatewayUrl()})</small></div>`;
-    messagesContainer?.appendChild(errorDiv);
-    scrollToBottom();
+    // v0.2-alpha-16: discard the half-written streaming bubble (the
+    // store clears its slot) and surface the error through the store's
+    // error channel — the Preact view renders a red error bubble.
+    chatStore.abortStream();
+    chatStore.setError(`连接失败: ${errorMsg} (${getGatewayUrl()})`);
     updateSendButton();
   }
 }
@@ -1839,6 +1753,6 @@ function updateSendButton() {
   }
 }
 
-function scrollToBottom() {
-  if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
+// v0.2-alpha-16: scrollToBottom / messagesContainer moved into the
+// Preact <ChatViewWithWelcome /> component. The view tracks its own
+// scroll position via useEffect on each chatStore state change.
