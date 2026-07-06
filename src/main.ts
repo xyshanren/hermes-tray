@@ -27,7 +27,8 @@ import { listen } from '@tauri-apps/api/event';
 import { register, unregister } from '@tauri-apps/plugin-global-shortcut';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { composeSystemPrompt } from './systemPrompt';
-import { formatTokens } from './tokenChart';
+// v0.2-alpha-17: formatTokens moved to sessions-list-view.tsx — it
+// formats the per-session token badge that the Preact view now owns.
 
 import { hermesGet, hermesPostStream, authHeaders } from './lib/api';
 import { showToast, type ToastType } from './lib/toast';
@@ -44,6 +45,7 @@ import { mountSettingsModal } from './views/settings-modal-mount';
 import { settingsStore } from './views/settings-modal-store';
 import { escapeHtml } from './lib/sanitize';
 import type { Persona } from './types';
+import type { Session } from './types';
 import {
   getGatewayUrl,
   setApiKey,
@@ -58,6 +60,13 @@ import {
 } from './views/share-flow';
 import { shareStore } from './views/share-modal-store';
 import { mountShareImportModal } from './views/share-modal-mount';
+// v0.2-alpha-17 — Sessions list + sidebar visibility moved to Preact
+// + pub-sub stores. main.ts keeps the data-fetching callbacks (select /
+// delete / rename / load-more / export) + the sidebar header button
+// click handlers; the view owns the per-row rendering + inline rename
+// editor + pagination + active highlight.
+import { mountSessionList, sessionListStore, PAGE_SIZE } from './views/sessions-list-mount';
+import { sidebarStore, mountSidebar } from './views/sidebar-mount';
 // v0.2-alpha-16 — Chat view split into a Preact component backed by a
 // pub-sub store. main.ts keeps the input form + SSE pipeline but
 // delegates message-bubble rendering, streaming bubble updates, and
@@ -79,19 +88,10 @@ import { buildMessageBar } from './lib/chat-formatters';
 const UNKNOWN_MODEL = '-';
 
 // ── Session / FTS5 types ──────────────────────────────────────────────────────
-
-interface Session {
-  id: string;
-  title: string;
-  persona_id: string | null;
-  project_dir: string | null;
-  project_context: string | null; // JSON-encoded ProjectContext (T-Q-S8)
-  created_at: string;
-  updated_at: string;
-  message_count: number;
-  total_tokens: number; // T-Q-S9: aggregate token count
-  model: string | null; // T-Q-S9: per-session model
-}
+//
+// v0.2-alpha-17: Session / DbMessage / ProjectContext are imported from
+// src/types.ts (alpha-1 extraction + alpha-8 schema sync). The local
+// `interface Session` that lived here since v0.1.5 was redundant.
 
 /**
  * T-Q-S12-light: pick the `model` field to send in a chat completion
@@ -174,7 +174,10 @@ interface DbMessage {
 
 let currentSessionId: string | null = null;
 let currentSession: Session | null = null; // T-Q-S8: full row for system-prompt composition
-let sidebarVisible = false;
+// v0.2-alpha-17: sidebarVisible moved to src/views/sidebar-store.ts.
+// main.ts reads it via sidebarStore.get() when it needs to make a
+// decision (e.g. Ctrl+K wants to surface the sidebar so the search
+// results are visible).
 
 // ── Persona state (T-Q-S7) ──────────────────────────────────────────────────────
 // `currentPersonaId` mirrors the persona picker in the header and is what
@@ -251,9 +254,12 @@ let unlistenChunk: (() => void) | null = null;
 let unlistenDone: (() => void) | null = null;
 
 // ── Session Management ────────────────────────────────────────────────────────
-
-let sessionOffset = 0;
-const SESSION_PAGE = 50;
+//
+// v0.2-alpha-17: the session list + pagination state moved into
+// src/views/sessions-list-store.ts (PAGE_SIZE constant + store
+// mutators). The actual `session_list` Tauri invoke still happens here
+// in main.ts — we just call store.setFirstPage / store.appendMorePage
+// with the fetched rows.
 
 // ── Session export + share (T-Q-S10) ───────────────────────────────────────────
 //
@@ -263,190 +269,107 @@ const SESSION_PAGE = 50;
 // <div id="share-import-modal">.
 
 /**
- * T-Q-S9: refresh just the sidebar row for the current session.
- * Used after each message send so the token badge stays live.
- * Falls back to a full list reload if the row can't be located.
+ * v0.2-alpha-17: refresh just the sidebar row for the current session.
+ * Used after each message send so the token badge stays live (T-Q-S9).
+ *
+ * Old version mutated a row DOM element directly. Now we just push the
+ * fresh row into sessionListStore.patchSession — the Preact view
+ * subscriber picks it up and re-renders the row. Falls back to a full
+ * list reload if the session was deleted out from under us.
  */
 async function refreshCurrentSessionRow(): Promise<void> {
   if (!currentSessionId) return;
   try {
     const fresh = await invoke<Session>('session_get', { id: currentSessionId });
     currentSession = fresh;
-    const row = document.querySelector<HTMLElement>(`.session-item[data-session-id="${currentSessionId}"]`);
-    if (row) {
-      // Re-render the title text + token badge in place. We rebuild
-      // title (with persona avatar) and the badges from scratch.
-      const persona = fresh.persona_id ? personasCache.find(p => p.id === fresh.persona_id) : null;
-      const avatar = persona?.avatar ?? '';
-      const titleText = `${avatar ? avatar + ' ' : ''}${fresh.title || '无标题会话'}`;
-      const titleEl = row.querySelector<HTMLElement>('.session-title');
-      if (titleEl) titleEl.textContent = titleText;
-      // Update or insert token badge.
-      let tokEl = row.querySelector<HTMLElement>('.session-tokens');
-      if (fresh.total_tokens && fresh.total_tokens > 0) {
-        if (!tokEl) {
-          tokEl = document.createElement('span');
-          tokEl.className = 'session-tokens';
-          const deleteBtn = row.querySelector('.session-delete');
-          if (deleteBtn) row.insertBefore(tokEl, deleteBtn);
-          else row.appendChild(tokEl);
-        }
-        tokEl.title = `总 token: ${fresh.total_tokens}`;
-        tokEl.textContent = `${formatTokens(fresh.total_tokens)} tok`;
-      } else if (tokEl) {
-        tokEl.remove();
-      }
-      // Update or insert project badge.
-      const proj = parseProjectContext(fresh.project_context);
-      let projEl = row.querySelector<HTMLElement>('.session-project');
-      if (proj) {
-        if (!projEl) {
-          projEl = document.createElement('span');
-          projEl.className = 'session-project';
-          const tokEl2 = row.querySelector('.session-tokens');
-          if (tokEl2) row.insertBefore(projEl, tokEl2);
-          else {
-            const deleteBtn = row.querySelector('.session-delete');
-            if (deleteBtn) row.insertBefore(projEl, deleteBtn);
-            else row.appendChild(projEl);
-          }
-        }
-        projEl.title = proj.project_dir;
-        projEl.textContent = `📁 ${proj.name}`;
-      } else if (projEl) {
-        projEl.remove();
-      }
-    }
+    sessionListStore.patchSession(fresh.id, fresh);
   } catch (e) {
     console.warn('[Session] refresh failed, falling back to full list:', e);
     await loadSessionList();
   }
 }
 
-async function loadSessionList(resetOffset = true): Promise<void> {
-  const listEl = document.getElementById('session-list');
-  if (!listEl) return;
-  if (resetOffset) sessionOffset = 0;
+/**
+ * v0.2-alpha-17: load a page of sessions from the Tauri backend and
+ * push it into sessionListStore. The Preact <SessionList> component
+ * subscribes to the store and re-renders automatically.
+ *
+ * `reset = true` → first page (offset 0); `reset = false` → next page
+ * (offset advanced by PAGE_SIZE). The offset is recomputed here from
+ * the current store size rather than tracked as a module-level let —
+ * the store is the source of truth for what we've loaded.
+ */
+async function loadSessionList(reset = true): Promise<void> {
   try {
-    const sessions = await invoke<Session[]>('session_list', { limit: SESSION_PAGE, offset: sessionOffset });
-    if (resetOffset) listEl.innerHTML = '';
-    for (const s of sessions) {
-      const el = document.createElement('div');
-      el.className = `session-item${s.id === currentSessionId ? ' active' : ''}`;
-      el.dataset.sessionId = s.id;
-      // T-Q-S7 + T-Q-S8: prefix with persona avatar (if any) and project
-      // badge (if any) so the role + project is visible at a glance.
-      const persona = s.persona_id ? personasCache.find(p => p.id === s.persona_id) : null;
-      const avatar = persona?.avatar ?? '';
-      const proj = parseProjectContext(s.project_context);
-      const titleEl = document.createElement('span');
-      titleEl.className = 'session-title';
-      titleEl.innerHTML = `${avatar ? `<span class="session-persona-emoji">${avatar}</span> ` : ''}${escapeHtml(s.title || '无标题会话')}`;
-      titleEl.addEventListener('dblclick', (e) => {
-        e.stopPropagation();
-        startRename(s.id, titleEl);
-      });
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'session-delete';
-      deleteBtn.dataset.id = s.id;
-      deleteBtn.textContent = '×';
-      deleteBtn.title = '删除会话';
-      deleteBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        deleteSession((e.target as HTMLElement).dataset.id!);
-      });
-      el.appendChild(titleEl);
-      if (proj) {
-        const projEl = document.createElement('span');
-        projEl.className = 'session-project';
-        projEl.title = proj.project_dir;
-        projEl.textContent = `📁 ${proj.name}`;
-        el.appendChild(projEl);
-      }
-      // T-Q-S9: compact token badge (only show if > 0)
-      if (s.total_tokens && s.total_tokens > 0) {
-        const tokEl = document.createElement('span');
-        tokEl.className = 'session-tokens';
-        tokEl.title = `总 token: ${s.total_tokens}`;
-        tokEl.textContent = `${formatTokens(s.total_tokens)} tok`;
-        el.appendChild(tokEl);
-      }
-      // T-Q-S10: export button (copy as markdown to clipboard)
-      const exportBtn = document.createElement('button');
-      exportBtn.className = 'session-action-btn';
-      exportBtn.title = '复制为 Markdown';
-      exportBtn.textContent = '📤';
-      exportBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        void copySessionAsMarkdown(invoke, showToast, s.id);
-      });
-      el.appendChild(exportBtn);
-      el.appendChild(deleteBtn);
-      el.addEventListener('click', () => selectSession(s.id));
-      listEl.appendChild(el);
-    }
-    // Append load-more button if we got a full page
-    const existingMore = listEl.querySelector('.session-load-more');
-    if (existingMore) existingMore.remove();
-    if (sessions.length === SESSION_PAGE) {
-      const moreBtn = document.createElement('button');
-      moreBtn.className = 'session-load-more';
-      moreBtn.textContent = '加载更多...';
-      moreBtn.addEventListener('click', async () => {
-        sessionOffset += SESSION_PAGE;
-        moreBtn.textContent = '加载中...';
-        moreBtn.disabled = true;
-        await loadSessionList(false);
-      });
-      listEl.appendChild(moreBtn);
-    }
-    if (resetOffset && listEl.children.length === 0) {
-      listEl.innerHTML = '<div class="session-empty">暂无会话记录</div>';
+    const offset = reset ? 0 : sessionListStore.get().sessions.length;
+    const sessions = await invoke<Session[]>('session_list', {
+      limit: PAGE_SIZE,
+      offset,
+    });
+    if (reset) {
+      sessionListStore.setFirstPage(sessions);
+    } else {
+      sessionListStore.appendMorePage(sessions);
     }
   } catch (e) {
     console.error('[Session] load error:', e);
+    if (reset) sessionListStore.setFirstPage([]);
   }
 }
 
-async function startRename(id: string, titleEl: HTMLElement): Promise<void> {
-  const current = titleEl.textContent || '';
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'session-rename-input';
-  input.value = current;
-  input.addEventListener('keydown', async (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      await finishRename(id, input, current);
-    } else if (e.key === 'Escape') {
-      titleEl.textContent = current;
-      input.replaceWith(titleEl);
-    }
-  });
-  input.addEventListener('blur', async () => {
-    await finishRename(id, input, current);
-  });
-  titleEl.replaceWith(input);
-  input.focus();
-  input.select();
-}
-
-async function finishRename(id: string, input: HTMLInputElement, _current: string): Promise<void> {
-  const newTitle = input.value.trim();
-  const titleSpan = document.createElement('span');
-  titleSpan.className = 'session-title';
-  titleSpan.textContent = newTitle || '无标题会话';
-  titleSpan.addEventListener('dblclick', (e) => {
-    e.stopPropagation();
-    startRename(id, titleSpan);
-  });
-  input.replaceWith(titleSpan);
-  if (!newTitle) return;
+/**
+ * Callback passed to the SessionList view. Invokes session_update and
+ * patches the store row on success. The view's <RenameEditor /> stays
+ * open if the Promise rejects so the user can retry.
+ */
+async function handleSessionRename(id: string, newTitle: string): Promise<void> {
   try {
-    await invoke<Session>('session_update', { id, patch: { title: newTitle } });
+    const updated = await invoke<Session>('session_update', {
+      id,
+      patch: { title: newTitle },
+    });
+    sessionListStore.patchSession(id, updated);
+    sessionListStore.cancelRename();
+    if (id === currentSessionId) currentSession = updated;
   } catch (e) {
     showToast('重命名失败', String(e), 'error');
+    throw e; // surface to RenameEditor so it can re-enable input
   }
+}
+
+/**
+ * Callback passed to the SessionList view. Invokes session_delete and
+ * removes the row on success. Confirmation prompt is handled here so
+ * the view stays a pure renderer (alpha-15 share-import precedent:
+ * don't move native confirm() into the Preact view in alpha-17 — a
+ * proper confirmation modal is alpha-18+ work).
+ */
+async function handleSessionDelete(id: string): Promise<void> {
+  if (!confirm('确定删除此会话？')) return;
+  try {
+    await invoke('session_delete', { id });
+    sessionListStore.removeSession(id);
+    if (currentSessionId === id) {
+      currentSessionId = null;
+      currentSession = null;
+      state.messages = [];
+      chatWelcomeStore.setContext(null);
+      chatStore.setMessages([]);
+    }
+    showToast('会话已删除', '', 'success');
+  } catch (e) {
+    showToast('删除失败', String(e), 'error');
+  }
+}
+
+/**
+ * Callback passed to the SessionList view. Invokes the load-more
+ * fetch (offset = current store length) and appends the page.
+ */
+async function handleSessionLoadMore(): Promise<void> {
+  if (sessionListStore.get().isLoading) return;
+  sessionListStore.setLoading(true);
+  await loadSessionList(false);
 }
 
 // Exposed for potential external use
@@ -454,6 +377,9 @@ async function finishRename(id: string, input: HTMLInputElement, _current: strin
 
 async function selectSession(id: string): Promise<void> {
   currentSessionId = id;
+  // v0.2-alpha-17: the Preact <SessionList> view reads activeId from
+  // sessionListStore and applies the .active class automatically.
+  sessionListStore.setActiveId(id);
   // T-Q-S8: track the full session row so we can compose system prompts
   // at send-message time without an extra DB round-trip.
   try {
@@ -475,11 +401,6 @@ async function selectSession(id: string): Promise<void> {
       timestamp: new Date(m.created_at)
     }));
     chatStore.setMessages(state.messages);
-    if (state.messages.length === 0) {
-      // Empty session — show the default welcome bubble. ChatView
-      // falls back to that automatically when messages is empty and
-      // welcomeContext is null, so no explicit call is needed here.
-    }
     await invoke('session_touch', { id });
   } catch (e) {
     console.error('[Session] select error:', e);
@@ -488,10 +409,6 @@ async function selectSession(id: string): Promise<void> {
     chatStore.setError('加载会话失败');
     chatStore.setMessages([]);
   }
-  // Highlight active session in list
-  document.querySelectorAll('.session-item').forEach(el => {
-    el.classList.toggle('active', (el as HTMLElement).dataset.sessionId === id);
-  });
 }
 
 async function createSession(): Promise<string | null> {
@@ -549,7 +466,11 @@ async function createSession(): Promise<string | null> {
         : (projectDir ? { name: '', path: projectDir, scanFailed: true } : null),
     });
     chatStore.setMessages([]);
-    await loadSessionList(true);
+    // v0.2-alpha-17: prepend the new session to the sidebar list and
+    // mark it active. The Preact view re-renders with the new row at
+    // the top + the .active class applied automatically.
+    sessionListStore.setFirstPage([session, ...sessionListStore.get().sessions]);
+    sessionListStore.setActiveId(session.id);
     return session.id;
   } catch (e) {
     showToast('创建会话失败', String(e), 'error');
@@ -557,34 +478,18 @@ async function createSession(): Promise<string | null> {
   }
 }
 
-async function deleteSession(id: string): Promise<void> {
-  if (!confirm('确定删除此会话？')) return;
-  try {
-    await invoke('session_delete', { id });
-    if (currentSessionId === id) {
-      currentSessionId = null;
-      currentSession = null;
-      state.messages = [];
-      // v0.2-alpha-16: clear the welcome context (no persona/project
-      // hints) and reset the chat store. ChatView falls back to the
-      // generic welcome when messages is empty + welcomeContext null.
-      chatWelcomeStore.setContext(null);
-      chatStore.setMessages([]);
-    }
-    await loadSessionList();
-    showToast('会话已删除', '', 'success');
-  } catch (e) {
-    showToast('删除失败', String(e), 'error');
-  }
-}
+// v0.2-alpha-17: deleteSession was the old imperative version. The
+// SessionList view now calls handleSessionDelete (defined above) which
+// invokes session_delete + sessionListStore.removeSession. We keep no
+// top-level deleteSession — call sites go through the view callback.
 
-function toggleSidebar(show?: boolean): void {
-  sidebarVisible = show !== undefined ? show : !sidebarVisible;
-  const sidebar = document.getElementById('sidebar');
-  if (sidebar) sidebar.classList.toggle('hidden', !sidebarVisible);
-  const showBtn = document.getElementById('sidebar-show-btn');
-  if (showBtn) showBtn.style.display = sidebarVisible ? 'none' : '';
-}
+// v0.2-alpha-17: toggleSidebar / sidebarVisible moved to sidebarStore.
+// The `<aside id="sidebar">` .hidden class + #sidebar-show-btn display
+// are wired to the store via mountSidebar() (sidebar-mount.tsx).
+// Callers that want to make a decision (Ctrl+K search handler, tray
+// quick capture) read sidebarStore.get() instead of a module-level let.
+// Top-level toggleSidebar wrapper removed — all call sites use
+// sidebarStore.setVisible(true|false) directly.
 
 // T-Q-S6: load the most recent non-empty session. Called by tray
 // "续上次" menu item. Shows a toast if there are no sessions.
@@ -1234,8 +1139,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
 
   sidebarSearchBtn?.addEventListener('click', openSearchModal);
-  sidebarToggleBtn?.addEventListener('click', () => toggleSidebar(false));
-  sidebarShowBtn?.addEventListener('click', () => toggleSidebar(true));
+  sidebarToggleBtn?.addEventListener('click', () => sidebarStore.setVisible(false));
+  sidebarShowBtn?.addEventListener('click', () => sidebarStore.setVisible(true));
 
   // Ctrl+K = search
   window.addEventListener('keydown', (e) => {
@@ -1256,9 +1161,27 @@ window.addEventListener('DOMContentLoaded', async () => {
   // subscribes to.
   mountSearchModal({
     onSelect: async (sessionId) => {
-      if (!sidebarVisible) toggleSidebar(true);
+      // v0.2-alpha-17: read visibility from sidebarStore so the search
+      // result click surfaces the sidebar (lets the user see the
+      // selected session highlight in the list).
+      if (!sidebarStore.get()) sidebarStore.setVisible(true);
       await selectSession(sessionId);
     },
+  });
+
+  // v0.2-alpha-17: mount the sidebar visibility wiring (DOM toggle)
+  // + the SessionList Preact view BEFORE the first loadSessionList so
+  // the store-driven re-render has a target. The Preact view receives
+  // an initial empty personas array; we re-mount it once personas
+  // load (line ~1195 below) so the avatar prefix shows up.
+  mountSidebar();
+  mountSessionList({
+    personas: personasCache,
+    onSelect: selectSession,
+    onDelete: handleSessionDelete,
+    onRename: handleSessionRename,
+    onLoadMore: handleSessionLoadMore,
+    onExport: (id) => void copySessionAsMarkdown(invoke, showToast, id),
   });
 
   // Load session list on startup
@@ -1271,6 +1194,18 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadPersonas();
   currentPersonaId = await loadDefaultPersonaId();
   renderPersonaPicker();
+  // v0.2-alpha-17: re-mount the SessionList view with the loaded
+  // personas so each row's avatar prefix renders correctly. Preact's
+  // render() is idempotent on the same container — this replaces the
+  // previous tree cleanly (useEffect cleanup runs on the old one).
+  mountSessionList({
+    personas: personasCache,
+    onSelect: selectSession,
+    onDelete: handleSessionDelete,
+    onRename: handleSessionRename,
+    onLoadMore: handleSessionLoadMore,
+    onExport: (id) => void copySessionAsMarkdown(invoke, showToast, id),
+  });
   const personaPicker = document.getElementById('persona-picker') as HTMLSelectElement | null;
   personaPicker?.addEventListener('change', () => { void onPersonaPickerChange(); });
 
@@ -1282,8 +1217,19 @@ window.addEventListener('DOMContentLoaded', async () => {
   mountPersonaModal({
     onPersonasChanged: () => {
       // Refresh the header persona picker + personasCache so session creation
-      // picks up the new persona without a restart.
-      void loadPersonas().then(() => renderPersonaPicker());
+      // picks up the new persona without a restart. v0.2-alpha-17 also
+      // re-mounts the SessionList so the per-row avatar prefix updates.
+      void loadPersonas().then(() => {
+        renderPersonaPicker();
+        mountSessionList({
+          personas: personasCache,
+          onSelect: selectSession,
+          onDelete: handleSessionDelete,
+          onRename: handleSessionRename,
+          onLoadMore: handleSessionLoadMore,
+          onExport: (id) => void copySessionAsMarkdown(invoke, showToast, id),
+        });
+      });
     },
   });
 
@@ -1363,7 +1309,7 @@ function openStatsModal(): void {
         return;
       }
       // 收掉侧边栏到 focus 模式、清空输入、focus 让用户立刻打字
-      if (sidebarVisible) toggleSidebar(false);
+      if (sidebarStore.get()) sidebarStore.setVisible(false);
       if (messageInput) messageInput.value = '';
       messageInput?.focus();
     });
