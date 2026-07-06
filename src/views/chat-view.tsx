@@ -254,6 +254,81 @@ function ErrorBubble({ message }: { message: string }) {
   );
 }
 
+/**
+ * v0.2-alpha-22 — Block error (design 18 "整块错误").
+ *
+ * Shown when there's an error AND no messages — e.g. session load
+ * failed before any message was hydrated. Centered card with a red
+ * ❌ icon, the headline reason, the underlying message, and an
+ * optional retry button. Distinct from ErrorBubble (which renders
+ * inline under the message list when messages exist).
+ */
+function ErrorBlock({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div class="error-block" role="alert">
+      <div class="error-block-icon" aria-hidden="true">❌</div>
+      <h3 class="error-block-title">加载会话失败</h3>
+      <p class="error-block-message">{message}</p>
+      {onRetry ? (
+        <button type="button" class="btn btn-primary" onClick={onRetry}>
+          重试
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * v0.2-alpha-22 — Fatal error banner (design 18 "致命错误 Banner").
+ *
+ * Sticky to the top of the chat surface. Fixed visibility — the
+ * user must click × to dismiss (which calls chatStore.clearFatal).
+ * Used for runtime fatals (DB corruption, gateway dropped
+ * mid-session) where the app can still render but the user must
+ * acknowledge before normal UI resumes.
+ *
+ * Renders NOTHING when chatStore.fatal is null — the banner doesn't
+ * take space when not in use.
+ */
+function FatalBanner() {
+  const message = useFatalBannerMessage();
+  if (message === null) return null;
+  return (
+    <div class="fatal-banner" role="alert" aria-live="assertive">
+      <div class="fatal-banner-icon" aria-hidden="true">⚠️</div>
+      <div class="fatal-banner-text">
+        <strong class="fatal-banner-title">无法连接 Hermes Gateway</strong>
+        <span class="fatal-banner-message">{message}</span>
+      </div>
+      <button
+        type="button"
+        class="fatal-banner-dismiss"
+        aria-label="关闭"
+        onClick={() => chatStore.clearFatal()}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Lightweight subscription hook for the fatal-banner message. We
+ * only need the string (not the full state object) so the banner
+ * doesn't re-render on unrelated chat mutations.
+ */
+function useFatalBannerMessage(): string | null {
+  const [message, setMessage] = useState<string | null>(chatStore.get().fatal);
+  useEffect(() => chatStore.subscribe((s) => setMessage(s.fatal)), []);
+  return message;
+}
+
 function AttachmentStrip({ attachments }: { attachments: PendingAttachment[] }) {
   return (
     <div class="message-attachments">
@@ -355,6 +430,14 @@ export function ChatView({
   const showStandardWelcome =
     isEmpty && state.connectionStatus === "online" && state.hasSessions;
 
+  // v0.2-alpha-22: pick the error variant based on whether any
+  // messages have loaded. Block error (design 18 "整块错误") wins
+  // when there are no messages — gives the user a clear
+  // "what went wrong + retry" surface. Inline ErrorBubble stays
+  // for the messages-present case (it appends below the last
+  // turn, matching the alpha-16 behavior).
+  const showErrorBlock = state.error !== null && state.messages.length === 0;
+
   // Default persona chips for the first-run card (design 06). The
   // caller can override via the prop — main.ts will eventually pass
   // the real personasCache here, but the static defaults keep the
@@ -363,6 +446,11 @@ export function ChatView({
 
   return (
     <div ref={scrollRef} class="chat-view">
+      {/* v0.2-alpha-22: FatalBanner sits at the top of the chat
+          surface (design 18 "致命错误 Banner"). It subscribes to
+          chatStore.fatal independently of the main view state, so
+          unrelated mutations don't cause it to re-render. */}
+      <FatalBanner />
       {state.messages.map((m) =>
         m.role === "user" ? (
           <UserBubble key={messageKey(m)} msg={m} />
@@ -371,7 +459,13 @@ export function ChatView({
         ),
       )}
       {state.streaming ? <StreamingBubble content={state.streaming.content} /> : null}
-      {state.error ? <ErrorBubble message={state.error} /> : null}
+      {state.error && !showErrorBlock ? <ErrorBubble message={state.error} /> : null}
+      {showErrorBlock ? (
+        <ErrorBlock
+          message={state.error!}
+          onRetry={() => onRetryConnection?.()}
+        />
+      ) : null}
       {showNoNetwork ? (
         <EmptyNoNetwork
           gatewayHint={gatewayHint ?? "默认 Gateway: http://127.0.0.1:8788"}

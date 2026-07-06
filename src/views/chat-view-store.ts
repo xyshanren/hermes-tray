@@ -90,6 +90,16 @@ interface ChatStoreState {
   error: string | null;
   connectionStatus: "online" | "offline";
   hasSessions: boolean;
+  /**
+   * v0.2-alpha-22 — fatal banner message. Distinct from `error`:
+   * the banner is sticky to the top of the chat surface and
+   * requires manual dismissal (× button) per the design 18 spec
+   * "顶部红色 banner，固定可见，需手动关闭". Used for runtime
+   * fatals (DB corruption, gateway dropped mid-session) where the
+   * app can still render but the user must acknowledge before
+   * normal UI resumes. `null` means no banner.
+   */
+  fatal: string | null;
 }
 
 type Listener = (state: ChatStoreState) => void;
@@ -105,6 +115,7 @@ let state: ChatStoreState = {
                      // first-run empty state during boot. main.ts
                      // calls setHasSessions(false) when session_list
                      // returns [].
+  fatal: null,
 };
 
 const listeners = new Set<Listener>();
@@ -234,8 +245,33 @@ export const chatStore = {
       error: null,
       connectionStatus: "online",
       hasSessions: true,
+      fatal: null,
     };
     nextId = 1;
+    notify();
+  },
+
+  /**
+   * v0.2-alpha-22 — surface a fatal error banner. Distinct from
+   * setError: the banner is sticky to the top of the chat surface
+   * and requires manual dismissal (the × button calls clearFatal).
+   * Use this for runtime fatals (DB corruption, gateway dropped
+   * mid-session) where the app can still render but the user must
+   * acknowledge before normal UI resumes.
+   */
+  setFatal(message: string | null): void {
+    if (state.fatal === message) return;
+    state = { ...state, fatal: message };
+    notify();
+  },
+
+  /**
+   * v0.2-alpha-22 — dismiss the fatal banner. No-op when no banner
+   * is showing (the × button on the banner calls this).
+   */
+  clearFatal(): void {
+    if (state.fatal === null) return;
+    state = { ...state, fatal: null };
     notify();
   },
 
@@ -285,6 +321,7 @@ export const chatStore = {
       error: null,
       connectionStatus: "online",
       hasSessions: true,
+      fatal: null,
     };
     nextId = 1;
     listeners.clear();

@@ -252,12 +252,16 @@ describe("<ChatView /> (render shell)", () => {
     expect(bar).not.toBeNull();
   });
 
-  it("renders an error bubble when setError is called", () => {
+  it("renders an error block when setError is called with no messages (v0.2-alpha-22)", () => {
+    // v0.2-alpha-22: error + no messages → ErrorBlock (design 18
+    // "整块错误") instead of inline ErrorBubble. See the next test
+    // for the messages-present case which keeps the inline bubble.
     chatStore.setError("连接失败: gateway down");
     const host = mountView();
-    const err = host.querySelector(".message.error");
-    expect(err).not.toBeNull();
-    expect(err!.textContent).toContain("连接失败");
+    const block = host.querySelector(".error-block");
+    expect(block).not.toBeNull();
+    expect(block!.textContent).toContain("加载会话失败");
+    expect(block!.textContent).toContain("连接失败");
   });
 
   it("renders the welcome screen with persona + project context", () => {
@@ -406,6 +410,99 @@ describe("<ChatView /> (render shell)", () => {
     expect(host.querySelector(".welcome-message")).toBeNull();
     expect(host.querySelector(".no-network-card")).not.toBeNull();
   });
+
+  // v0.2-alpha-22 — error variants (design 18).
+  // - ErrorBlock (整块错误): shown when state.error !== null AND
+  //   messages.length === 0. Inline ErrorBubble stays for the
+  //   messages-present case.
+  // - FatalBanner (致命错误 Banner): sticky to top, manual dismiss.
+
+  it("renders the error block when error is set with no messages", () => {
+    const onRetry = vi.fn();
+    chatStore.setError("网络连接超时，请检查后重试");
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    render(<ChatView onRetryConnection={onRetry} />, host);
+    const block = host.querySelector(".error-block");
+    expect(block).not.toBeNull();
+    expect(block!.textContent).toContain("加载会话失败");
+    expect(block!.textContent).toContain("网络连接超时");
+    // The inline ErrorBubble should NOT render when the block wins.
+    expect(host.querySelector(".message.error")).toBeNull();
+    const retryBtn = block!.querySelector(".btn-primary") as HTMLButtonElement;
+    expect(retryBtn.textContent).toBe("重试");
+    retryBtn.click();
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the inline ErrorBubble when error is set with messages present", () => {
+    chatStore.appendMessage({
+      role: "user",
+      content: "hi",
+      timestamp: new Date(),
+    });
+    chatStore.setError("网络中断");
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    render(<ChatView />, host);
+    expect(host.querySelector(".error-block")).toBeNull();
+    const bubble = host.querySelector(".message.error");
+    expect(bubble).not.toBeNull();
+    expect(bubble!.textContent).toContain("网络中断");
+  });
+
+  it("FatalBanner renders nothing when state.fatal is null", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    render(<ChatView />, host);
+    expect(host.querySelector(".fatal-banner")).toBeNull();
+  });
+
+  it("FatalBanner appears when setFatal is called + dismisses via ×", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    await act(async () => {
+      render(<ChatView />, host);
+    });
+    await act(async () => {
+      chatStore.setFatal("DB 迁移失败，请重启 Hermes Tray");
+    });
+    const banner = host.querySelector(".fatal-banner");
+    expect(banner).not.toBeNull();
+    expect(banner!.textContent).toContain("无法连接 Hermes Gateway");
+    expect(banner!.textContent).toContain("DB 迁移失败");
+    const dismiss = banner!.querySelector(".fatal-banner-dismiss") as HTMLButtonElement;
+    expect(dismiss.getAttribute("aria-label")).toBe("关闭");
+    // Wrap the click in act() so the store notify → setState →
+    // re-render chain flushes before we assert.
+    await act(async () => {
+      dismiss.click();
+    });
+    // After click, store notifies → re-render → banner gone.
+    expect(host.querySelector(".fatal-banner")).toBeNull();
+    expect(chatStore.get().fatal).toBeNull();
+  });
+
+  it("FatalBanner survives unrelated state mutations (independent subscription)", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    await act(async () => {
+      render(<ChatView />, host);
+    });
+    await act(async () => {
+      chatStore.setFatal("DB 损坏");
+    });
+    expect(host.querySelector(".fatal-banner")).not.toBeNull();
+    // Mutate an unrelated field — the banner's narrow subscription
+    // (only watches s.fatal) means the banner doesn't re-render,
+    // but the parent <ChatView /> DOES re-render, so the banner
+    // stays mounted because the store still has fatal !== null.
+    await act(async () => {
+      chatStore.setIsLoading(true);
+    });
+    expect(host.querySelector(".fatal-banner")).not.toBeNull();
+    expect(host.querySelector(".fatal-banner")!.textContent).toContain("DB 损坏");
+  });
 });
 
 // v0.2-alpha-20 — chatStore.setConnectionStatus + setHasSessions.
@@ -459,5 +556,45 @@ describe("chatStore (empty-state mutators)", () => {
     chatStore.reset();
     expect(chatStore.get().connectionStatus).toBe("online");
     expect(chatStore.get().hasSessions).toBe(true);
+  });
+
+  // v0.2-alpha-22 — fatal banner mutators.
+  it("setFatal stores the message", () => {
+    expect(chatStore.get().fatal).toBeNull();
+    chatStore.setFatal("DB 迁移失败");
+    expect(chatStore.get().fatal).toBe("DB 迁移失败");
+  });
+
+  it("setFatal accepts null to clear", () => {
+    chatStore.setFatal("x");
+    chatStore.setFatal(null);
+    expect(chatStore.get().fatal).toBeNull();
+  });
+
+  it("setFatal is a no-op on the same value", () => {
+    chatStore.setFatal("y");
+    let calls = 0;
+    const unsub = chatStore.subscribe(() => calls++);
+    chatStore.setFatal("y");
+    expect(calls).toBe(1); // initial subscribe fire only (same value)
+    unsub();
+  });
+
+  it("clearFatal clears the banner + is no-op when already null", () => {
+    chatStore.setFatal("z");
+    chatStore.clearFatal();
+    expect(chatStore.get().fatal).toBeNull();
+    // Second clear should NOT fire.
+    let calls = 0;
+    const unsub = chatStore.subscribe(() => calls++);
+    chatStore.clearFatal();
+    expect(calls).toBe(1); // initial fire only
+    unsub();
+  });
+
+  it("reset() clears the fatal banner", () => {
+    chatStore.setFatal("pre-reset message");
+    chatStore.reset();
+    expect(chatStore.get().fatal).toBeNull();
   });
 });

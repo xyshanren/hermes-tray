@@ -540,6 +540,100 @@ html, body {
   color: var(--text-secondary, #94a3b8);
 }
 
+/* v0.2-alpha-22 — Error block (design 18 "整块错误").
+   Centered card with red icon + title + reason + retry button.
+   Shown when there's an error AND no messages are loaded — the
+   block replaces the inline ErrorBubble in this case. */
+.error-block {
+  max-width: 480px;
+  margin: 60px auto;
+  padding: 28px 32px;
+  border-radius: 12px;
+  background: var(--bg-secondary, #1e293b);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.error-block-icon {
+  font-size: 40px;
+  line-height: 1;
+}
+.error-block-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary, #f1f5f9);
+  margin: 0;
+}
+.error-block-message {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary, #cbd5e1);
+  margin: 0;
+  max-width: 380px;
+}
+
+/* v0.2-alpha-22 — Fatal banner (design 18 "致命错误 Banner").
+   Sticky to top of the chat surface, fixed visibility, requires
+   manual dismissal via ×. Rendered above the message list and
+   any empty-state cards. */
+.fatal-banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.95), rgba(220, 38, 38, 0.95));
+  color: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+}
+.fatal-banner-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.fatal-banner-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.fatal-banner-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.fatal-banner-message {
+  font-size: 12px;
+  opacity: 0.9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fatal-banner-dismiss {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease;
+}
+.fatal-banner-dismiss:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
 /* Message Bubbles */
 .message {
   display: flex;
