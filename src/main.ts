@@ -23,15 +23,18 @@ marked.setOptions({
 });
 
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { register, unregister } from '@tauri-apps/plugin-global-shortcut';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+// v0.2-alpha-19: listen / register / unregister / getCurrentWindow
+// imports moved out of main.ts — chat-stream owns the SSE listeners,
+// tray-menu owns the tray:// listeners, shortcuts owns the global
+// shortcut registration.
 import { composeSystemPrompt } from './systemPrompt';
 // v0.2-alpha-17: formatTokens moved to sessions-list-view.tsx — it
 // formats the per-session token badge that the Preact view now owns.
 
-import { hermesGet, hermesPostStream, authHeaders } from './lib/api';
-import { showToast, type ToastType } from './lib/toast';
+import { hermesGet, authHeaders } from './lib/api';
+import { showToast } from './lib/toast';
+// ToastType used to be imported here for the gateway-notification
+// listener; that listener moved to src/lib/tray-menu.ts in alpha-19.
 import { mountAppToaster } from './lib/toaster-mount';
 import { mountSearchModal } from './views/search-modal-mount';
 import { searchModalStore } from './views/search-modal-store';
@@ -48,18 +51,19 @@ import type { Persona } from './types';
 import type { Session } from './types';
 import {
   getGatewayUrl,
-  setApiKey,
-  resolveGatewayUrl,
-  applyPortOverride,
 } from './lib/state';
+// v0.2-alpha-19: setApiKey / resolveGatewayUrl / applyPortOverride
+// moved to src/lib/boot.ts (applyBootConfig owns the gateway + api_key
+// + port init flow).
 import {
   copySessionAsMarkdown,
-  copySessionShareLink,
-  validateShareHash,
-  clearShareHash,
 } from './views/share-flow';
-import { shareStore } from './views/share-modal-store';
-import { mountShareImportModal } from './views/share-modal-mount';
+// v0.2-alpha-19: copySessionShareLink + validateShareHash +
+// clearShareHash moved into src/lib/share-ui.ts (the alpha-19 share-UI
+// helper module owns the boot-time hash check + the header share-link
+// button click). main.ts only passes deps to initShareUI().
+// shareStore + mountShareImportModal also moved — share-ui.ts owns
+// the full share-link flow.
 // v0.2-alpha-17 — Sessions list + sidebar visibility moved to Preact
 // + pub-sub stores. main.ts keeps the data-fetching callbacks (select /
 // delete / rename / load-more / export) + the sidebar header button
@@ -84,18 +88,32 @@ import { chatStore, chatWelcomeStore, mountChatView } from './views/chat-view-mo
 //     through Preact cleanly)
 //   - updateSendButton (gone — the Preact view owns the button state)
 import { chatInputStore, mountChatInput, getChatInputHandle } from './views/chat-input-mount';
-import type { ChatMessage as Message, PendingAttachment, ChatMessageBar } from './views/chat-view-store';
+// v0.2-alpha-19: SSE pipeline + S14 usage extraction + multimodal
+// content builder extracted from main.ts. main.ts only provides deps
+// (current session / personas / model picks / system prompt composer)
+// via initChatStream() — the actual hermesPostStream + listen +
+// message_append + message_record_usage flow lives in chat-stream.ts.
+import { initChatStream, sendChatMessage } from './lib/chat-stream';
+import {
+  loadDefaultPersonaId,
+  loadDefaultModel,
+  loadDefaultProjectPath,
+  setDefaultPersonaId,
+} from './lib/db-config';
+import { applyBootConfig } from './lib/boot';
+import { registerQuickCaptureShortcut } from './lib/shortcuts';
+import { registerTrayMenuListeners } from './lib/tray-menu';
+import { initShareUI } from './lib/share-ui';
+import { mountConfirmModal, requestConfirm } from './views/confirm-modal-mount';
+import type { ChatMessage as Message, PendingAttachment } from './views/chat-view-store';
 // Re-export the chat formatters from main.ts so the existing
 // src/messageBar.test.ts + src/routingTrace.test.ts suites (which
 // import from './main') keep working without churn. The test files
 // themselves were not migrated — the new helpers live in
 // src/lib/chat-formatters.ts but main.ts remains the public face.
-// We also import buildMessageBar for use in the streaming finalization
-// path (referenced via `void buildMessageBar` to keep the symbol alive
-// for any future imperative caller — the Preact view now renders the
-// CLI bar from the ChatMessageBar data directly).
+// v0.2-alpha-19: buildMessageBar import removed — the Preact view
+// renders the CLI bar from the ChatMessageBar data directly (alpha-16).
 export { formatMessageBar, formatRoutingTrace, formatLatencyMs } from './lib/chat-formatters';
-import { buildMessageBar } from './lib/chat-formatters';
 
 const UNKNOWN_MODEL = '-';
 
@@ -256,18 +274,16 @@ let connectionStatusEl: HTMLElement | null = null;
 let statusText: HTMLElement | null = null;
 let modelName: HTMLElement | null = null;
 
-// S14-agent: per-stream metadata captured from the final SSE chunk.
-// The agent pushes real prompt/completion/image token counts plus a
-// routing_decision + elapsed_ms blob; finishStream() persists these
-// via message_record_usage. These moved off the global `state` object
-// because they only exist for the lifetime of one stream — module-level
-// lets make that scope explicit and reset cleanly between turns.
-let lastStreamUsage: Record<string, unknown> | null = null;
-let lastStreamRouting: unknown = null;
-let lastStreamElapsedMs: number | null = null;
+// S14-agent: per-stream metadata captured from the final SSE chunk
+// moved to src/lib/chat-stream.ts in alpha-19. main.ts no longer
+// holds per-stream state directly — chat-stream.ts owns its own
+// module-level lets and exposes initChatStream() + sendChatMessage()
+// + disposeChatStream().
 
-let unlistenChunk: (() => void) | null = null;
-let unlistenDone: (() => void) | null = null;
+// v0.2-alpha-19: unlistenChunk / unlistenDone moved to
+// src/lib/chat-stream.ts. main.ts only holds the dispose handle for
+// the chat-stream module + the gateway-notification listener (which
+// stays in main.ts because it's a cross-cutting toast).
 
 // ── Session Management ────────────────────────────────────────────────────────
 //
@@ -356,12 +372,20 @@ async function handleSessionRename(id: string, newTitle: string): Promise<void> 
 /**
  * Callback passed to the SessionList view. Invokes session_delete and
  * removes the row on success. Confirmation prompt is handled here so
- * the view stays a pure renderer (alpha-15 share-import precedent:
- * don't move native confirm() into the Preact view in alpha-17 — a
- * proper confirmation modal is alpha-18+ work).
+ * the view stays a pure renderer (alpha-15 share-import precedent).
+ * v0.2-alpha-19: native window.confirm() replaced with the Preact
+ * <ConfirmModal /> mounted via mountConfirmModal(). requestConfirm()
+ * returns a Promise — true on confirm, false on Cancel / × / Escape /
+ * overlay-click.
  */
 async function handleSessionDelete(id: string): Promise<void> {
-  if (!confirm('确定删除此会话？')) return;
+  const confirmed = await requestConfirm({
+    title: "删除会话",
+    message: "确定删除此会话？",
+    danger: true,
+    confirmLabel: "删除",
+  });
+  if (!confirmed) return;
   try {
     await invoke('session_delete', { id });
     sessionListStore.removeSession(id);
@@ -537,44 +561,11 @@ async function loadPersonas(): Promise<Persona[]> {
   return personasCache;
 }
 
-async function loadDefaultPersonaId(): Promise<string | null> {
-  try {
-    const entry = await invoke<{ key: string; value: string } | null>('db_config_get', { key: 'default_persona_id' });
-    return entry?.value ?? null;
-  } catch (e) {
-    console.warn('[Persona] default_persona_id not loaded:', e);
-    return null;
-  }
-}
-
-async function setDefaultPersonaId(id: string | null): Promise<void> {
-  try {
-    if (id === null) {
-      // We don't have a "delete key" command; setting to empty string is the
-      // closest analog. The picker treats empty/missing the same as "no default".
-      await invoke('db_config_set', { key: 'default_persona_id', value: '' });
-    } else {
-      await invoke('db_config_set', { key: 'default_persona_id', value: id });
-    }
-  } catch (e) {
-    console.warn('[Persona] default_persona_id not saved:', e);
-  }
-}
-
-// T-Q-S12-light: default model fallback. Used when no persona.model
-// is set. Persists across restarts; per-session overrides take
-// precedence (state.currentModel).
-async function loadDefaultModel(): Promise<string | null> {
-  try {
-    const entry = await invoke<{ key: string; value: string } | null>('db_config_get', { key: 'default_model' });
-    const v = entry?.value?.trim() ?? '';
-    return v.length > 0 ? v : null;
-  } catch (e) {
-    console.warn('[Model] default_model not loaded:', e);
-    return null;
-  }
-}
-
+// v0.2-alpha-19: loadDefaultPersonaId + setDefaultPersonaId +
+// loadDefaultModel moved into src/lib/db-config.ts. The bare
+// invoke() calls are wrapped with consistent error handling
+// (console.warn) + the "empty string = null" convention for string
+// preferences.
 // alpha-11: setDefaultModel moved into views/settings-modal.tsx (which
 // now writes db_config directly via invoke). main.ts keeps the module-
 // level defaultModel let for sendMessage + model picker reads.
@@ -649,17 +640,8 @@ async function buildCurrentSystemPrompt(): Promise<string | null> {
 // we scan this path and attach the resulting ProjectContext to the new
 // session. Stored in the `config` table (not config.json) so it
 // survives app restarts and is queryable from Rust.
-
-async function loadDefaultProjectPath(): Promise<string | null> {
-  try {
-    const entry = await invoke<{ key: string; value: string } | null>('db_config_get', { key: 'default_project_path' });
-    const v = entry?.value?.trim() ?? '';
-    return v.length > 0 ? v : null;
-  } catch (e) {
-    console.warn('[Project] default_project_path not loaded:', e);
-    return null;
-  }
-}
+//
+// v0.2-alpha-19: loadDefaultProjectPath moved into src/lib/db-config.ts.
 
 /** Scan a path on the Rust side. Returns null on failure (and shows a toast). */
 async function scanProject(path: string): Promise<ProjectContext | null> {
@@ -810,26 +792,9 @@ async function addAttachments(files: FileList | File[]): Promise<void> {
 // into the Preact <AttachmentStrip /> component. The × button on each
 // thumb now calls chatInputStore.removeAttachment(idx) directly.
 
-/**
- * Build the OpenAI-compatible multimodal content array for the API.
- * Pure function so we can unit-test it.
- *
- * - text-only: returns the same string (cheap path)
- * - text + 1+ images: returns an array with a text part + image_url parts
- * - images only (empty text): returns an array with only image parts
- */
-export function buildMultimodalContent(
-  text: string,
-  attachments: PendingAttachment[],
-): string | Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }> {
-  if (attachments.length === 0) return text;
-  const parts: Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }> = [];
-  if (text.length > 0) parts.push({ type: 'text', text });
-  for (const a of attachments) {
-    parts.push({ type: 'image_url', image_url: { url: a.dataUrl } });
-  }
-  return parts;
-}
+// v0.2-alpha-19: buildMultimodalContent moved to src/lib/multimodal.ts.
+// Re-imported at the top of this file. The 9 multimodal.test.ts cases
+// already import from "./lib/multimodal" (updated in alpha-19).
 
 // ── Voice input (T-Q-S13) ───────────────────────────────────────────────────────
 //
@@ -995,21 +960,11 @@ window.addEventListener('DOMContentLoaded', async () => {
   // already populated before main.ts runs.
   mountAppToaster();
 
-  // v0.2-alpha-3 — Resolve WSL2 gateway IP dynamically via ./lib/state.
-  // resolveGatewayUrl handles the fallback internally.
-  const resolvedUrl = await resolveGatewayUrl();
-  console.log('[Hermes] Gateway resolved:', resolvedUrl);
-
-  // Load saved API key and port from config
-  try {
-    const config: Record<string, any> = await invoke('hermes_get_config');
-    if (config.api_key) {
-      setApiKey(config.api_key);
-    }
-    if (config.port) {
-      applyPortOverride(config.port);
-    }
-  } catch { /* no config */ }
+  // v0.2-alpha-19: gateway URL + API key + port override extracted
+  // into src/lib/boot.ts. applyBootConfig() resolves the WSL gateway
+  // (or falls back to the default), then applies any saved api_key
+  // + port from the legacy hermes_get_config command.
+  await applyBootConfig();
 
   // v0.2-alpha-16: the messages container is owned by <ChatViewWithWelcome />
   // (mounted via mountChatView() below). We no longer query it here.
@@ -1077,30 +1032,18 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Setup SSE stream listeners
-  unlistenChunk = await listen<string>('hermes-stream-chunk', (event) => {
-    handleStreamChunk(event.payload);
-  });
-  unlistenDone = await listen('hermes-stream-done', () => {
-    finishStream();
-  });
+  // v0.2-alpha-19: SSE stream listeners (hermes-stream-chunk /
+// hermes-stream-done) are wired by initChatStream() in
+// src/lib/chat-stream.ts. The dispose handle is captured below for
+// window unload cleanup.
 
-  // Listen for gateway notifications from tray menu
-  await listen<{ type: string; title: string; message: string }>('gateway-notification', (event) => {
-    showToast(event.payload.title, event.payload.message, event.payload.type as ToastType);
-  });
-
-  // ── T-Q-S6: Tray quick action listeners ──────────────────
-  // Rust side emits these when user clicks tray menu items
-  // (新建会话 / 续上次 / 搜索). Frontend owns the actual UX.
-  await listen('tray://new-session', () => {
-    void createSession();
-  });
-  await listen('tray://continue-last', () => {
-    void loadLastSession();
-  });
-  await listen('tray://open-search', () => {
-    openSearchModal();
+  // v0.2-alpha-19: tray menu listeners + gateway-notification
+// listener moved to src/lib/tray-menu.ts. We capture the dispose
+// handle for the window unload cleanup.
+  const disposeTrayMenuHandle = await registerTrayMenuListeners({
+    createSession,
+    loadLastSession,
+    openSearchModal,
   });
 
   // ── Settings Initialization ──────────────────
@@ -1247,37 +1190,12 @@ function openStatsModal(): void {
 }
 
   // ── T-Q-S10: share link button + import from URL hash ─────────
-  // The share button copies a self-contained URL to the clipboard.
-  // On app launch, if the URL has #share=<base64url-json>, show an
-  // import confirmation modal (alpha-15 — replaces v0.1.5's native
-  // window.confirm() with a proper Preact modal).
-  document.getElementById('share-link-btn')?.addEventListener('click', () => {
-    if (currentSessionId) {
-      void copySessionShareLink(invoke, showToast, currentSessionId);
-    } else {
-      showToast('没有当前会话', '请先创建或选择一个会话', 'info');
-    }
+  // v0.2-alpha-19: the share-link button click + boot-time hash check
+  // moved to src/lib/share-ui.ts. We pass in the current session id
+  // getter so the button can decide whether to copy or show a hint.
+  initShareUI({
+    getCurrentSessionId: () => currentSessionId,
   });
-  // Check URL hash on startup for a pending share import.
-  const hashResult = validateShareHash(window.location.hash);
-  if (hashResult.ok) {
-    shareStore.setPending(hashResult.doc);
-  } else if (hashResult.reason === "unsupported-version") {
-    // alpha-13 fix: clear stale hash BEFORE returning so the link
-    // doesn't re-trigger this error toast on every reload.
-    clearShareHash();
-    showToast(
-      "分享链接版本不支持",
-      `version=${hashResult.version ?? "?"}`,
-      "error",
-    );
-  } else if (hashResult.reason === "decode-failed") {
-    // Stale or malformed #share= fragment. Clear so we don't retry.
-    clearShareHash();
-    showToast("分享链接解析失败", "URL 片段格式错误或已损坏", "error");
-  }
-  // no-match: silently ignore (the URL had no #share= fragment).
-  mountShareImportModal();
 
   // ── T-Q-S11: backup modal wiring ──────────────────────────
   document.getElementById('sidebar-backup-btn')?.addEventListener('click', () => openBackupModal());
@@ -1289,40 +1207,52 @@ function openStatsModal(): void {
   // subscribers are already wired (we share the store imports).
   mountChatView();
 
-  // Register global shortcut: Ctrl+Shift+H — quick capture new session
-  try {
-    await register('Ctrl+Shift+H', async () => {
-      const win = getCurrentWindow();
-      await win.show();
-      await win.setFocus();
-      // T-Q-S5 增强: 复用 createSession() 直接开新会话（其内部已自动
-      // 设 currentSessionId、刷新 messages 显示与侧边栏列表）
-      const newId = await createSession();
-      if (!newId) {
-        console.warn('[GlobalShortcut] createSession returned null');
-        getChatInputHandle()?.focus();
-        return;
-      }
-      // 收掉侧边栏到 focus 模式、清空输入、focus 让用户立刻打字
-      // v0.2-alpha-18: drive the textarea via the imperative handle —
-      // it both clears the value (dispatching an input event so the
-      // Preact view picks it up) and re-focuses in one call.
-      if (sidebarStore.get()) sidebarStore.setVisible(false);
+  // v0.2-alpha-19: register the Ctrl+Shift+H global shortcut via
+  // src/lib/shortcuts.ts. We pass in the imperative callbacks
+  // (createSession + chat input handle + sidebar store) so the
+  // module has no direct import on main.ts.
+  const disposeShortcutHandle = await registerQuickCaptureShortcut({
+    createSession,
+    clearAndFocusInput: () => {
+      // The imperative handle dispatches an input event so the
+      // Preact view picks up the cleared value (alpha-18 pattern).
       const handle = getChatInputHandle();
-      if (handle) handle.clearText();
-    });
-    console.log('[GlobalShortcut] Ctrl+Shift+H registered (quick capture)');
-  } catch (e) {
-    console.warn('[GlobalShortcut] Failed to register:', e);
-  }
+      handle?.clearText();
+      // Focus even when createSession returned null — the user
+      // wanted to use the input, give them the input.
+      handle?.focus();
+    },
+    hideSidebar: () => sidebarStore.setVisible(false),
+  });
+
+  // v0.2-alpha-19: wire the SSE pipeline module. We pass in deps so
+  // the module never needs to import main.ts's module-level lets.
+  // The dispose handle is captured below for the unload cleanup.
+  const disposeChatStreamHandle = await initChatStream({
+    getCurrentSessionId: () => currentSessionId,
+    getCurrentSession: () => currentSession,
+    getRecentMessages: () => state.messages,
+    getPersonasCache: () => personasCache,
+    getCurrentModel: () => state.currentModel,
+    getDefaultModel: () => defaultModel,
+    getDefaultPersonaId: () => currentPersonaId,
+    setIsLoading: (b) => { state.isLoading = b; },
+    setIsStreaming: (b) => { state.isStreaming = b; },
+    setMessages: (m) => { state.messages = m; },
+    onAfterReply: () => { void refreshCurrentSessionRow(); },
+    buildSystemPrompt: () => buildCurrentSystemPrompt(),
+  });
+
+  // v0.2-alpha-19: mount the confirm modal — replaces the last
+  // window.confirm() call site in handleSessionDelete (sidebar's ×
+  // button). Generic enough to serve future confirmation flows.
+  mountConfirmModal();
 
   // Cleanup on unload
   window.addEventListener('unload', async () => {
-    unlistenChunk?.();
-    unlistenDone?.();
-    try {
-      await unregister('Ctrl+Shift+H');
-    } catch { /* ignore */ }
+    try { await disposeChatStreamHandle(); } catch { /* ignore */ }
+    try { await disposeShortcutHandle(); } catch { /* ignore */ }
+    try { await disposeTrayMenuHandle(); } catch { /* ignore */ }
   });
 
   checkConnection();
@@ -1394,7 +1324,7 @@ async function handleSubmit(content: string, attachmentsAtSend: PendingAttachmen
     void refreshCurrentSessionRow();
   }
 
-  await sendMessage();
+  await sendChatMessage();
 }
 
 // v0.2-alpha-16: addMessage / renderMessage / createStreamMessage /
@@ -1417,215 +1347,22 @@ async function handleSubmit(content: string, attachmentsAtSend: PendingAttachmen
  * src/routingTrace.test.ts (which imports from "./main").
  */
 
-/**
- * v0.2-alpha-16: handleStreamChunk rewritten to delegate DOM updates to
- * the chat store. The Preact <ChatViewWithWelcome /> subscriber picks
- * up `appendStreamChunk` calls and re-renders the streaming bubble.
- *
- * Per-stream metadata (usage / routing / elapsed_ms) stays on
- * module-level `let` variables so finishStream() can read them when
- * the agent emits `hermes-stream-done`.
- */
-function handleStreamChunk(payload: string) {
-  // Parse SSE data: lines that start with "data: "
-  const lines = payload.split('\n');
-  for (const line of lines) {
-    if (!line.startsWith('data: ')) continue;
-    const data = line.slice(6);
-    if (data === '[DONE]') continue;
-    try {
-      const json = JSON.parse(data);
-      const delta = json.choices?.[0]?.delta?.content;
-      if (delta) {
-        // Append to the streaming bubble via the store; the Preact
-        // view re-renders automatically. We do NOT mutate a DOM
-        // element directly anymore — that path is gone in alpha-16.
-        chatStore.appendStreamChunk(delta);
-      }
-      // S14-agent: capture the final-chunk usage + routing metadata so
-      // finishStream() can persist the real token count (replacing the
-      // char/4 heuristic) and surface the routing decision in the
-      // stats modal. We hold the *latest* value seen — OpenAI streaming
-      // sends usage exactly once at the end, but a few proxies repeat it
-      // across chunks and we want the most recent.
-      const usage = json.usage;
-      if (usage && typeof usage === 'object') {
-        lastStreamUsage = usage;
-        const rd = (usage as Record<string, unknown>).routing_decision;
-        if (rd) lastStreamRouting = rd;
-        const el = (usage as Record<string, unknown>).elapsed_ms;
-        if (typeof el === 'number') lastStreamElapsedMs = el;
-      }
-      // Some agent shapes emit routing_decision at the top level of the
-      // final chunk (not nested under usage). Cover that case too.
-      const topRd = (json as Record<string, unknown>).routing_decision;
-      if (topRd) lastStreamRouting = topRd;
-      const topEl = (json as Record<string, unknown>).elapsed_ms;
-      if (typeof topEl === 'number') lastStreamElapsedMs = topEl;
-    } catch { /* skip invalid JSON */ }
-  }
-}
-
-async function finishStream() {
-  // v0.2-alpha-16: read the streaming bubble content from the store
-  // (it's authoritative — chunks went through chatStore.appendStreamChunk).
-  // We still own the DB persistence + S14 usage tracking here in
-  // main.ts because those side-effects don't belong in a view file.
-  const streamingSnapshot = chatStore.get().streaming;
-  if (streamingSnapshot) {
-    const finalContent = streamingSnapshot.content;
-    // Compute the CLI bar metadata BEFORE we reset the per-stream
-    // module-level lets below — the S14 final-chunk values are the
-    // source of truth for the bar.
-    const usage = lastStreamUsage;
-    const costUsd = (usage && typeof usage.cost_estimate_usd === 'number')
-      ? usage.cost_estimate_usd : 0;
-    const routingObj = (lastStreamRouting ?? {}) as Record<string, unknown>;
-    const costThresholdExceeded = routingObj.cost_threshold_exceeded === true;
-    const ruleId = typeof routingObj.rule_id === 'string' ? routingObj.rule_id : null;
-    const bar: ChatMessageBar = {
-      costUsd,
-      elapsedMs: lastStreamElapsedMs,
-      ruleId,
-      costThresholdExceeded,
-    };
-    // Hand the finalised bubble + bar to the Preact view. The store
-    // clears its own streaming slot as part of finaliseStream().
-    chatStore.finaliseStream(bar);
-    state.messages = chatStore.get().messages;
-
-    // Persist assistant message to DB
-    if (currentSessionId) {
-      // message_append returns the persisted Message (with the new id).
-      // We need that id to call message_record_usage in the S14 path.
-      try {
-        const appended = await invoke<{ id: string; tokens: number }>('message_append', {
-          sessionId: currentSessionId,
-          role: 'assistant',
-          content: finalContent,
-          toolCalls: null,
-        });
-        // S14-agent: if the upstream pushed real usage, replace the
-        // char/4 heuristic tokens + stash image_tokens / routing_decision
-        // on the message metadata so the stats modal can show them.
-        if (appended?.id && usage && typeof usage.prompt_tokens === 'number') {
-          const detail = (usage.prompt_tokens_details ?? {}) as Record<string, unknown>;
-          const imageTokens = typeof detail.image_tokens === 'number'
-            ? detail.image_tokens : 0;
-          const routingJson = lastStreamRouting != null
-            ? JSON.stringify(lastStreamRouting) : null;
-          await invoke('message_record_usage', {
-            id: appended.id,
-            promptTokens: usage.prompt_tokens,
-            completionTokens: usage.completion_tokens ?? 0,
-            imageTokens,
-            routingDecisionJson: routingJson,
-            elapsedMs: lastStreamElapsedMs ?? null,
-            costEstimateUsd: costUsd,
-            costThresholdExceeded,
-          });
-          // The CLI bar itself is rendered by the Preact <AssistantBubble />
-          // component from the `bar` prop we just attached to the
-          // message in chatStore.finaliseStream — we no longer append
-          // a DOM node imperatively. (buildMessageBar is unused on
-          // this path; we keep the export alive for any future caller
-          // that wants the imperative DOM form, e.g. tests.)
-          void buildMessageBar;
-        }
-      } catch (e) {
-        console.error('[DB] save assistant msg failed:', e);
-      }
-      invoke('session_touch', { id: currentSessionId }).catch(() => {});
-      // T-Q-S9: refresh sidebar row so the token badge updates after
-      // each assistant reply. The user sees their spend climbing live.
-      void refreshCurrentSessionRow();
-    }
-  }
-  state.isLoading = false;
-  state.isStreaming = false;
-  // S14: clear the per-stream metadata so the next turn starts fresh.
-  lastStreamUsage = null;
-  lastStreamRouting = null;
-  lastStreamElapsedMs = null;
-  // v0.2-alpha-18: updateSendButton() call removed — the Preact
-  // <SendButton> reads chatStore.isLoading (which mirrors state.isLoading
-  // — see the chatStore subscribe in ChatInput view) and toggles the
-  // disabled + label automatically. We still flip state.isLoading so
-  // the prop on <ChatInput isLoading={state.isLoading} /> is correct.
-}
-
-async function sendMessage() {
-  state.isLoading = true;
-  // v0.2-alpha-18: see comment above — the SendButton re-renders from
-  // the isLoading prop on the next Preact tick.
-
-  // v0.2-alpha-16: open the streaming bubble via the store. The Preact
-  // <ChatViewWithWelcome /> subscriber picks up the change and renders
-  // the empty streaming bubble; subsequent handleStreamChunk calls
-  // accumulate content into it.
-  state.isStreaming = true;
-  chatStore.openStream();
-
-  try {
-    // T-Q-S7 + T-Q-S8: prepend a system message that combines the session's
-    // persona system_prompt with the cached project context summary.
-    // Compose is a pure function in src/systemPrompt.ts (covered by
-    // 12 unit tests); here we just wire the inputs.
-    const systemContent = await buildCurrentSystemPrompt();
-    // T-Q-S14: build multimodal content for the last user message if
-    // it has attachments. Older messages in the window are sent as
-    // text (their attachments are not re-attached — hermes-agent
-    // would need to re-read them from storage, out of MVP scope).
-    // v0.2-alpha-16: ChatMessage.role is 'user' | 'assistant' only
-    // (system prompts are injected below via apiMessages, never as
-    // history rows), so no role filter is needed here.
-    const recent = state.messages.slice(-10);
-    // Find the last user message in the window. We only attach images
-    // to the most recent user turn — older ones are sent as text only.
-    let lastUserIdx = -1;
-    for (let i = recent.length - 1; i >= 0; i--) {
-      if (recent[i].role === 'user') { lastUserIdx = i; break; }
-    }
-    const userMessages = recent.map((m, i) => ({
-      role: m.role,
-      content: (i === lastUserIdx && m.attachments && m.attachments.length > 0)
-        ? buildMultimodalContent(m.content, m.attachments)
-        : m.content,
-    }));
-    const apiMessages = systemContent === null
-      ? userMessages
-      : [{ role: 'system' as const, content: systemContent }, ...userMessages];
-
-    // Use streaming — response is empty, chunks via events
-    // T-Q-S12-light: model priority chain. See `pickModelForRequest`
-    // for the pure function and its tests. hermes-agent handles
-    // routing/retries; tray just sends the name.
-    const persona = currentSession?.persona_id
-      ? personasCache.find(p => p.id === currentSession!.persona_id) ?? null
-      : null;
-    const model = pickModelForRequest(persona, state.currentModel, defaultModel, CONFIG.defaultModel);
-    await hermesPostStream('/v1/chat/completions', {
-      model,
-      messages: apiMessages,
-      max_tokens: CONFIG.maxTokens,
-      temperature: CONFIG.temperature,
-      stream: true,
-    });
-
-  } catch (error) {
-    state.isStreaming = false;
-    console.error('Send message error:', error);
-    const errorMsg = error instanceof Error ? error.message : String(error);
-
-    // v0.2-alpha-16: discard the half-written streaming bubble (the
-    // store clears its slot) and surface the error through the store's
-    // error channel — the Preact view renders a red error bubble.
-    chatStore.abortStream();
-    chatStore.setError(`连接失败: ${errorMsg} (${getGatewayUrl()})`);
-    // v0.2-alpha-18: updateSendButton() call removed — see finishStream
-    // for the same rationale.
-  }
-}
+// v0.2-alpha-19: handleStreamChunk + finishStream + sendMessage +
+// per-stream module-level lets (lastStreamUsage / lastStreamRouting /
+// lastStreamElapsedMs) all moved to src/lib/chat-stream.ts. main.ts
+// only:
+//   - imports initChatStream + sendChatMessage + disposeChatStream
+//   - provides deps via initChatStream({...}) in DOMContentLoaded
+//   - calls sendChatMessage() from handleSubmit instead of sendMessage()
+//
+// The SSE listener setup (listen('hermes-stream-chunk') +
+// listen('hermes-stream-done')) lives in initChatStream; the dispose
+// handle is invoked from the window unload handler.
+//
+// S14 usage extraction (prompt_tokens / completion_tokens / image_tokens /
+// routing_decision / cost_estimate_usd) also lives in chat-stream —
+// the agent pushes these on the final SSE chunk and chat-stream persists
+// them via message_record_usage in finishStream.
 
 async function checkConnection() {
   updateConnectionStatus('connecting');

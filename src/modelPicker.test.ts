@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pickModelForRequest } from "./main";
+import { pickModelForRequest } from "./lib/modelPicker";
 
 describe("pickModelForRequest (T-Q-S12-light)", () => {
   it("persona.model wins over everything", () => {

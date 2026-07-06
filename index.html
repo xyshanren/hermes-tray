@@ -186,9 +186,15 @@
            by src/views/backup-modal-store.ts. -->
       <div id="backup-modal" class="modal-overlay hidden"></div>
 
-      <!-- Share Import Modal (T-Q-S10, alpha-15 Preact component).
-           Replaces v0.1.5's native window.confirm() dialog with a
-           proper modal showing the decoded ShareDoc preview + Import/Cancel. -->
-      <div id="share-import-modal" class="modal-overlay hidden"></div>
-  </body>
+<!-- Share Import Modal (T-Q-S10, alpha-15 Preact component).
+       Replaces v0.1.5's native window.confirm() with a
+       proper modal showing the decoded ShareDoc preview + Import/Cancel. -->
+  <div id="share-import-modal" class="modal-overlay hidden"></div>
+
+  <!-- Confirm Modal (v0.2-alpha-19 — Preact component replaces the last
+       native window.confirm() call site in main.ts: the session-delete
+       confirmation in the sidebar's × button. Generic enough to serve
+       future confirmation flows too. -->
+  <div id="confirm-modal" class="modal-overlay hidden"></div>
+</body>
 </html>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildMultimodalContent } from "./main";
+import { buildMultimodalContent } from "./lib/multimodal";
 
 describe("buildMultimodalContent (T-Q-S14)", () => {
   it("text-only with no attachments returns the string", () => {
