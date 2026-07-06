@@ -36,6 +36,8 @@ import { mountSearchModal } from './views/search-modal-mount';
 import { searchModalStore } from './views/search-modal-store';
 import { mountPersonaModal } from './views/persona-modal-mount';
 import { personaStore } from './views/persona-modal-store';
+import { mountBackupModal } from './views/backup-modal-mount';
+import { backupStore } from './views/backup-modal-store';
 import { escapeHtml } from './lib/sanitize';
 import type { Persona } from './types';
 import {
@@ -1097,92 +1099,8 @@ function renderChartSvg(daily: DailyBucket[]): string {
 
 // ── Backup (T-Q-S11) ─────────────────────────────────────────────────────────────
 
-type BackupTab = 'create' | 'restore';
-
-function openBackupModal(tab: BackupTab = 'create'): void {
-  const modal = document.getElementById('backup-modal');
-  if (!modal) return;
-  // Switch to the requested tab.
-  document.querySelectorAll<HTMLElement>('.backup-tab').forEach(t => {
-    t.classList.toggle('active', t.dataset.tab === tab);
-  });
-  document.getElementById('backup-tab-create')?.classList.toggle('hidden', tab !== 'create');
-  document.getElementById('backup-tab-restore')?.classList.toggle('hidden', tab !== 'restore');
-  modal.classList.remove('hidden');
-}
-
-function closeBackupModal(): void {
-  document.getElementById('backup-modal')?.classList.add('hidden');
-}
-
-async function handleBackupCreate(): Promise<void> {
-  const pathInput = document.getElementById('backup-create-path') as HTMLInputElement | null;
-  const pwInput = document.getElementById('backup-create-password') as HTMLInputElement | null;
-  const pwConfirmInput = document.getElementById('backup-create-password-confirm') as HTMLInputElement | null;
-  const path = pathInput?.value.trim() ?? '';
-  const password = pwInput?.value ?? '';
-  const passwordConfirm = pwConfirmInput?.value ?? '';
-  if (!path) { showToast('请填写输出路径', '', 'error'); return; }
-  if (password.length < 8) { showToast('密码太短', '建议至少 8 位', 'error'); return; }
-  if (password !== passwordConfirm) { showToast('两次密码不一致', '', 'error'); return; }
-  try {
-    const info = await invoke<{ output_path: string; plaintext_bytes: number; encrypted_bytes: number }>('backup_create', {
-      outputPath: path,
-      password,
-    });
-    showToast(
-      '备份已创建',
-      `${info.output_path}\n明文 ${formatBytes(info.plaintext_bytes)} → 加密 ${formatBytes(info.encrypted_bytes)}`,
-      'success',
-    );
-    // Clear password fields for safety.
-    if (pwInput) pwInput.value = '';
-    if (pwConfirmInput) pwConfirmInput.value = '';
-    closeBackupModal();
-  } catch (e) {
-    showToast('备份失败', String(e), 'error');
-  }
-}
-
-async function handleBackupVerify(): Promise<void> {
-  const pathInput = document.getElementById('backup-restore-path') as HTMLInputElement | null;
-  const pwInput = document.getElementById('backup-restore-password') as HTMLInputElement | null;
-  const path = pathInput?.value.trim() ?? '';
-  const password = pwInput?.value ?? '';
-  if (!path || !password) { showToast('请填写路径和密码', '', 'error'); return; }
-  try {
-    const ok = await invoke<boolean>('backup_verify', { inputPath: path, password });
-    if (ok) {
-      showToast('密码正确', '可以安全恢复', 'success');
-    } else {
-      showToast('密码错误', '请检查后重试', 'error');
-    }
-  } catch (e) {
-    showToast('验证失败', String(e), 'error');
-  }
-}
-
-async function handleBackupRestore(): Promise<void> {
-  const pathInput = document.getElementById('backup-restore-path') as HTMLInputElement | null;
-  const pwInput = document.getElementById('backup-restore-password') as HTMLInputElement | null;
-  const path = pathInput?.value.trim() ?? '';
-  const password = pwInput?.value ?? '';
-  if (!path || !password) { showToast('请填写路径和密码', '', 'error'); return; }
-  if (!confirm('⚠️ 恢复操作会覆盖当前所有数据, 且需要重启应用才能生效. 确定继续吗?')) return;
-  try {
-    const info = await invoke<{ input_path: string; plaintext_bytes: number; requires_restart: boolean }>(
-      'backup_restore',
-      { inputPath: path, password },
-    );
-    if (info.requires_restart) {
-      showToast('恢复成功', '请重启应用以加载新数据', 'success');
-    } else {
-      showToast('恢复成功', `${info.plaintext_bytes} 字节已加载`, 'success');
-    }
-    closeBackupModal();
-  } catch (e) {
-    showToast('恢复失败', String(e), 'error');
-  }
+function openBackupModal(): void {
+  backupStore.setOpen(true);
 }
 
 function formatBytes(n: number): string {
@@ -1880,24 +1798,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   void maybeImportFromHash();
 
   // ── T-Q-S11: backup modal wiring ──────────────────────────
-  document.getElementById('sidebar-backup-btn')?.addEventListener('click', () => openBackupModal('create'));
-  document.getElementById('backup-modal-close')?.addEventListener('click', closeBackupModal);
-  document.getElementById('backup-modal')?.addEventListener('click', (e) => {
-    if (e.target === document.getElementById('backup-modal')) closeBackupModal();
-  });
-  document.querySelectorAll<HTMLElement>('.backup-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      const target = tab.dataset.tab as BackupTab;
-      document.querySelectorAll<HTMLElement>('.backup-tab').forEach(t => {
-        t.classList.toggle('active', t.dataset.tab === target);
-      });
-      document.getElementById('backup-tab-create')?.classList.toggle('hidden', target !== 'create');
-      document.getElementById('backup-tab-restore')?.classList.toggle('hidden', target !== 'restore');
-    });
-  });
-  document.getElementById('backup-create-btn')?.addEventListener('click', () => { void handleBackupCreate(); });
-  document.getElementById('backup-verify-btn')?.addEventListener('click', () => { void handleBackupVerify(); });
-  document.getElementById('backup-restore-btn')?.addEventListener('click', () => { void handleBackupRestore(); });
+  document.getElementById('sidebar-backup-btn')?.addEventListener('click', () => openBackupModal());
+  mountBackupModal();
 
   // Register global shortcut: Ctrl+Shift+H — quick capture new session
   try {

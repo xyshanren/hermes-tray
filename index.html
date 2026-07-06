@@ -231,55 +231,9 @@
         </div>
       </div>
 
-      <!-- Backup Modal (T-Q-S11) -->
-      <div id="backup-modal" class="modal-overlay hidden">
-        <div class="modal modal-backup">
-          <div class="modal-header">
-            <h2>💾 加密备份</h2>
-            <button id="backup-modal-close" class="modal-close-btn">&times;</button>
-          </div>
-          <div class="modal-body">
-            <div class="backup-tabs">
-              <button class="backup-tab active" data-tab="create">📤 创建备份</button>
-              <button class="backup-tab" data-tab="restore">📥 恢复备份</button>
-            </div>
-            <div id="backup-tab-create" class="backup-tab-content">
-              <div class="form-group">
-                <label for="backup-create-path">输出路径</label>
-                <input type="text" id="backup-create-path" placeholder="例如 F:\backups\hermes-2026-06-26.htbk" />
-                <span class="form-hint">备份文件后缀建议用 .htbk. 文件内容已加密, 可放在 U 盘 / 云盘.</span>
-              </div>
-              <div class="form-group">
-                <label for="backup-create-password">密码</label>
-                <input type="password" id="backup-create-password" placeholder="至少 8 位, 记住它" autocomplete="new-password" />
-              </div>
-              <div class="form-group">
-                <label for="backup-create-password-confirm">确认密码</label>
-                <input type="password" id="backup-create-password-confirm" placeholder="再次输入" autocomplete="new-password" />
-              </div>
-              <div class="backup-actions">
-                <button id="backup-create-btn" class="btn btn-primary">🔐 创建加密备份</button>
-              </div>
-            </div>
-            <div id="backup-tab-restore" class="backup-tab-content hidden">
-              <div class="form-group">
-                <label for="backup-restore-path">输入文件 (.htbk)</label>
-                <input type="text" id="backup-restore-path" placeholder="备份文件的完整路径" />
-              </div>
-              <div class="form-group">
-                <label for="backup-restore-password">密码</label>
-                <input type="password" id="backup-restore-password" placeholder="创建备份时设置的密码" autocomplete="current-password" />
-              </div>
-              <div class="backup-actions">
-                <button id="backup-verify-btn" class="btn btn-secondary">🔍 验证密码</button>
-                <button id="backup-restore-btn" class="btn btn-primary">📥 恢复 (需重启)</button>
-              </div>
-              <div class="backup-warning">
-                ⚠️ 恢复会覆盖当前所有会话/Persona/项目数据. 操作完成后需重启应用才能加载恢复后的数据.
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <!-- Backup Modal (T-Q-S11) — modal contents live in
+           src/views/backup-modal.tsx; visibility (.hidden class) toggled
+           by src/views/backup-modal-store.ts. -->
+      <div id="backup-modal" class="modal-overlay hidden"></div>
   </body>
 </html>
