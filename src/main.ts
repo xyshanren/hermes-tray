@@ -27,7 +27,7 @@ import { listen } from '@tauri-apps/api/event';
 import { register, unregister } from '@tauri-apps/plugin-global-shortcut';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { composeSystemPrompt } from './systemPrompt';
-import { layoutChart, formatTokens, formatCost, DEFAULT_CHART_LAYOUT, type DailyBucketLike } from './tokenChart';
+import { formatTokens } from './tokenChart';
 import { setTheme, getStoredTheme, type ThemeMode } from './lib/theme';
 import { hermesGet, hermesPostStream, authHeaders } from './lib/api';
 import { showToast, type ToastType } from './lib/toast';
@@ -38,6 +38,8 @@ import { mountPersonaModal } from './views/persona-modal-mount';
 import { personaStore } from './views/persona-modal-store';
 import { mountBackupModal } from './views/backup-modal-mount';
 import { backupStore } from './views/backup-modal-store';
+import { mountStatsModal } from './views/stats-modal-mount';
+import { statsStore } from './views/stats-modal-store';
 import { escapeHtml } from './lib/sanitize';
 import type { Persona } from './types';
 import {
@@ -118,74 +120,11 @@ function parseProjectContext(json: string | null): ProjectContext | null {
   try { return JSON.parse(json) as ProjectContext; } catch { return null; }
 }
 
-// ── Token stats types (T-Q-S9) ─────────────────────────────────────────────────
-//
-// Mirrors `db::token::{TokenStats, DailyBucket, ModelBucket}`. Rust
-// side computes aggregates via SQL; we just render.
+// Token stats types (T-Q-S9) live in src/types.ts and are imported where
+// needed (e.g. src/views/stats-modal.tsx). The local interfaces below
+// are only for DbMessage and other app-shell types.
 
-interface DailyBucket {
-  date: string;
-  input_tokens: number;
-  output_tokens: number;
-  cost: number;
-}
-
-interface ModelBucket {
-  model: string;
-  input_tokens: number;
-  output_tokens: number;
-  cost: number;
-  message_count: number;
-}
-
-interface TokenStats {
-  period: string;
-  start_unix_ms: number;
-  end_unix_ms: number;
-  total_input_tokens: number;
-  total_output_tokens: number;
-  total_cost: number;
-  total_messages: number;
-  total_sessions: number;
-  daily: DailyBucket[];
-  by_model: ModelBucket[];
-  // S14-agent integration. The Rust token_stats aggregator reads
-  // messages.metadata via json_extract and surfaces these so the
-  // stats modal can show "图片 token" cost + the most recent
-  // routing_decision / elapsed_ms. `recent_routing_decision` is the
-  // raw JSON blob the agent pushed (mode / primary / resolved /
-  // fallback_*); the modal renders the bits it knows and ignores
-  // unknown fields.
-  total_image_tokens: number;
-  recent_routing_decision: string | null;
-  recent_elapsed_ms: number | null;
-  // ── v0.1.5 S12 cost-aware routing aggregates ─────────────────────────
-  // Real USD cost (sum of messages.cost_estimate_usd) for the period.
-  // Replaces the char/4 cost projection in the "预估成本" tile as
-  // messages with S12 cost data accumulate.
-  period_cost_total_usd: number;
-  // Fallback hit rate in [0.0, 1.0]. Of messages that carried a
-  // routing_decision in the period, the fraction that fired a
-  // fallback. 0.0 when no messages in the period carry a routing
-  // decision (pre-S12 / pre-S14).
-  fallback_hit_rate: number;
-  // Average wall-clock latency (ms) across the period, from
-  // messages.metadata.elapsed_ms. 0.0 when no messages in the
-  // period carry elapsed_ms.
-  avg_latency_ms: number;
-  // Count of messages where S12 cost-aware fallback flagged a budget
-  // breach (cost_threshold_exceeded = 1). Surfaces silent overruns.
-  cost_threshold_count: number;
-  // Per-rule breakdown. `rule_id` from routing_decision.rule_id;
-  // sorted by hit_count DESC.
-  by_rule: RuleBucket[];
-}
-
-interface RuleBucket {
-  rule_id: string;
-  hit_count: number;
-  cost_total: number;
-}
+// ── Db message shape ──────────────────────────────────────────────────────
 
 interface DbMessage {
   id: string;
@@ -896,206 +835,13 @@ async function scanProject(path: string): Promise<ProjectContext | null> {
 let defaultProjectPath: string | null = null;
 
 // ── Token stats (T-Q-S9) ──────────────────────────────────────────────────────
-
-type StatsPeriod = 'day' | 'week' | 'month' | 'all';
-let currentStats: TokenStats | null = null;
-let currentStatsPeriod: StatsPeriod = 'week';
-
-async function loadTokenStats(period: StatsPeriod): Promise<TokenStats | null> {
-  try {
-    currentStats = await invoke<TokenStats>('token_stats', { period });
-    currentStatsPeriod = period;
-    return currentStats;
-  } catch (e) {
-    showToast('加载统计失败', String(e), 'error');
-    return null;
-  }
-}
-
-function openStatsModal(): void {
-  const modal = document.getElementById('stats-modal');
-  if (!modal) return;
-  modal.classList.remove('hidden');
-  void loadTokenStats(currentStatsPeriod).then(() => renderStatsModal());
-}
-
-function closeStatsModal(): void {
-  const modal = document.getElementById('stats-modal');
-  if (modal) modal.classList.add('hidden');
-}
-
-function renderStatsModal(): void {
-  const body = document.getElementById('stats-modal-body');
-  if (!body) return;
-  if (!currentStats) {
-    body.innerHTML = '<div class="stats-empty">暂无数据</div>';
-    return;
-  }
-  const s = currentStats;
-  // S14-agent: derive a one-line "最近 vision" trace + latency badge so
-  // the user can see what their last vision call did and how long it
-  // took. Empty string -> the JSX conditional hides the block.
-  const routingTrace = formatRoutingTrace(s.recent_routing_decision ?? null);
-  const latencyBadge = formatLatencyMs(s.recent_elapsed_ms);
-  // v0.1.5 S12: 4 new aggregate tiles + 2 breakdown tables (by model,
-  // by rule). The "本月 Cost" tile uses the S12 real value when it's
-  // > 0; otherwise falls back to the char/4 projected `total_cost` so
-  // pre-S12 DBs still render something useful. The label flips between
-  // "本月 Cost (S12)" and "预估成本" depending on which path is active.
-  const costTotalUsd = s.period_cost_total_usd ?? 0;
-  const hasRealCost = costTotalUsd > 0;
-  const costValue = hasRealCost ? costTotalUsd : s.total_cost;
-  const costLabel = hasRealCost ? '本月 Cost (S12)' : '预估成本';
-  const costSub = hasRealCost
-    ? `S12 真实值 · ${s.by_model.length} 个模型`
-    : `基于 ${s.by_model.length} 个模型`;
-  // Fallback hit rate as integer percent (0-100). null/undefined guard.
-  const fallbackPct = Math.round((s.fallback_hit_rate ?? 0) * 100);
-  // Avg latency in seconds, 1 decimal. ms → s, 0 if no data.
-  const avgLatencySec = (s.avg_latency_ms ?? 0) > 0
-    ? ((s.avg_latency_ms ?? 0) / 1000).toFixed(1)
-    : '0.0';
-  // Cost threshold count — show "0 次" when nothing tripped, since
-  // "—" would be visually confusing next to the integer tile siblings.
-  const thresholdCount = s.cost_threshold_count ?? 0;
-  body.innerHTML = `
-    <div class="stats-period-tabs">
-      ${(['day', 'week', 'month', 'all'] as const).map(p =>
-        `<button class="stats-period-btn ${p === currentStatsPeriod ? 'active' : ''}" data-period="${p}">${
-          p === 'day' ? '今日' : p === 'week' ? '本周' : p === 'month' ? '本月' : '全部'
-        }</button>`
-      ).join('')}
-    </div>
-    <div class="stats-totals">
-      <div class="stats-totals-cell">
-        <div class="stats-totals-label">总 Token</div>
-        <div class="stats-totals-value">${formatTokens(s.total_input_tokens + s.total_output_tokens)}</div>
-        <div class="stats-totals-sub">↑ ${formatTokens(s.total_input_tokens)} / ↓ ${formatTokens(s.total_output_tokens)}</div>
-      </div>
-      <div class="stats-totals-cell">
-        <div class="stats-totals-label">${escapeHtml(costLabel)}</div>
-        <div class="stats-totals-value">${formatCost(costValue)}</div>
-        <div class="stats-totals-sub">${escapeHtml(costSub)}</div>
-      </div>
-      <div class="stats-totals-cell">
-        <div class="stats-totals-label">消息 / 会话</div>
-        <div class="stats-totals-value">${s.total_messages}</div>
-        <div class="stats-totals-sub">${s.total_sessions} 个会话</div>
-      </div>
-    </div>
-    <div class="stats-totals">
-      <div class="stats-totals-cell">
-        <div class="stats-totals-label">图片 Token (S14)</div>
-        <div class="stats-totals-value">${formatTokens(s.total_image_tokens ?? 0)}</div>
-        <div class="stats-totals-sub">来自 vision 附件的输入 token</div>
-      </div>
-      <div class="stats-totals-cell stats-totals-cell-vision">
-        <div class="stats-totals-label">最近 Vision</div>
-        <div class="stats-totals-value stats-totals-trace">${escapeHtml(routingTrace || '—')}</div>
-        <div class="stats-totals-sub">${escapeHtml(latencyBadge || '')}</div>
-      </div>
-    </div>
-    <div class="stats-totals">
-      <div class="stats-totals-cell">
-        <div class="stats-totals-label">Fallback 命中率 (S12)</div>
-        <div class="stats-totals-value">${fallbackPct}%</div>
-        <div class="stats-totals-sub">已 fallback / 已路由</div>
-      </div>
-      <div class="stats-totals-cell">
-        <div class="stats-totals-label">平均 Latency (S12)</div>
-        <div class="stats-totals-value">${avgLatencySec}s</div>
-        <div class="stats-totals-sub">来自 elapsed_ms 平均</div>
-      </div>
-      <div class="stats-totals-cell">
-        <div class="stats-totals-label">Cost Threshold 触发</div>
-        <div class="stats-totals-value">${thresholdCount}</div>
-        <div class="stats-totals-sub">${thresholdCount > 0 ? '预算超支次数' : '本周期内无超支'}</div>
-      </div>
-    </div>
-    <div class="stats-chart-section">
-      <h3>每日 Token 用量</h3>
-      ${renderChartSvg(s.daily)}
-    </div>
-    <div class="stats-models-section">
-      <h3>按模型分列</h3>
-      <table class="stats-models-table">
-        <thead><tr><th>模型</th><th>消息</th><th>Input</th><th>Output</th><th>成本</th></tr></thead>
-        <tbody>
-          ${s.by_model.length === 0
-            ? '<tr><td colspan="5" class="stats-empty">暂无数据</td></tr>'
-            : s.by_model.map(m => `<tr>
-                <td>${escapeHtml(m.model)}</td>
-                <td>${m.message_count}</td>
-                <td>${formatTokens(m.input_tokens)}</td>
-                <td>${formatTokens(m.output_tokens)}</td>
-                <td>${formatCost(m.cost)}</td>
-              </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>
-    <div class="stats-models-section">
-      <h3>By Rule (S12)</h3>
-      <table class="stats-models-table">
-        <thead><tr><th>规则</th><th>命中数</th><th>成本 (USD)</th></tr></thead>
-        <tbody>
-          ${(s.by_rule ?? []).length === 0
-            ? '<tr><td colspan="3" class="stats-empty">暂无 routing_decision 数据</td></tr>'
-            : (s.by_rule ?? []).map(r => `<tr>
-                <td>${escapeHtml(r.rule_id)}</td>
-                <td>${r.hit_count}</td>
-                <td>${formatCost(r.cost_total)}</td>
-              </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-  // Period tab click handlers.
-  body.querySelectorAll<HTMLButtonElement>('.stats-period-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const p = btn.dataset.period as StatsPeriod;
-      void loadTokenStats(p).then(() => renderStatsModal());
-    });
-  });
-}
-
-function renderChartSvg(daily: DailyBucket[]): string {
-  if (daily.length === 0) {
-    return '<div class="stats-empty">本周期内无消息</div>';
-  }
-  const { layout, points } = layoutChart(daily as DailyBucketLike[], DEFAULT_CHART_LAYOUT);
-  // Y-axis tick lines: 0, 1/4, 1/2, 3/4, max.
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => {
-    const yVal = layout.yMax * f;
-    const yPx = layout.padding.top + (layout.height - layout.padding.top - layout.padding.bottom) * (1 - f);
-    return `<line x1="${layout.padding.left}" y1="${yPx.toFixed(1)}" x2="${layout.width - layout.padding.right}" y2="${yPx.toFixed(1)}" stroke="var(--border)" stroke-dasharray="2 3" />
-            <text x="${layout.padding.left - 6}" y="${(yPx + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--text-muted)">${formatTokens(yVal)}</text>`;
-  }).join('');
-  // Bars: input (bottom) + output (stacked on top).
-  const bars = points.map((p, idx) => {
-    const inY = layout.height - layout.padding.bottom - p.inputH;
-    const outY = inY - p.outputH;
-    const innerW = layout.width - layout.padding.left - layout.padding.right;
-    const barW = Math.max(2, Math.min(40, (innerW / points.length) * 0.7));
-    const x = p.x;
-    const src = daily[idx];
-    return `<g>
-      <rect x="${x.toFixed(1)}" y="${inY.toFixed(1)}" width="${barW.toFixed(1)}" height="${p.inputH.toFixed(1)}" fill="var(--primary)" opacity="0.85">
-        <title>${p.date}: ${formatTokens(p.total)} (input ${formatTokens(src.input_tokens)} / output ${formatTokens(src.output_tokens)})</title>
-      </rect>
-      <rect x="${x.toFixed(1)}" y="${outY.toFixed(1)}" width="${barW.toFixed(1)}" height="${p.outputH.toFixed(1)}" fill="var(--primary)" opacity="0.45">
-      </rect>
-      <text x="${(x + barW / 2).toFixed(1)}" y="${(layout.height - layout.padding.bottom + 12).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text-muted)">${p.date.slice(5)}</text>
-    </g>`;
-  }).join('');
-  // Legend.
-  const legend = `<g transform="translate(${layout.padding.left}, 4)">
-    <rect width="10" height="10" fill="var(--primary)" opacity="0.85" />
-    <text x="14" y="9" font-size="11" fill="var(--text-secondary)">Input</text>
-    <rect x="60" width="10" height="10" fill="var(--primary)" opacity="0.45" />
-    <text x="74" y="9" font-size="11" fill="var(--text-secondary)">Output</text>
-  </g>`;
-  return `<svg viewBox="0 0 ${layout.width} ${layout.height}" class="stats-chart" preserveAspectRatio="xMidYMid meet">${ticks}${bars}${legend}</svg>`;
-}
+//
+// Token stats modal migrated to src/views/stats-modal.tsx in alpha-10.
+// TokenStats / DailyBucket / ModelBucket / RuleBucket types live in
+// src/types.ts (already exported since alpha-1). renderChartSvg and
+// the innerHTML-driven renderStatsModal are gone — the Preact
+// component renders the same structure as JSX with proper Preact
+// reconciliation.
 
 // ── Backup (T-Q-S11) ─────────────────────────────────────────────────────────────
 
@@ -1776,12 +1522,13 @@ window.addEventListener('DOMContentLoaded', async () => {
   defaultModel = await loadDefaultModel();
 
   // ── T-Q-S9: stats modal wiring ───────────────────
-  const statsModal = document.getElementById('stats-modal');
-  document.getElementById('stats-modal-close')?.addEventListener('click', closeStatsModal);
-  statsModal?.addEventListener('click', (e) => {
-    if (e.target === statsModal) closeStatsModal();
-  });
   document.getElementById('sidebar-stats-btn')?.addEventListener('click', () => openStatsModal());
+  mountStatsModal();
+
+// Sidebar stats button → opens the Preact-rendered stats modal.
+function openStatsModal(): void {
+  statsStore.setOpen(true);
+}
 
   // ── T-Q-S10: share link button + import from URL hash ─────────
   // The share button copies a self-contained URL to the clipboard.

@@ -220,16 +220,10 @@
            subscription set up in mountPersonaModal. -->
       <div id="persona-modal" class="modal-overlay hidden"></div>
 
-      <!-- Token / Cost Stats Modal (T-Q-S9) -->
-      <div id="stats-modal" class="modal-overlay hidden">
-        <div class="modal modal-stats">
-          <div class="modal-header">
-            <h2>📊 Token 用量与成本</h2>
-            <button id="stats-modal-close" class="modal-close-btn">&times;</button>
-          </div>
-          <div id="stats-modal-body" class="modal-body"></div>
-        </div>
-      </div>
+      <!-- Token / Cost Stats Modal (T-Q-S9) — modal contents live in
+           src/views/stats-modal.tsx; visibility (.hidden class) toggled
+           by src/views/stats-modal-store.ts. -->
+      <div id="stats-modal" class="modal-overlay hidden"></div>
 
       <!-- Backup Modal (T-Q-S11) — modal contents live in
            src/views/backup-modal.tsx; visibility (.hidden class) toggled
