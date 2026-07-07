@@ -79,6 +79,19 @@
           <div class="header-title">
             <span class="logo-icon">👔</span>
             <h1>Hermes Chat</h1>
+            <!-- v0.2-alpha-27 — design 01 project chip. Hidden when no
+                 active session or when the session has no project_dir.
+                 main.ts toggles hidden + sets #header-project-name. -->
+            <span id="header-project-chip" class="header-project-chip" hidden>·</span>
+            <span id="header-project-name" class="header-project-name" hidden></span>
+          </div>
+          <!-- v0.2-alpha-27 — design 01: model selector in the header
+               (was in the footer). Driven by main.ts on boot via
+               fetchModelInfo + populateModelOptions. Hidden until the
+               first fetch completes so we don't show an empty dropdown. -->
+          <div id="header-model-selector" class="header-model-selector" hidden>
+            <span id="header-model-status-dot" class="status-dot disconnected"></span>
+            <select id="model-selector" class="model-selector" title="选择当前模型"></select>
           </div>
           <!-- T-Q-S7: Persona picker (auto-applies to new sessions) -->
           <div class="header-persona">
@@ -150,7 +163,11 @@
           </div>
         </form>
         <div class="input-info">
-          <span id="model-name">-</span>
+          <div class="input-info-left">
+            <span id="model-name">-</span>
+            <span class="dot">·</span>
+            <span id="footer-persona"></span>
+          </div>
           <span id="char-count">0 / 4000</span>
         </div>
       </footer>

@@ -58,10 +58,13 @@ afterEach(() => {
 // ── validateShareHash pure function tests ──────────────────────────────
 
 describe("validateShareHash", () => {
-  it("returns decode-failed for non-share hash", () => {
+  it("returns no-match for empty hash", () => {
+    // v0.2-alpha-26 — empty hash is no-match (silently ignored by
+    // share-ui.ts), NOT decode-failed. Folding no-match into
+    // decode-failed caused the cold-boot toast spam bug.
     const result = validateShareHash("");
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toBe("decode-failed");
+    if (!result.ok) expect(result.reason).toBe("no-match");
   });
 
   it("returns decode-failed for malformed base64url payload", () => {

@@ -38,6 +38,13 @@ interface SessionListState {
   /** Id of the session currently being inline-renamed. The view swaps
    *  the title span for an <input> when this matches a row's id. */
   renameId: string | null;
+  /** v0.2-alpha-27 — Set of session ids whose title has been
+   *  explicitly renamed by the user. Sessions in this set render
+   *  with the 📌 marker in the sidebar (design 01: "user_renamed
+   *  visual cue"). Cleared when the session list is wiped on app
+   *  boot — we don't persist this across reboots yet (out of MVP
+   *  scope; the rename itself is persisted via session_update). */
+  renamedSessionIds: ReadonlySet<string>;
 }
 
 export type { SessionListState };
@@ -50,6 +57,7 @@ let state: SessionListState = {
   isLoading: false,
   activeId: null,
   renameId: null,
+  renamedSessionIds: new Set<string>(),
 };
 
 const listeners = new Set<Listener>();
@@ -100,6 +108,21 @@ export const sessionListStore = {
   },
 
   /**
+   * v0.2-alpha-27 — Mark a session as user-renamed. Called by main.ts
+   * after a successful `session_update` patch.title mutation (so the
+   * auto-rename on first message does NOT count — that fires from
+   * handleSubmit when the title is still '新会话'). Adds the id to
+   * the renamedSessionIds Set so the view renders the 📌 marker.
+   */
+  markRenamed(id: string): void {
+    if (state.renamedSessionIds.has(id)) return;
+    const next = new Set(state.renamedSessionIds);
+    next.add(id);
+    state = { ...state, renamedSessionIds: next };
+    notify();
+  },
+
+  /**
    * Remove a session from the list. Called after session_delete succeeds;
    * if it was the active one, also clears activeId so the chat view
    * falls back to the welcome screen.
@@ -110,6 +133,12 @@ export const sessionListStore = {
       sessions: state.sessions.filter((s) => s.id !== id),
       activeId: state.activeId === id ? null : state.activeId,
       renameId: state.renameId === id ? null : state.renameId,
+      renamedSessionIds: (() => {
+        if (!state.renamedSessionIds.has(id)) return state.renamedSessionIds;
+        const next = new Set(state.renamedSessionIds);
+        next.delete(id);
+        return next;
+      })(),
     };
     notify();
   },
@@ -157,6 +186,7 @@ export const sessionListStore = {
       isLoading: false,
       activeId: null,
       renameId: null,
+      renamedSessionIds: new Set<string>(),
     };
     notify();
   },
@@ -182,6 +212,7 @@ export const sessionListStore = {
       isLoading: false,
       activeId: null,
       renameId: null,
+      renamedSessionIds: new Set<string>(),
     };
     listeners.clear();
   },

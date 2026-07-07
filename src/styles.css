@@ -49,8 +49,8 @@
    * (left-aligned), assistant with no background at all (left-aligned
    * to its avatar). See Phase E2 commit for the matching layout
    * change in chat-view.tsx. */
-  --user-bg: #DBEAFE;            /* blue-100 */
-  --user-text: #1E3A8A;          /* blue-900 — readable on blue-100 */
+  --user-bg: #BFDBFE;            /* blue-200 — design 01 chip colour */
+  --user-text: #1E3A8A;          /* blue-900 — readable on blue-200 */
   --assistant-bg: transparent;
   --assistant-text: #0F172A;
 
@@ -208,6 +208,13 @@ html, body {
   cursor: pointer;
   transition: background 0.15s;
   min-width: 0;
+  /* v0.2-alpha-27 — allow session-item-main (title + subtitle) to
+   * wrap to two rows while keeping action buttons on the right side.
+   * flex-wrap was set to nowrap in alpha-17 because the old layout
+   * was single-row (title + project badge + token + actions). With
+   * design 01's two-line subtitle we need the main column to wrap
+   * internally instead. */
+  flex-wrap: nowrap;
 }
 .session-item:hover {
   background: var(--bg-tertiary);
@@ -220,13 +227,59 @@ html, body {
   background: var(--primary-soft);
 }
 
-.session-title {
+.session-item-main {
+  /* v0.2-alpha-27 — title + subtitle stack vertically inside the
+   * main column. flex:1 takes remaining horizontal space; min-width:0
+   * lets the inner text-ellipsis actually clip. */
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-title {
+  /* v0.2-alpha-27 — flex:1 moves to session-item-main, so title no
+   * longer needs its own flex grow. Width is now constrained by the
+   * parent column. */
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-status-dot {
+  /* v0.2-alpha-27 — design 01 status indicator. Default = green
+   * (idle / completed). User-renamed sessions show purple. */
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22C55E; /* green-500 */
+  flex-shrink: 0;
+}
+.session-status-dot.renamed {
+  background: #8B5CF6; /* violet-500 */
+}
+
+.session-rename-pin {
+  /* v0.2-alpha-27 — 📌 marker for sessions whose title was set by
+   * the user (vs. auto-rename from first-message heuristic). */
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.session-subtitle {
+  /* v0.2-alpha-27 — design 01 subtitle: "~/code/hermes · 昨天" or
+   * "未关联项目 · 3 天前". Greyer + smaller than title. */
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-delete {
@@ -239,6 +292,7 @@ html, body {
   opacity: 0;
   transition: opacity 0.15s, color 0.15s;
   line-height: 1;
+  flex-shrink: 0;
 }
 .session-item:hover .session-delete { opacity: 1; }
 .session-delete:hover { color: #ef4444; }
@@ -293,11 +347,93 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* v0.2-alpha-27 — design 01: project chip sits inline next to the
+   * brand name, like "Hermes Chat · 项目复盘 v2". Wrapping is OK on
+   * narrow windows — the chip will go to a second line, and the
+   * header has overflow-x: hidden to clip if needed. */
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .header-title h1 {
   font-size: 16px;
   font-weight: 600;
+}
+
+.header-project-chip {
+  /* v0.2-alpha-27 — bullet separator between brand + project chip.
+   * Same color as text-muted so it doesn't dominate. */
+  color: var(--text-muted);
+  font-size: 14px;
+  user-select: none;
+}
+
+.header-project-name {
+  /* v0.2-alpha-27 — design 01: subtle gray chip behind the project
+   * name. font-size 13 so it doesn't compete with the brand. */
+  font-size: 13px;
+  font-weight: 500;
+  padding: 3px 10px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+.header-model-selector {
+  /* v0.2-alpha-27 — design 01: pill-shaped model selector with a
+   * status dot, mirroring design 01's "● Qwen-Plus ▼" pattern. */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.header-model-selector:hover {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(91, 108, 255, 0.08);
+}
+
+.header-model-selector .status-dot {
+  /* smaller dot inside the model pill */
+  width: 6px;
+  height: 6px;
+}
+
+.model-selector {
+  /* Native select, but stripped down to look like the design 01
+   * "● Qwen-Plus ▼" inline pill. */
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  /* We use a small ▼ glyph as the dropdown indicator since we
+   * stripped the native arrow. */
+  padding-right: 12px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
+                    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
+  background-position: right 0px top 7px, right 4px top 7px;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+
+.model-selector:focus {
+  outline: none;
 }
 
 .logo-icon {
@@ -888,9 +1024,37 @@ html, body {
 .input-info {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   margin-top: 6px;
   font-size: 11px;
   color: var(--text-muted);
+  /* v0.2-alpha-27 — design 01 footer is single-row:
+   * "hermes-agent · Qwen-Plus · 234/4000". The previous CSS used
+   * justify-content: space-between which wrapped to two lines when
+   * model-name grew. force nowrap + drop ellipsis from model-name so
+   * long model ids don't force a wrap. char-count is fixed-width. */
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+
+.input-info-left {
+  /* v0.2-alpha-27 — design 01: model-name on the left, dot-separated
+   * with the active persona (e.g. "hermes-agent · Qwen-Plus"). Filled
+   * by main.ts; defaults to just model-name until persona loads. */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.input-info-left .dot {
+  /* visual separator between model + persona + char count */
+  color: var(--text-muted);
+  opacity: 0.5;
 }
 
 /* Markdown content styles */
@@ -1604,26 +1768,14 @@ html, body {
   cursor: not-allowed;
 }
 
-/* ── Project badge in session list (T-Q-S8) ─────────────────────────────────── */
+/* v0.2-alpha-27 — the project badge that used to live at
+ * .session-project (T-Q-S8, single-row layout) is now folded into
+ * .session-subtitle as part of design 01's two-line layout
+ * ("~/code/hermes · 昨天"). Keeping the rules here so anything that
+ * still references .session-project doesn't crash the cascade —
+ * just visually no-ops. */
 .session-project {
-  display: inline-block;
-  font-size: 10px;
-  padding: 1px 5px;
-  margin-left: 6px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 110px;
-  vertical-align: middle;
-  flex-shrink: 0;
-}
-.session-item {
-  /* allow project badge alongside title without wrapping */
-  flex-wrap: nowrap;
+  display: none;
 }
 
 /* T-Q-S9: small token count badge in session list */

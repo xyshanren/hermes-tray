@@ -69,6 +69,7 @@ export function SessionList(props: SessionListProps) {
               persona={props.personas.find((p) => p.id === s.persona_id) ?? null}
               isActive={s.id === state.activeId}
               isRenaming={s.id === state.renameId}
+              isRenamed={state.renamedSessionIds.has(s.id)}
               onSelect={props.onSelect}
               onDelete={props.onDelete}
               onStartRename={() => sessionListStore.beginRename(s.id)}
@@ -108,6 +109,10 @@ interface SessionItemProps {
   persona: Persona | null;
   isActive: boolean;
   isRenaming: boolean;
+  /** v0.2-alpha-27 — true if the user has manually renamed this
+   *  session (vs. auto-rename from the first-message heuristic).
+   *  Drives the 📌 marker + purple status dot (design 01). */
+  isRenamed: boolean;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onStartRename: () => void;
@@ -117,48 +122,56 @@ interface SessionItemProps {
 }
 
 function SessionItem(props: SessionItemProps) {
-  const { session, persona, isActive, isRenaming } = props;
+  const { session, persona, isActive, isRenaming, isRenamed } = props;
   // Derive the project badge text from the JSON-encoded context blob.
   // parseProjectContext lives in src/types.ts (it's the same shape on
   // both Rust and TS sides, kept in one place for cross-module reuse).
   const proj = parseProjectContext(session.project_context);
+  // v0.2-alpha-27 — design 01 layout: subtitle = "project_path · relative time"
+  // or "未关联项目 · relative time" if no project. Format mirrors the SVG.
+  const subtitle = buildSessionSubtitle(proj?.project_dir ?? null, session.updated_at);
 
   return (
     <div
-      class={`session-item${isActive ? " active" : ""}`}
+      class={`session-item${isActive ? " active" : ""}${isRenamed ? " renamed" : ""}`}
       data-session-id={session.id}
       onClick={() => props.onSelect(session.id)}
     >
-      {isRenaming ? (
-        <RenameEditor
-          initial={session.title || "无标题会话"}
-          onCommit={props.onFinishRename}
-          onCancel={props.onCancelRename}
-        />
-      ) : (
-        <span
-          class="session-title"
-          // v0.1.5 fired startRename on dblclick. We preserve that
-          // gesture so existing muscle memory carries over.
-          onDblClick={(e) => {
-            e.stopPropagation();
-            props.onStartRename();
-          }}
-        >
-          {persona?.avatar ? (
-            <span class="session-persona-emoji">{persona.avatar}</span>
-          ) : null}{" "}
-          {session.title || "无标题会话"}
-        </span>
-      )}
-      {proj ? (
-        <span class="session-project" title={proj.project_dir}>
-          📁 {proj.name}
-        </span>
-      ) : null}
+      <div class="session-item-main">
+        {isRenaming ? (
+          <RenameEditor
+            initial={session.title || "无标题会话"}
+            onCommit={props.onFinishRename}
+            onCancel={props.onCancelRename}
+          />
+        ) : (
+          <span
+            class="session-title"
+            // v0.1.5 fired startRename on dblclick. We preserve that
+            // gesture so existing muscle memory carries over.
+            onDblClick={(e) => {
+              e.stopPropagation();
+              props.onStartRename();
+            }}
+          >
+            <span
+              // v0.2-alpha-27 — design 01 status dot: green for default
+              // (completed/idle), purple for user-renamed sessions.
+              class={`session-status-dot${isRenamed ? " renamed" : ""}`}
+              aria-label={isRenamed ? "已手动命名" : "已完成"}
+            />
+            {persona?.avatar ? (
+              <span class="session-persona-emoji">{persona.avatar}</span>
+            ) : null}{" "}
+            {isRenamed ? <span class="session-rename-pin" aria-label="用户已命名">📌 </span> : null}
+            {session.title || "无标题会话"}
+          </span>
+        )}
+        {subtitle ? <span class="session-subtitle">{subtitle}</span> : null}
+      </div>
       {session.total_tokens && session.total_tokens > 0 ? (
         <span class="session-tokens" title={`总 token: ${session.total_tokens}`}>
-          {formatTokens(session.total_tokens)} tok
+          {formatTokens(session.total_tokens)}
         </span>
       ) : null}
       <button
@@ -273,6 +286,56 @@ function parseProjectContext(json: string | null): { name: string; project_dir: 
   } catch {
     return null;
   }
+}
+
+/**
+ * v0.2-alpha-27 — design 01 subtitle: "project_path · relative time"
+ * (e.g. "~/code/hermes · 昨天") or "未关联项目 · 3 天前" if no project.
+ * project_dir is shortened to "~/<last-2-segments>" for sidebar compactness.
+ */
+function buildSessionSubtitle(projectDir: string | null, updatedAt: string): string {
+  const time = formatRelativeTime(updatedAt);
+  if (!projectDir) return `未关联项目 · ${time}`;
+  return `${shortenPath(projectDir)} · ${time}`;
+}
+
+/** Shorten an absolute path to "~/<last-1-or-2-segments>" for sidebar density. */
+function shortenPath(p: string): string {
+  // Strip Windows drive letter if present (C:\foo\bar -> foo\bar)
+  const normalized = p.replace(/^[A-Z]:\\/, "").replace(/\\/g, "/").replace(/\/$/, "");
+  if (!normalized) return p;
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length === 0) return p;
+  if (parts.length === 1) return `~/${parts[0]}`;
+  // ~/parent/child — keep last 2 segments
+  return `~/${parts.slice(-2).join("/")}`;
+}
+
+/** Compact relative time — "刚刚 / X 分钟前 / X 小时前 / 昨天 / X 天前 / X 周前 / X 月前". */
+function formatRelativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const now = Date.now();
+  const deltaMs = now - then;
+  const min = 60 * 1000;
+  const hour = 60 * min;
+  const day = 24 * hour;
+  if (deltaMs < min) return "刚刚";
+  if (deltaMs < hour) return `${Math.floor(deltaMs / min)} 分钟前`;
+  if (deltaMs < day) return `${Math.floor(deltaMs / hour)} 小时前`;
+  // Yesterday = calendar-day delta of 1
+  const today = new Date(now);
+  const thatDay = new Date(then);
+  const dayDelta = Math.floor(
+    (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() -
+      new Date(thatDay.getFullYear(), thatDay.getMonth(), thatDay.getDate()).getTime()) /
+      day,
+  );
+  if (dayDelta === 1) return "昨天";
+  if (dayDelta < 7) return `${dayDelta} 天前`;
+  if (dayDelta < 30) return `${Math.floor(dayDelta / 7)} 周前`;
+  if (dayDelta < 365) return `${Math.floor(dayDelta / 30)} 个月前`;
+  return `${Math.floor(dayDelta / 365)} 年前`;
 }
 
 function formatTokens(n: number): string {

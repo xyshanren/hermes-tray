@@ -692,4 +692,121 @@ npm run dev        # vite dev server (Tauri picks it up)
 
 ---
 
+## v0.2-alpha-23 → alpha-26 — Manual Tauri verification + UX polish
+
+Picked up after the Phase C Step 9 pixel verification harness (alpha-22).
+User began manually clicking through the live Tauri app and surfaced a
+chain of UX issues. All fixes below are pure-frontend except alpha-23
+which made one **necessary** backend change (`session_create` model
+parameter — out-of-process agreement that this counts as a Phase 7
+adjacent fix rather than a "v0.2 keeps the backend frozen" violation).
+
+### alpha-23 (3781e92) — 4 manual fixes
+
+| Bug | File | Fix |
+|---|---|---|
+| Chat input mount leaves stale shell HTML after re-mount | `views/chat-input-mount.tsx` | `root.innerHTML = ""` before Preact render |
+| Settings modal radio buttons too cramped (horizontal) | `views/settings-modal.tsx` | Converted to vertical list with subtitle per option |
+| `session_create` ignores model — by-model stats break | `db/session.rs`, `db/commands.rs`, `db/session.rs INSERT` | Added `model: Option<&str>` 5th param end-to-end |
+| Stats modal shows wrong cost for unknown model | `db/commands.rs`, `views/stats-modal.tsx` | `is_pricing_known` filter forces cost=0; UI shows `—` + caveat row |
+
+### alpha-24 (91a5e19) — Design token refresh + message bubble layout
+
+E1 — design token rewrite (`styles.css`):
+- Deleted alpha-5 dead Tailwind HSL tokens.
+- Rewrote `:root` + `.dark` against SVG color palette from designs 01 / 02:
+  `--primary #5B6CFF`, `--bg-primary #F8FAFC` (light) / `#0B1220` (dark),
+  `--user-bg #DBEAFE` / `#1E3A8A`, `--text-primary #0F172A` / `#E2E8F0`, etc.
+- Converted 3 `@media (prefers-color-scheme: dark)` to `.dark` class.
+
+E2 — message bubble layout (`chat-view.tsx` + `styles.css`):
+- UserBubble drops avatar.
+- Assistant content transparent (no chip, padding 0).
+- `.message.user` align-self: **flex-start** (incorrect — see alpha-25).
+- `.message-content` width: fit-content + max-width 80% (user) / 90% (assistant).
+
+E3 — sidebar / header / footer polish:
+- Sidebar 240px → 280px.
+- Header + input area use elevation shadow instead of border.
+- Input focus brand-tinted glow.
+- Send button 48x48 circular; label hidden sr-only.
+
+**Bug fixes** (caught during manual Tauri run):
+- Theme not taking effect on boot or after settings save → `initThemeAtBoot()` in `DOMContentLoaded`; `setTheme(theme)` in `settings-modal.handleSave`.
+- Session delete × click did nothing → `confirm-modal-mount.tsx` subscribes to store + toggles `root.classList.toggle("hidden", !pending)` (same fix alpha-22 applied to `shortcuts-modal-mount`).
+- Footer always "hermes-agent" → `fetchModelInfo()` fallback now `defaultModel || CONFIG.defaultModel`; `onDefaultsChanged` callback refreshes footer pill.
+- Auto-rename session on first message → `handleSubmit` calls `session_update` with `patch.title = content.trim().slice(0, 30)` if title is `''` or `'新会话'`.
+
+### alpha-25 (e44b444) — **CRITICAL FIX**: user bubble alignment was reversed
+
+**Bug class**: misread design reference.
+- Design 01 (`01-main-chat-light.png`) shows user messages **RIGHT-aligned**
+  (iMessage / WeChat style: chip sits at the right edge of the messages
+  column; assistant avatar + text are left-aligned with avatar as anchor).
+- alpha-24 implementation had user LEFT-aligned, which made every user turn
+  look "not chatty enough" and confused the visual reading order.
+- After **4 rounds** of `.message.user` CSS changes the user explicitly
+  marked up both screenshots with red squares + "左" / "右" labels to
+  disambiguate. This was entirely avoidable — see Lessons below.
+
+Fix: `.message.user { align-self: flex-end }` (was `flex-start`). The
+`width: fit-content; max-width: 80%` on `.message-content` is the
+shrink-to-fit that pairs with right-alignment.
+
+Also dropped 2 duplicate `#send-btn` rule blocks at the bottom of
+`styles.css` (lines 888-897) that were confusing the cascade — the
+later declarations overrode the earlier `:hover` and `:disabled` rules.
+
+### alpha-26 (ae23d8a) — Fix share-hash no-match toast firing on cold boot
+
+**Bug class**: validator folding two distinct cases into one error.
+- `validateShareHash()` returned `{ reason: "decode-failed" }` whenever
+  `parseShareHash()` returned null — but parseShareHash returns null in
+  TWO distinct cases:
+  1. hash is empty / doesn't match `#share=...` pattern → **no-match**
+  2. hash matches `#share=...` but base64url decode throws → **decode-failed**
+- Case (1) is normal cold-boot of any plain URL (`tauri://localhost/`).
+  Case (2) is the actual error case.
+- Folding them into one reason meant `share-ui.ts` popped a red toast
+  ("URL 片段格式错误或已损坏") on **every** app launch.
+
+Fix: pattern-check the hash with `SHARE_FRAGMENT_RE` before calling
+`parseShareHash`. If the regex doesn't match → return
+`{ reason: "no-match" }` (caller silently ignores per the comment already
+in `share-ui.ts` line 62). Only after the regex matches does a null
+decode mean decode-failed.
+
+Added `SHARE_FRAGMENT_RE` to the import in `share-flow.ts`.
+
+---
+
+### Lessons (avoid these in v0.3)
+
+1. **Always confirm left vs right with the design reference before
+   committing bubble alignment**. SVG mockups can be ambiguous when
+   "the chip looks blue" is the only signal — read the row structure
+   (avatar position + which side has the gap), not the colour alone.
+   4 rounds of edit/reload/red-square was a 30-min wasted loop that
+   a 5-second design inspection would have prevented.
+
+2. **Validation helpers must not fold distinct failure cases**. The
+   share-hash validator treated "no fragment present" and "fragment
+   malformed" identically — and that folded the common cold-boot
+   path into the error toast. Pattern-test before decoding; treat
+   no-match and decode-failed as separate cases.
+
+3. **Tauri WebView CSS cache is real**. `vite HMR` does not always
+   reload the styles.css when only a CSS value changes (vs. a
+   structural change that triggers Preact re-render). If a CSS-only
+   fix doesn't appear after HMR, the user needs Ctrl+Shift+R hard
+   reload — not "try again".
+
+4. **Modal mounts must sync parent `.hidden` class with the store**.
+   Same bug hit 3 different modals in v0.2 (shortcuts, confirm,
+   and the splash overlay). Pattern: every `*-modal-mount.tsx` should
+   subscribe to its store and toggle the parent overlay's `hidden`
+   class. Bake this into a helper to avoid repeating the fix.
+
+---
+
 > End of handoff. Resume from "Immediate (1-2 hours, target: v0.2-alpha-2)" section.

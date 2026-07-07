@@ -122,7 +122,7 @@ export function ChatInput(props: ChatInputProps) {
           ref={textareaRef}
           id="message-input"
           class={`message-input${isFocused ? " focused" : ""}`}
-          placeholder="输入消息...  (Enter 发送 · Shift+Enter 换行)"
+          placeholder="输入消息...  (Enter 发送 · Shift+Enter 换行 · Ctrl+K 搜索)"
           rows={1}
           value={text}
           disabled={props.isLoading}

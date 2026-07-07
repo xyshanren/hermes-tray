@@ -1,0 +1,109 @@
+v0.2-alpha-27: round-2 UI pass against design 01 / 02
+
+User-driven second UI pass after the alpha-23~26 manual verification
+loops. Targets the visible gaps between the live build and design 01
+(main chat light) + design 02 (dark). 10 user-facing deltas addressed
+under "P1 main UI changes"; the "P2 cannot fully match" deltas were
+acknowledged in the planning step (assistant avatar stays as 🤖
+emoji, sidebar top stays at 3 icons, no full shadcn/ui migration this
+round).
+
+P1 changes (10 items):
+
+1. user-bg colour corrected to design 01 chip blue
+   `styles.css:52 --user-bg #DBEAFE → #BFDBFE`. The previous colour
+   was too pale (blue-100); design 01 shows a more saturated chip
+   (blue-200).
+
+2. session-item two-line layout (sidebar)
+   Previously: title + project badge + token badge inline.
+   Now: title row + subtitle row beneath.
+   - title row keeps persona emoji + 📌 marker for user-renamed
+     sessions (NEW) + status dot (NEW green / purple) + token badge.
+   - subtitle row: "~/code/hermes · 昨天" or "未关联项目 · 3 天前"
+     using shortenPath() + formatRelativeTime() helpers in
+     sessions-list-view.tsx.
+   - session-item-main flex column wraps the two rows inside the
+     session-item flex row so action buttons (📤 / ×) stay right-aligned.
+
+3. user-renamed flag
+   New store field `renamedSessionIds: ReadonlySet<string>`. Mutator
+   `markRenamed(id)` is called by main.ts after a successful
+   `session_update` patch.title from handleSessionRename (NOT the
+   auto-rename path in handleSubmit — that path doesn't count as
+   user-initiated). removeSession also drops the id from the set.
+   Sessions in the set render with:
+   - purple status dot (default = green)
+   - 📌 inline marker before the title
+   - .session-item.renamed CSS hook for any future theming
+
+4. active project chip in header (NEW)
+   index.html adds #header-project-chip + #header-project-name next
+   to "Hermes Chat" h1. main.ts updateHeaderProjectChip() parses
+   the active session's project_context JSON and shows the friendly
+   project name. Hidden when no active session or no project.
+   Styles: .header-project-name (gray chip, max-width 240px, ellipsis),
+   .header-project-chip (· separator).
+
+5. model selector moved from footer to header (NEW)
+   index.html adds #header-model-selector (status dot + <select>) next
+   to the header title. fetchModelInfo() now also calls
+   populateModelSelector(data.data) which fills the <select> with the
+   /v1/models result list. Hidden until populated so the user never
+   sees an empty dropdown. On change, updates state.currentModel and
+   mirrors to the footer model-name pill (kept for stats-modal parity).
+
+6. footer single-row layout
+   .input-info now `flex-wrap: nowrap` + `gap: 12px` + new
+   .input-info-left wrapper for "model · persona · char-count"
+   formatting. index.html nests #model-name + a · separator + a new
+   #footer-persona span inside .input-info-left. Previously model-name
+   wrapped to a second line on long model ids.
+
+7. input placeholder updated
+   chat-input-view.tsx placeholder now reads:
+   "输入消息...  (Enter 发送 · Shift+Enter 换行 · Ctrl+K 搜索)"
+   (was missing the Ctrl+K search hint per design 01).
+
+8. user bubble colour (also #1)
+   Same as (1) — covers both light + dark themes since CSS vars.
+
+9. send button circular
+   alpha-24 already set border-radius: 50% on #send-btn; alpha-25
+   dropped the duplicate rule blocks that were confusing the cascade.
+   No code change this round — call out in commit message so user
+   knows to hard-reload (Ctrl+Shift+R) to bypass WebView cache.
+
+10. status badge layout
+    .status-dot.connected (green) is already used for both the
+    header connection-status pill AND the new model-selector pill.
+    No change — both render green when gateway is reachable.
+
+Cannot fully match design 01 / 02 (explicit deferrals):
+
+- assistant avatar stays 🤖 emoji (was purple Hermes logo SVG in
+  design). Cross-platform emoji baseline is acceptable; SVG asset
+  bundle is out of scope this round. v0.3 candidate.
+- sidebar top stays at 3 icons (≡ / + / <) vs. design's 5
+  (≡/📊/🛡/🔍/+). Stats + backup reachable from main area; adding
+  to top makes the sidebar visually heavy. v0.3 candidate.
+- shadcn/ui full migration deferred — current Tailwind class usage
+  is stable; full migration is a separate round (v0.3).
+- animation system (150/250/400ms three-tier ease-out) deferred —
+  alpha-22~26 already have ~150ms transitions; full audit needs
+  dedicated round.
+
+Test changes:
+- sessions-list.test.tsx: updated the persona-avatar + project-badge
+  assertion to look up the new .session-subtitle selector (was
+  .session-project which is now hidden by design).
+- share-modal.test.tsx: updated "returns decode-failed for non-share
+  hash" → "returns no-match for empty hash" (alpha-26 contract).
+
+Tests: 430 passing.
+Build: 1.22 MB JS / 32.70 kB CSS (unchanged size, alpha-26 baseline).
+
+Verification: requires Ctrl+Shift+R hard reload to bypass CSS cache.
+User should see session items with two-line layout (subtitle + status
+dot + 📌 for renamed), header showing project chip + model selector,
+footer single-row.

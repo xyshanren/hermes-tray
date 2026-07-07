@@ -201,9 +201,11 @@ describe("<SessionList /> (render shell)", () => {
     expect(row).not.toBeNull();
     // Persona avatar rendered as an emoji span
     expect(row!.querySelector(".session-persona-emoji")!.textContent).toBe("🐱");
-    // Project badge present
-    expect(row!.querySelector(".session-project")!.textContent).toContain("hermes-tray");
-    // Token badge present (2500 → "2.5k tok")
+    // v0.2-alpha-27 — design 01 subtitle is "project_path · relative
+    // time". The project path is shortened to ~/<last-2-segments>.
+    const subtitle = row!.querySelector(".session-subtitle")!.textContent ?? "";
+    expect(subtitle).toContain("hermes-tray");
+    // Token badge present (2500 → "2.5k")
     expect(row!.querySelector(".session-tokens")!.textContent).toContain("2.5k");
   });
 

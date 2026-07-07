@@ -377,6 +377,11 @@ async function handleSessionRename(id: string, newTitle: string): Promise<void> 
       patch: { title: newTitle },
     });
     sessionListStore.patchSession(id, updated);
+    // v0.2-alpha-27 — flag the session as user-renamed so the sidebar
+    // renders the 📌 marker + purple status dot (design 01). Only the
+    // handleSessionRename path is user-initiated; the auto-rename in
+    // handleSubmit does NOT mark renamed.
+    sessionListStore.markRenamed(id);
     sessionListStore.cancelRename();
     if (id === currentSessionId) currentSession = updated;
   } catch (e) {
@@ -465,6 +470,10 @@ async function selectSession(id: string): Promise<void> {
     chatStore.setError('加载会话失败');
     chatStore.setMessages([]);
   }
+  // v0.2-alpha-27 — design 01: header chip shows the active session's
+  // project name (parsed from project_context JSON). Hidden when no
+  // active session or no project_dir.
+  updateHeaderProjectChip();
 }
 
 async function createSession(): Promise<string | null> {
@@ -1500,6 +1509,12 @@ async function fetchModelInfo() {
       const data = JSON.parse(response.body);
       if (data.data && data.data.length > 0) {
         state.currentModel = data.data[0].id;
+        // v0.2-alpha-27 — populate the header model selector with all
+        // options reported by /v1/models (was footer-only). The selector
+        // is hidden until this completes so the user never sees an empty
+        // dropdown. On change, update state.currentModel and the footer
+        // model-name pill (kept for parity with stats modal labelling).
+        populateModelSelector(data.data as Array<{ id: string }>);
       } else {
         // v0.2-alpha-24 fix: prefer user-saved defaultModel (loaded
         // into the `defaultModel` global on init) over the hard-coded
@@ -1516,6 +1531,65 @@ async function fetchModelInfo() {
     state.currentModel = defaultModel || CONFIG.defaultModel;
   }
   if (modelName) modelName.textContent = state.currentModel;
+}
+
+/**
+ * v0.2-alpha-27 — fill the header model selector with the list of
+ * models returned by /v1/models. Idempotent: clearing the existing
+ * options first so a re-fetch (after gateway restart) doesn't dup.
+ */
+function populateModelSelector(models: Array<{ id: string }>): void {
+  const sel = document.getElementById('model-selector') as HTMLSelectElement | null;
+  const wrapper = document.getElementById('header-model-selector');
+  if (!sel || !wrapper) return;
+  sel.innerHTML = '';
+  for (const m of models) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.id;
+    if (m.id === state.currentModel) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  sel.addEventListener('change', () => {
+    state.currentModel = sel.value;
+    if (modelName) modelName.textContent = state.currentModel;
+  });
+  wrapper.hidden = false;
+}
+
+/**
+ * v0.2-alpha-27 — design 01: header shows the active session's
+ * project name as a chip next to "Hermes Chat". Parses the
+ * project_context JSON (which contains `name` and `project_dir`)
+ * the same way the sidebar subtitle does, but the chip shows just
+ * the friendly project name. Hidden when there's no active session
+ * or no project_dir on it.
+ */
+function updateHeaderProjectChip(): void {
+  const chip = document.getElementById('header-project-chip');
+  const name = document.getElementById('header-project-name');
+  if (!chip || !name) return;
+  const proj = currentSession?.project_context
+    ? parseProjectContextSafe(currentSession.project_context)
+    : null;
+  if (!proj) {
+    chip.hidden = true;
+    name.hidden = true;
+    return;
+  }
+  name.textContent = proj.name;
+  chip.hidden = false;
+  name.hidden = false;
+}
+
+function parseProjectContextSafe(json: string): { name: string } | null {
+  try {
+    const obj = JSON.parse(json) as { name?: string };
+    if (!obj?.name) return null;
+    return { name: obj.name };
+  } catch {
+    return null;
+  }
 }
 
 function updateConnectionStatus(status: 'disconnected' | 'connecting' | 'connected') {
