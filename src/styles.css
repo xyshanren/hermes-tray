@@ -1,105 +1,20 @@
 /* ============================================================================
- * v0.2 Tailwind base + Design Tokens
- * Synced with hermes-tray-UI设计要求.md §五
- * Tokens use HSL for Tailwind compatibility. CSS variables enable theme toggle.
- * ============================================================================ */
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-@layer base {
-  :root {
-    /* Light theme — default */
-    --background: 0 0% 100%;          /* #FFFFFF */
-    --foreground: 222 47% 11%;        /* #0F172A */
-
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-
-    --primary: 233 100% 69%;          /* #5B6CFF — Hermes brand indigo */
-    --primary-foreground: 0 0% 100%;
-    --primary-hover: 233 84% 60%;
-
-    --secondary: 210 40% 98%;         /* #F8FAFC */
-    --secondary-foreground: 215 25% 27%;  /* #475569 */
-
-    --muted: 210 40% 96%;             /* #F1F5F9 */
-    --muted-foreground: 215 16% 47%;  /* #64748B */
-
-    --accent: 14 100% 60%;            /* #FF7A45 — Hermes accent orange */
-    --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 84% 60%;         /* #EF4444 */
-    --destructive-foreground: 0 0% 100%;
-
-    --success: 142 71% 45%;           /* #22C55E */
-    --success-foreground: 0 0% 100%;
-
-    --warning: 38 92% 50%;            /* #F59E0B */
-    --warning-foreground: 0 0% 100%;
-
-    --info: 217 91% 60%;              /* #3B82F6 */
-    --info-foreground: 0 0% 100%;
-
-    --border: 214 32% 91%;            /* #E2E8F0 */
-    --input: 214 32% 91%;
-    --ring: 233 100% 69%;             /* primary */
-
-    --radius: 0.5rem; /* 8px — default Tailwind md */
-  }
-
-  .dark {
-    /* Dark theme — toggled via .dark class on <html> */
-    --background: 220 39% 9%;         /* #0B1220 */
-    --foreground: 210 40% 98%;        /* #F8FAFC */
-
-    --card: 220 39% 11%;              /* #111827 */
-    --card-foreground: 210 40% 98%;
-
-    --primary: 233 100% 69%;          /* same brand color in dark */
-    --primary-foreground: 220 39% 9%;
-    --primary-hover: 233 84% 60%;
-
-    --secondary: 220 26% 14%;         /* #1F2937 */
-    --secondary-foreground: 215 25% 65%; /* #CBD5E1 */
-
-    --muted: 220 26% 14%;
-    --muted-foreground: 215 16% 47%;  /* #64748B */
-
-    --accent: 14 100% 60%;
-    --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-
-    --success: 142 71% 45%;
-    --success-foreground: 220 39% 9%;
-
-    --warning: 38 92% 50%;
-    --warning-foreground: 220 39% 9%;
-
-    --info: 217 91% 60%;
-    --info-foreground: 220 39% 9%;
-
-    --border: 215 25% 27%;            /* #334155 */
-    --input: 215 25% 27%;
-    --ring: 233 100% 69%;
-  }
-
-  * {
-    @apply border-border;
-  }
-
-  html, body {
-    @apply bg-background text-foreground antialiased;
-    font-family: theme("fontFamily.sans");
-  }
-}
-
-/* ============================================================================
- * v0.1.5 legacy CSS — kept for backward compatibility during migration.
- * Will be removed progressively as components move to Tailwind utilities.
+ * v0.2-alpha-24 (manual Tauri verification) — Design tokens.
+ *
+ * Colors extracted from the SVG design set (01-main-chat-light +
+ * 02-main-chat-dark, via grep on #RRGGBB tokens). The previous
+ * alpha-5 Tailwind tokens above this block were dead code — every
+ * downstream rule uses `var(--bg-primary)` etc., not Tailwind
+ * utility classes — so they were removed here to avoid two
+ * contradictory design-token sets fighting each other (which is
+ * why the running app was rendering with #6366f1 / #ffffff even
+ * though alpha-5's :root claimed #5B6CFF / slate-50).
+ *
+ * Hex values picked from the dominant-color frequencies in the
+ * SVG palette (slate scale + a couple of brand accents). Light/dark
+ * are toggled via the .dark class on <html>, which the inline
+ * anti-flash bootstrap script in index.html applies before main.ts
+ * loads.
  * ============================================================================ */
 
 * {
@@ -109,36 +24,92 @@
 }
 
 :root {
-  --primary: #6366f1;
-  --primary-hover: #4f46e5;
-  --bg-primary: #ffffff;
-  --bg-secondary: #f8fafc;
-  --bg-tertiary: #f1f5f9;
-  --text-primary: #1e293b;
-  --text-secondary: #64748b;
-  --text-muted: #94a3b8;
-  --border: #e2e8f0;
-  --user-bg: #6366f1;
-  --user-text: #ffffff;
-  --assistant-bg: #f1f5f9;
-  --assistant-text: #1e293b;
-  --error: #ef4444;
-  --success: #22c55e;
-  --warning: #f59e0b;
+  /* Brand + state — same in both themes (Hermes identity) */
+  --primary: #5B6CFF;            /* SVG dominant brand indigo */
+  --primary-hover: #4F5AE5;      /* 8% darker — hover state */
+  --primary-soft: #EEF0FF;       /* tint for selected pill backgrounds */
+  --success: #22C55E;
+  --warning: #F59E0B;
+  --error:   #EF4444;
+  --info:    #3B82F6;
+
+  /* Light theme (slate-50 → slate-900 scale) */
+  --bg-primary: #F8FAFC;         /* page bg (slate-50) */
+  --bg-secondary: #F1F5F9;       /* sidebar + card surface (slate-100) */
+  --bg-tertiary: #E2E8F0;        /* border + divider + disabled (slate-200) */
+  --bg-elevated: #FFFFFF;        /* cards on top of slate-50 surfaces */
+  --bg-input: #FFFFFF;           /* inputs need pure white for clarity */
+  --text-primary: #0F172A;       /* body copy (slate-900) */
+  --text-secondary: #475569;     /* meta / labels (slate-600) */
+  --text-muted: #94A3B8;         /* placeholder / icon-muted (slate-400) */
+  --border: #E2E8F0;
+  --border-strong: #CBD5E1;      /* table dividers + active borders */
+
+  /* Message bubbles — design 01 has user on a soft-blue chip
+   * (left-aligned), assistant with no background at all (left-aligned
+   * to its avatar). See Phase E2 commit for the matching layout
+   * change in chat-view.tsx. */
+  --user-bg: #DBEAFE;            /* blue-100 */
+  --user-text: #1E3A8A;          /* blue-900 — readable on blue-100 */
+  --assistant-bg: transparent;
+  --assistant-text: #0F172A;
+
+  /* Code blocks (assistant replies often inline a snippet). The
+   * SVG shows a near-black slate panel with a copy chip. */
+  --code-bg: #0F172A;
+  --code-text: #E2E8F0;
+  --code-border: #1F2937;
+
+  /* Selection / focus rings (used by Tailwind's @apply border-ring
+   * in alpha-5, but the rest of the file uses these directly) */
+  --ring: #5B6CFF;
+
+  /* Radii — pulled from the SVG silhouette (cards ~16-20px, pills
+   * fully-rounded). */
+  --radius-sm: 6px;
+  --radius:    12px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+
+  /* Shadow scale — single elevation used by the cards in design 01 */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow:    0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-primary: #0f172a;
-    --bg-secondary: #1e293b;
-    --bg-tertiary: #334155;
-    --text-primary: #f1f5f9;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
-    --border: #334155;
-    --assistant-bg: #1e293b;
-    --assistant-text: #f1f5f9;
-  }
+.dark {
+  /* Dark theme — slate-900 / slate-800 surfaces, slightly cooler
+   * (#0B1220) for the page bg per design 02. Body copy uses
+   * slate-300 not slate-100 because pure white feels harsh on a
+   * near-black bg. */
+  --primary: #5B6CFF;
+  --primary-hover: #6E7DFF;
+  --primary-soft: #1E2748;
+
+  --bg-primary: #0B1220;         /* page bg (slate-950-ish) */
+  --bg-secondary: #1F2937;       /* sidebar + card surface (gray-800) */
+  --bg-tertiary: #334155;        /* border + divider (slate-700) */
+  --bg-elevated: #111827;        /* elevated cards (gray-900) */
+  --bg-input: #1F2937;
+  --text-primary: #CBD5E1;       /* body copy (slate-300) */
+  --text-secondary: #94A3B8;     /* meta (slate-400) */
+  --text-muted: #64748B;         /* muted (slate-500) */
+  --border: #334155;
+  --border-strong: #475569;
+
+  --user-bg: #1E3A8A;            /* blue-900 chip on dark bg */
+  --user-text: #DBEAFE;
+  --assistant-bg: transparent;
+  --assistant-text: #CBD5E1;
+
+  --code-bg: #020617;
+  --code-text: #CBD5E1;
+  --code-border: #1F2937;
+
+  --ring: #6E7DFF;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow:    0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
 }
 
 html, body {
@@ -163,7 +134,7 @@ html, body {
 
 /* Sidebar */
 .sidebar {
-  width: 240px;
+  width: 280px;
   flex-shrink: 0;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
@@ -181,9 +152,10 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 10px 10px;
+  padding: 18px 16px 14px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  margin-bottom: 4px;
 }
 
 .sidebar-title {
@@ -241,12 +213,11 @@ html, body {
   background: var(--bg-tertiary);
 }
 .session-item.active {
-  background: #dbeafe;
+  background: var(--primary-soft);
+  border-left: 3px solid var(--primary);
 }
-@media (prefers-color-scheme: dark) {
-  .session-item.active {
-    background: #1e3a5f;
-  }
+.dark .session-item.active {
+  background: var(--primary-soft);
 }
 
 .session-title {
@@ -292,7 +263,12 @@ html, body {
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
-  max-width: 900px;
+  /* v0.2-alpha-23 (manual Tauri verification) — drop the 900px
+     cap. The pre-v0.2 desktop layout used this to mimic a
+     phone-width chat column, but design 01 (main-chat-light)
+     renders the main surface full-width next to the sidebar.
+     Keep margin: 0 auto for the (legacy) case where the window
+     is narrower than the sidebar+content minimum. */
   margin: 0 auto;
   width: 100%;
 }
@@ -302,9 +278,14 @@ html, body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  background: var(--bg-elevated, var(--bg-secondary));
+  /* v0.2-alpha-24 — drop the 1px bottom border; use a subtle
+   * elevation shadow instead (matches design 01's flat + floating
+   * header look). Falls back to the border on browsers that don't
+   * render box-shadow on the bg layer. */
+  border-bottom: 1px solid transparent;
+  box-shadow: 0 1px 0 var(--border);
   flex-shrink: 0;
 }
 
@@ -638,7 +619,12 @@ html, body {
 .message {
   display: flex;
   gap: 12px;
-  max-width: 85%;
+  /* v0.2-alpha-24 — drop the 85% cap at the container level.
+   * Per-role max-widths (user 80%, assistant 90%) live on
+   * .message-content so each bubble can shrink-to-fit content.
+   * Without this the user bubble stretched across the whole
+   * main wrapper for short single-line messages (e.g. "OK"). */
+  max-width: 100%;
   animation: fadeIn 0.2s ease;
 }
 
@@ -648,8 +634,13 @@ html, body {
 }
 
 .message.user {
-  align-self: flex-end;
-  flex-direction: row-reverse;
+  /* v0.2-alpha-24 — design 01 layout: user messages are
+   * LEFT-aligned (no row-reverse, no flex-end, no padding-left).
+   * The avatar was removed from the user row (Phase E2) so the
+   * bubble sits at the same left edge as the assistant's avatar.
+   * max-width on the bubble prevents it from stretching edge to
+   * edge on wide windows. */
+  align-self: flex-start;
 }
 
 .message-avatar {
@@ -663,11 +654,6 @@ html, body {
   flex-shrink: 0;
 }
 
-.message.user .message-avatar {
-  background: var(--user-bg);
-  color: var(--user-text);
-}
-
 .message.assistant .message-avatar {
   background: var(--assistant-bg);
   color: var(--text-secondary);
@@ -675,7 +661,6 @@ html, body {
 
 .message-content {
   padding: 10px 14px;
-  border-radius: 16px;
   line-height: 1.6;
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -684,7 +669,24 @@ html, body {
 .message.user .message-content {
   background: var(--user-bg);
   color: var(--user-text);
-  border-bottom-right-radius: 4px;
+  border-radius: 14px;
+  border-bottom-left-radius: 4px;
+  /* v0.2-alpha-24 — shrink the bubble to its content + cap at 80%
+   * of the viewport so single-line messages don't span the whole
+   * chat area. fit-content inside a flex item behaves like
+   * max-content, which gives the shrink-to-fit we want. */
+  width: fit-content;
+  max-width: 80%;
+}
+
+.message.assistant .message-content {
+  /* Transparent background per design 01 — assistant messages
+   * have NO chip, just the avatar + text. */
+  background: transparent;
+  color: var(--assistant-text);
+  padding-left: 0;
+  padding-right: 0;
+  max-width: 90%;
 }
 
 .message.assistant .message-content {
@@ -698,12 +700,10 @@ html, body {
   color: var(--error);
   border: 1px solid #fecaca;
 }
-
-@media (prefers-color-scheme: dark) {
-  .message.error .message-content {
-    background: #450a0a;
-    border-color: #7f1d1d;
-  }
+.dark .message.error .message-content {
+  background: #450a0a;
+  border-color: #7f1d1d;
+  color: #fecaca;
 }
 
 /* v0.1.5 S12: per-turn CLI bar under the assistant message.
@@ -727,13 +727,11 @@ html, body {
   font-weight: 500;
 }
 
-@media (prefers-color-scheme: dark) {
-  .message-bar {
-    color: var(--text-muted-dark, #9ca3af);
-  }
-  .message-bar-warn {
-    color: #fbbf24;
-  }
+.dark .message-bar {
+  color: var(--text-muted, #9ca3af);
+}
+.dark .message-bar-warn {
+  color: #fbbf24;
 }
 
 /* Typing indicator */
@@ -792,38 +790,49 @@ html, body {
 
 /* Input Area */
 .input-area {
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border);
+  padding: 16px 24px 20px;
+  background: var(--bg-elevated, var(--bg-secondary));
+  border-top: 1px solid transparent;
+  box-shadow: 0 -1px 0 var(--border);
   flex-shrink: 0;
 }
 
 .chat-form {
   display: flex;
+  /* v0.2-alpha-24 — column layout so AttachmentStrip sits ABOVE
+   * the chat-input-row (was row, which put them side-by-side and
+   * squeezed the input row to a narrow column when attachments
+   * existed). */
+  flex-direction: column;
   gap: 8px;
-  align-items: flex-end;
 }
 
 #message-input {
   flex: 1;
-  padding: 10px 14px;
+  padding: 12px 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   font-size: 14px;
   font-family: inherit;
   resize: none;
   max-height: 200px;
-  min-height: 42px;
-  background: var(--bg-primary);
+  min-height: 44px;
+  background: var(--bg-input, #FFFFFF);
   color: var(--text-primary);
   line-height: 1.5;
   overflow-y: auto;
+  /* v0.2-alpha-24 — soft transition on focus (matches design 01's
+   * smooth-focus feel). */
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
 #message-input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+  /* Brand-tinted glow on focus (was a flat rgba indigo). Uses
+   * --primary-soft so it picks up the design-token color
+   * automatically in both themes. */
+  box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
 #message-input::placeholder {
@@ -831,10 +840,10 @@ html, body {
 }
 
 #send-btn {
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   border: none;
-  border-radius: 10px;
+  border-radius: 50%;
   background: var(--primary);
   color: white;
   cursor: pointer;
@@ -843,6 +852,38 @@ html, body {
   justify-content: center;
   transition: all 0.2s;
   flex-shrink: 0;
+  /* v0.2-alpha-24 — circular brand-tinted send button. The label
+   * text was removed from the JSX so this slot is now arrow-only
+   * (matches design 01's compact pill). The :active state pushes
+   * the button 1px down so the press feels tactile. */
+  box-shadow: 0 1px 2px rgba(91, 108, 255, 0.3);
+}
+#send-btn-label {
+  /* v0.2-alpha-24 — hide the "发送" / "生成中..." text so the
+   * button is arrow-only. The label text is still rendered for
+   * accessibility (screen readers read it via aria-label set on
+   * the button below). */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+#send-btn:hover:not(:disabled) {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(91, 108, 255, 0.35);
+}
+#send-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(91, 108, 255, 0.3);
+}
+#send-btn:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 #send-btn:hover:not(:disabled) {
@@ -1786,7 +1827,13 @@ html, body {
 .chat-input-row {
   display: flex;
   align-items: flex-end;
-  gap: 6px;
+  gap: 8px;
+  /* v0.2-alpha-24 — let the textarea grow to fill the row so the
+   * input area looks full-width. The previous `align-items: flex-end`
+   * was correct for the avatar baseline but didn't constrain the
+   * textarea's intrinsic width when the parent wasn't itself
+   * flex-row. */
+  width: 100%;
 }
 .chat-input-row .icon-btn {
   background: none;

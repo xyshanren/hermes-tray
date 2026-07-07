@@ -96,6 +96,7 @@ import { chatInputStore, mountChatInput, getChatInputHandle } from './views/chat
 import { initChatStream, sendChatMessage } from './lib/chat-stream';
 import { mountSplashScreen } from './views/splash-mount';
 import { splashStore } from './views/splash-store';
+import { initThemeAtBoot } from './lib/theme';
 import {
   loadDefaultPersonaId,
   loadDefaultModel,
@@ -978,6 +979,15 @@ function closeSearchModal(): void {
 // search modal view). They were only used by the search UI.
 
 window.addEventListener('DOMContentLoaded', async () => {
+  // v0.2-alpha-24 — Re-apply the stored theme on boot so the
+  // .dark class on <html> matches localStorage (the inline IIFE
+  // in index.html reads the same key but runs before main.ts
+  // imports, so this is a cheap belt-and-suspenders re-sync).
+  // Also wires the 'system' mode live listener (OS theme changes
+  // while the app is open). See src/lib/theme.ts for the full
+  // contract.
+  initThemeAtBoot();
+
   // v0.2-alpha-6 — Mount the sonner <Toaster /> before any showToast call.
   // Read theme from <html class="dark"> which the inline IIFE in index.html
   // already populated before main.ts runs.
@@ -1094,6 +1104,11 @@ window.addEventListener('DOMContentLoaded', async () => {
       // Refresh module-level lets used by sendMessage + model picker.
       defaultProjectPath = proj;
       defaultModel = model;
+      // v0.2-alpha-24: refresh the footer "model-name" pill to mirror
+      // the new default. Previously the footer only updated inside
+      // fetchModelInfo() at boot, so a settings save left the stale
+      // "hermes-agent" (CONFIG.defaultModel fallback) on screen.
+      if (modelName) modelName.textContent = state.currentModel || model || CONFIG.defaultModel;
     },
   });
 
@@ -1395,6 +1410,28 @@ async function handleSubmit(content: string, attachmentsAtSend: PendingAttachmen
     // updates after each send. We only re-fetch the current row to
     // avoid a full list reload.
     void refreshCurrentSessionRow();
+
+    // v0.2-alpha-24 — auto-rename: after the user's first message,
+    // update the session title from "新会话" to a 30-char preview of
+    // the content. Skips when the title has already been customised
+    // (rename editor, future agent-side naming) so we never
+    // overwrite a deliberate choice. Title-only update — no need to
+    // wait for the SSE reply before showing the rename in the
+    // sidebar.
+    if (currentSession && (currentSession.title === '' || currentSession.title === '新会话')) {
+      const autoTitle = content.trim().slice(0, 30);
+      if (autoTitle.length > 0) {
+        invoke<Session>('session_update', {
+          id: currentSessionId,
+          patch: { title: autoTitle },
+        })
+          .then((updated) => {
+            currentSession = updated;
+            sessionListStore.patchSession(updated.id, updated);
+          })
+          .catch((e) => console.error('[Session] auto-rename failed:', e));
+      }
+    }
   }
 
   await sendChatMessage();
@@ -1464,13 +1501,19 @@ async function fetchModelInfo() {
       if (data.data && data.data.length > 0) {
         state.currentModel = data.data[0].id;
       } else {
-        state.currentModel = CONFIG.defaultModel;
+        // v0.2-alpha-24 fix: prefer user-saved defaultModel (loaded
+        // into the `defaultModel` global on init) over the hard-coded
+        // CONFIG.defaultModel ('hermes-agent'). Previously the footer
+        // always showed "hermes-agent" when /v1/models failed to list
+        // the real model (e.g. gateway reports an empty list, or
+        // we're in mock-tauri.js where hermesGet returns '').
+        state.currentModel = defaultModel || CONFIG.defaultModel;
       }
     } else {
-      state.currentModel = CONFIG.defaultModel;
+      state.currentModel = defaultModel || CONFIG.defaultModel;
     }
   } catch {
-    state.currentModel = CONFIG.defaultModel;
+    state.currentModel = defaultModel || CONFIG.defaultModel;
   }
   if (modelName) modelName.textContent = state.currentModel;
 }

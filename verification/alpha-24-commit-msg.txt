@@ -1,0 +1,63 @@
+v0.2-alpha-24: design token refresh + message bubble layout + manual fix pass
+
+Phase E design polish + 5 manual fixes caught during Tauri verification.
+
+E1 — design token rewrite (styles.css):
+- Deleted alpha-5 dead Tailwind HSL tokens (line 1-110) that no
+  component referenced.
+- Rewrote :root + .dark against the SVG color palette from design
+  01 (light) / 02 (dark):
+    --primary #5B6CFF (brand indigo)
+    --bg-primary #F8FAFC / dark #0B1220
+    --text-primary #0F172A / dark #E2E8F0
+    --user-bg / --assistant-bg / --border / --shadow tokens.
+- Converted 3 dark-mode `@media (prefers-color-scheme: dark)`
+  selectors to `.dark` class toggles so theme is controlled by
+  settings (not OS preference).
+
+E2 — message bubble layout (chat-view.tsx + styles.css):
+- UserBubble drops the avatar (was a small chip on the right).
+- Assistant content has no chip — transparent background, padding 0.
+- `.message.user` align-self: flex-start with width: fit-content
+  on .message-content + max-width: 80%. Short text shrinks to fit;
+  long text caps at 80% of viewport. Both user + assistant sit at
+  the same left edge (design 01 style, NOT iMessage right-align).
+
+E3 — sidebar / header / footer polish:
+- Sidebar 240px -> 280px (wider session titles).
+- Header + input-area use elevation shadow instead of border.
+- Input focus adds brand-tinted glow (box-shadow: 0 0 0 3px
+  var(--primary) at 15% opacity).
+- Send button 48x48 circular (`border-radius: 50%`); label hidden
+  via sr-only so the button is just the icon.
+
+Bug fixes (caught during manual Tauri run):
+
+- Theme not taking effect on boot or after settings save.
+  main.ts DOMContentLoaded calls `initThemeAtBoot()` from
+  src/lib/theme.ts so the saved theme applies before paint.
+  settings-modal handleSave now calls `setTheme(theme)` so
+  dark/light toggle applies immediately, no reload.
+
+- Session delete × button click did nothing.
+  Same bug alpha-22 caught on shortcuts-modal-mount:
+  index.html has `<div id="confirm-modal" class="modal-overlay
+  hidden">`; without syncing the parent's `.hidden` class with
+  the store, requestConfirm() mutates the store but the overlay
+  stays display:none. Mount now subscribes and toggles root
+  class.
+
+- Footer always showed "hermes-agent" instead of user-saved
+  defaultModel. fetchModelInfo() fallback chain was `CONFIG.defaultModel`
+  only; added `defaultModel || CONFIG.defaultModel`. Also onDefaultsChanged
+  callback refreshes the footer pill so settings save updates it live.
+
+- Auto-rename session on first message.
+  handleSubmit checks `session.title === '' || session.title === '新会话'`
+  and calls session_update patch.title = content.trim().slice(0, 30)
+  + sessionListStore patchSession. Previously the sidebar always
+  showed "新会话" until the user manually renamed.
+
+Test count: 430 (no new tests — pure UX fix).
+Bundle: unchanged from alpha-23.
+Verification: requires Ctrl+Shift+R in Tauri WebView to bypass CSS cache.

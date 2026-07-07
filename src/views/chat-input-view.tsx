@@ -64,7 +64,11 @@ export function ChatInput(props: ChatInputProps) {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    const newHeight = Math.min(el.scrollHeight, 200);
+    // v0.2-alpha-24 — cap the auto-resize at 160px (was 200px).
+    // The shorter placeholder + tighter line-height keeps the
+    // empty-state footer compact; the cap matches a typical 6-line
+    // turn before the user has to scroll inside the textarea.
+    const newHeight = Math.min(el.scrollHeight, 160);
     el.style.height = newHeight + "px";
   }, [text]);
 
@@ -118,7 +122,7 @@ export function ChatInput(props: ChatInputProps) {
           ref={textareaRef}
           id="message-input"
           class={`message-input${isFocused ? " focused" : ""}`}
-          placeholder="输入消息... (Enter 发送, Shift+Enter 换行, 可拖图片)"
+          placeholder="输入消息...  (Enter 发送 · Shift+Enter 换行)"
           rows={1}
           value={text}
           disabled={props.isLoading}

@@ -233,6 +233,13 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
 
       // Apply at runtime.
       if (apiKey) setApiKey(apiKey);
+      // v0.2-alpha-24 — apply the chosen theme immediately so the
+      // user sees the dark/light flip without restart. Without this
+      // call the segmented control would update localStorage via
+      // db_config_set but `<html class="dark">` would not flip —
+      // the .dark class on <html> is what triggers all the dark
+      // theme rules in styles.css.
+      setTheme(theme);
 
       // Mode-aware gateway resolution.
       if (mode === "remote" && gatewayUrl.trim()) {
