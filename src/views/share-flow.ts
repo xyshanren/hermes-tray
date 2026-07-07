@@ -12,6 +12,7 @@ import {
   encodeShareDoc,
   buildShareUrl,
   parseShareHash,
+  SHARE_FRAGMENT_RE,
 } from "../shareLink";
 
 // ── Outbound: copy markdown to clipboard ───────────────────────────────────
@@ -76,6 +77,15 @@ export type ShareHashValidation =
   | { ok: false; reason: "no-match" | "decode-failed" | "unsupported-version"; version?: number };
 
 export function validateShareHash(hash: string): ShareHashValidation {
+  // Pattern check first — if the hash doesn't match #share=... at
+  // all (empty hash, plain anchor, or any other fragment), it's a
+  // no-match and the caller silently ignores it. The previous
+  // implementation folded no-match into decode-failed, which made
+  // every cold-boot of the app pop a "URL 片段格式错误或已损坏"
+  // toast (caught during v0.2-alpha-26 manual verification — the
+  // toast was firing even on a vanilla `tauri://localhost/` URL).
+  if (!SHARE_FRAGMENT_RE.test(hash)) return { ok: false, reason: "no-match" };
+  // Pattern matched — try to decode the base64url payload.
   const decoded = parseShareHash(hash);
   if (decoded === null) return { ok: false, reason: "decode-failed" };
   const doc = decoded as import("../types").ShareDoc;

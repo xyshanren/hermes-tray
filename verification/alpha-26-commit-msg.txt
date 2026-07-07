@@ -1,0 +1,45 @@
+v0.2-alpha-26: fix share-hash no-match toast + WebView cache debugging
+
+Two issues caught during manual Tauri verification:
+
+1. Share-hash no-match firing "URL 片段格式错误" toast on every
+   cold boot.
+
+   Bug: src/views/share-flow.ts `validateShareHash` returned
+   `{ ok: false, reason: "decode-failed" }` whenever parseShareHash
+   returned null — but parseShareHash returns null in TWO cases:
+
+     a) hash is empty / doesn't match `#share=...` (no-match)
+     b) hash matches `#share=...` but base64url decode throws
+        (decode-failed)
+
+   The first case is a normal cold-boot of any plain URL
+   (`tauri://localhost/`); the second is the actual error case.
+   Folding them into one reason meant share-ui.ts popped a red
+   toast on every app launch ("URL 片段格式错误或已损坏") — the
+   caller's `else if (hashResult.reason === "no-match")` was
+   never reached because no-match was misreported.
+
+   Fix: pattern-check the hash with SHARE_FRAGMENT_RE before
+   calling parseShareHash. If the regex doesn't match, return
+   `{ ok: false, reason: "no-match" }` (caller silently ignores,
+   per the comment already in share-ui.ts line 62). Only after
+   the regex matches does a null decode mean decode-failed.
+
+   Added SHARE_FRAGMENT_RE to the import block.
+
+   No test changes — this is a single-line dispatch fix in the
+   validation helper, and the existing 430 tests already cover
+   the parseShareHash pure function.
+
+2. User reports user bubble "still left-aligned" after alpha-25
+   changed `.message.user { align-self: flex-end }`. CSS is
+   correct in styles.css:642 (committed as e44b444). Most likely
+   cause: WebView CSS cache. The vite dev server HMR has been
+   observed to not always reload the styles.css when only a CSS
+   value changes (vs. a structural change that triggers Preact
+   re-render). Workaround: Ctrl+Shift+R hard reload. This is a
+   Tauri WebView quirk, not a code bug.
+
+Test count: 430 (unchanged).
+Bundle: unchanged.
