@@ -191,12 +191,12 @@ function EmptyNoNetwork({
  */
 
 function UserBubble({ msg }: { msg: ChatMessage }) {
-  // v0.2-alpha-24 — design 01 layout: user messages sit on a soft
-  // blue chip, **left-aligned** (was right-aligned in pre-v0.2 and
-  // alpha-16 through 23). The avatar is removed (the design has
-  // only the assistant avatar on the left edge; user turns are
-  // self-attributed via the bubble colour). Attachments still
-  // render below as a thumbnail strip.
+  // v0.2-alpha-25 — design 01 layout: user messages sit on a soft
+  // blue chip, RIGHT-aligned (iMessage / WeChat style). The avatar
+  // is intentionally omitted on the user row (design 01 has only
+  // the assistant avatar on the left edge; user turns are
+  // self-attributed via the bubble colour + position). Attachments
+  // still render below as a thumbnail strip.
   //
   // We DO NOT markdown-render user content — that would be an XSS
   // vector if the model ever echoes user input back to another

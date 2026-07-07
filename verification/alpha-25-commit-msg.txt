@@ -1,0 +1,34 @@
+v0.2-alpha-25: fix user bubble alignment + drop dead CSS
+
+Caught during manual Tauri verification (Step 9 red square
+markup by user): design 01 has user messages RIGHT-aligned
+(iMessage / WeChat style — chip sits at the right edge of the
+messages column) with the assistant avatar + content left-aligned.
+alpha-24 had the user bubble left-aligned (which I misread from
+the SVG mockup at the time) — both bubbles were sitting on the
+left edge, which made every user turn look "not chatty enough".
+
+Reverts:
+
+- styles.css `.message.user` — `align-self: flex-start` ->
+  `align-self: flex-end`. Combined with the existing
+  `width: fit-content; max-width: 80%` on `.message.user
+  .message-content`, the bubble now hugs the right edge of the
+  messages column and shrinks to fit short messages. Long
+  messages still cap at 80% of viewport.
+- chat-view.tsx UserBubble comment block — updated to match.
+
+Also dropped two dead `#send-btn` rules at styles.css lines 888-897
+that were duplicating selectors already declared above. CSS cascade
+was using the second declaration (`transform: scale(1.05)` instead
+of `translateY(-1px)`, `background: var(--border)` instead of
+`var(--bg-tertiary)` for disabled). Browser's last-declaration-wins
+meant the disabled state was visually inconsistent — removed the
+duplicates so the first declaration wins.
+
+No test changes — pure UX fix.
+
+Verification: hard-reload Tauri WebView (Ctrl+Shift+R) to bypass
+CSS cache. User should see all user messages on the right edge
+of the chat column; assistant messages remain left-aligned with
+the small avatar on the far left.

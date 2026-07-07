@@ -634,13 +634,12 @@ html, body {
 }
 
 .message.user {
-  /* v0.2-alpha-24 — design 01 layout: user messages are
-   * LEFT-aligned (no row-reverse, no flex-end, no padding-left).
-   * The avatar was removed from the user row (Phase E2) so the
-   * bubble sits at the same left edge as the assistant's avatar.
-   * max-width on the bubble prevents it from stretching edge to
-   * edge on wide windows. */
-  align-self: flex-start;
+  /* v0.2-alpha-25 — design 01 layout: user messages are RIGHT-aligned
+   * (iMessage / WeChat style). The bubble shrinks to fit content
+   * (width: fit-content on .message-content) and sits at the right
+   * edge of the messages column. avatar is intentionally omitted on
+   * the user row. */
+  align-self: flex-end;
 }
 
 .message-avatar {
@@ -884,17 +883,6 @@ html, body {
   color: var(--text-muted);
   cursor: not-allowed;
   box-shadow: none;
-}
-
-#send-btn:hover:not(:disabled) {
-  background: var(--primary-hover);
-  transform: scale(1.05);
-}
-
-#send-btn:disabled {
-  background: var(--border);
-  cursor: not-allowed;
-  opacity: 0.6;
 }
 
 .input-info {
