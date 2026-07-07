@@ -123,9 +123,17 @@ function StatsBody({ stats: s }: { stats: TokenStats }) {
   const hasRealCost = costTotalUsd > 0;
   const costValue = hasRealCost ? costTotalUsd : s.total_cost;
   const costLabel = hasRealCost ? "本月 Cost (S12)" : "预估成本";
-  const costSub = hasRealCost
+  // v0.2-alpha-23 (manual Tauri verification) — append a caveat when
+  // some by-model buckets couldn't be priced (unknown / empty model
+  // names from pre-S14 sessions). Without this the user sees a
+  // total_cost that silently ignores some of their token spend.
+  const unknownBuckets = s.unknown_model_buckets ?? 0;
+  const baseSub = hasRealCost
     ? `S12 真实值 · ${s.by_model.length} 个模型`
     : `基于 ${s.by_model.length} 个模型`;
+  const costSub = unknownBuckets > 0
+    ? `${baseSub} · ${unknownBuckets} 个模型未识别`
+    : baseSub;
 
   // Fallback hit rate as integer percent (0-100). null/undefined guard.
   const fallbackPct = Math.round((s.fallback_hit_rate ?? 0) * 100);
@@ -218,15 +226,24 @@ function StatsBody({ stats: s }: { stats: TokenStats }) {
                 <td colspan={5} class="stats-empty">暂无数据</td>
               </tr>
             ) : (
-              s.by_model.map((m) => (
-                <tr key={m.model}>
-                  <td>{escapeHtml(m.model)}</td>
-                  <td>{m.message_count}</td>
-                  <td>{formatTokens(m.input_tokens)}</td>
-                  <td>{formatTokens(m.output_tokens)}</td>
-                  <td>{formatCost(m.cost)}</td>
-                </tr>
-              ))
+              s.by_model.map((m) => {
+                // v0.2-alpha-23 (manual Tauri verification) — when the
+                // model name is "unknown" or empty, the cost is 0.0
+                // (we don't fall back to DEFAULT_PRICING anymore, see
+                // src-tauri/src/db/commands.rs by-model branch).
+                // Rendering as "$0.00" is misleading; show "—" instead
+                // so the user knows we couldn't price that bucket.
+                const isUnknown = !m.model.trim() || m.model === "unknown";
+                return (
+                  <tr key={m.model}>
+                    <td>{escapeHtml(m.model)}</td>
+                    <td>{m.message_count}</td>
+                    <td>{formatTokens(m.input_tokens)}</td>
+                    <td>{formatTokens(m.output_tokens)}</td>
+                    <td>{isUnknown ? "—" : formatCost(m.cost)}</td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -318,6 +335,12 @@ function ChartSvg({ daily }: { daily: DailyBucket[] }) {
     const barW = Math.max(2, Math.min(40, (innerW / points.length) * 0.7));
     const x = p.x;
     const src = daily[idx];
+    // Shared tooltip text — attached to BOTH the input and output
+    // rects so hovering either half shows the day's totals. Without
+    // the second <title> (alpha-22 manual Tauri verification), users
+    // hovering the lighter "output" half saw no tooltip because the
+    // input rect's <title> only fired on its own hover region.
+    const tooltipText = `${p.date}: ${formatTokens(p.total)} (input ${formatTokens(src.input_tokens)} / output ${formatTokens(src.output_tokens)})`;
     return (
       <g>
         <rect
@@ -328,7 +351,7 @@ function ChartSvg({ daily }: { daily: DailyBucket[] }) {
           fill="var(--primary)"
           opacity="0.85"
         >
-          <title>{`${p.date}: ${formatTokens(p.total)} (input ${formatTokens(src.input_tokens)} / output ${formatTokens(src.output_tokens)})`}</title>
+          <title>{tooltipText}</title>
         </rect>
         <rect
           x={x.toFixed(1)}
@@ -337,7 +360,9 @@ function ChartSvg({ daily }: { daily: DailyBucket[] }) {
           height={p.outputH.toFixed(1)}
           fill="var(--primary)"
           opacity="0.45"
-        />
+        >
+          <title>{tooltipText}</title>
+        </rect>
         <text
           x={(x + barW / 2).toFixed(1)}
           y={(layout.height - layout.padding.bottom + 12).toFixed(1)}

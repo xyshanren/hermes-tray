@@ -58,6 +58,17 @@ export function mountChatInput(opts: MountChatInputOptions): HTMLElement {
     throw new Error(`mount point #${opts.targetId ?? "chat-form"} not found`);
   }
 
+  // v0.2-alpha-22 (manual Tauri verification) — wipe the v0.1.5
+  // inline chat-form markup before Preact renders. Without this
+  // the shell still contains the v0.1.5 attach-btn / message-input
+  // / send-btn DOM, and Preact's render() appends a second
+  // <form class="chat-form"> inside it — visible as two input rows
+  // in the GUI (one anchored left, one anchored right). Same
+  // pattern as the alpha-16 chat-view-mount (which already wipes
+  // its <div id="messages"> shell). Captured during Step 9 manual
+  // verification on 2026-07-07.
+  root.innerHTML = "";
+
   // The Preact view owns the textarea content internally; we hand
   // main.ts three imperative methods (appendText / clearText / focus)
   // that reach into the DOM. To avoid a stale ref after re-renders we

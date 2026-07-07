@@ -490,11 +490,19 @@ async function createSession(): Promise<string | null> {
     // session stores both fields; system-prompt injection happens at
     // send-message time (gateway/agent layer) so persona switches
     // mid-session work.
+    //
+    // v0.2-alpha-23 (manual Tauri verification) — also pass the
+    // currently-selected model so the stats modal's by-model table
+    // shows the real name instead of "unknown" (sessions.model was
+    // always NULL because session_create didn't take a model arg).
+    // Falls back to defaultModel when state.currentModel hasn't been
+    // resolved yet.
     const session = await invoke<Session>('session_create', {
       title: '新会话',
       personaId: currentPersonaId,
       projectDir,
       projectContext: projectContextJson,
+      model: state.currentModel || defaultModel || null,
     });
     currentSessionId = session.id;
     currentSession = session;

@@ -253,6 +253,15 @@ pub struct TokenStats {
     /// `hit_count DESC` so the busiest rules surface first.
     #[serde(default)]
     pub by_rule: Vec<RuleBucket>,
+    // ── v0.2-alpha-23 (manual Tauri verification) additions ────────────────
+    /// Count of `by_model` buckets whose model name is "unknown" or
+    /// empty — i.e. messages whose pricing can't be looked up. The
+    /// frontend stats modal shows a small caveat under the "预估成本"
+    /// card so users know the total is conservative (those messages
+    /// are token-counted but cost-zeroed, not silently priced at
+    /// DEFAULT_PRICING).
+    #[serde(default)]
+    pub unknown_model_buckets: i64,
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

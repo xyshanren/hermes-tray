@@ -87,6 +87,11 @@ export interface TokenStats {
   avg_latency_ms: number;
   cost_threshold_count: number;
   by_rule: RuleBucket[];
+  // v0.2-alpha-23 (manual Tauri verification) — count of by_model
+  // buckets whose model name is "unknown" or empty (i.e. the pricing
+  // table couldn't be applied). Used to render a caveat under the
+  // "预估成本" card so users know the total is conservative.
+  unknown_model_buckets?: number;
 }
 
 // ── Message / Search ──────────────────────────────────────────────────────────

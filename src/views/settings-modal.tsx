@@ -497,7 +497,10 @@ function ConnectionGroup({
             checked={mode === "auto"}
             onChange={() => onModeChange("auto")}
           />
-          <span>自动（本机 WSL，自动解析 IP）</span>
+          <div class="settings-mode-option-text">
+            <span class="settings-mode-option-label">自动</span>
+            <span class="settings-mode-option-hint">本机 WSL，自动解析 IP</span>
+          </div>
         </label>
         <label
           class={`settings-mode-option${mode === "remote" ? " active" : ""}`}
@@ -509,7 +512,10 @@ function ConnectionGroup({
             checked={mode === "remote"}
             onChange={() => onModeChange("remote")}
           />
-          <span>自定义（远程，手动输入 URL）</span>
+          <div class="settings-mode-option-text">
+            <span class="settings-mode-option-label">自定义</span>
+            <span class="settings-mode-option-hint">远程，手动输入 URL</span>
+          </div>
         </label>
       </div>
 

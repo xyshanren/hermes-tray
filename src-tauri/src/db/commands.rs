@@ -36,9 +36,15 @@ pub fn session_create(
     // `project_context`. Pass `project_dir: null` for project-less sessions.
     project_dir: Option<&str>,
     project_context: Option<&str>,
+    // v0.2-alpha-23 (manual Tauri verification) — record the model the
+    // user picked so the stats modal's by-model breakdown shows the
+    // real name instead of "unknown". Frontend passes
+    // `state.currentModel` from main.ts; null when no model has been
+    // resolved yet (e.g. first boot before /v1/models returns).
+    model: Option<&str>,
 ) -> Result<Session, String> {
     db.session()
-        .create(title, persona_id, project_dir, project_context)
+        .create(title, persona_id, project_dir, project_context, model)
         .map_err(|e| e.to_string())
 }
 
@@ -325,14 +331,34 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
 
     // Per-model breakdown — costs differ per model, so each bucket
     // uses its own pricing.
+    //
+    // v0.2-alpha-23 (manual Tauri verification) — model "unknown"
+    // (or any empty/whitespace string) means we don't know which
+    // pricing table row to apply, so we MUST NOT silently fall back
+    // to DEFAULT_PRICING (which would produce a misleading number
+    // for messages from pre-S14 sessions whose model column is
+    // NULL). For unknown models we show the token counts (still
+    // useful for budgeting) and zero the cost — the frontend can
+    // decide to render the cell as "—" instead of "$0.00" if it
+    // wants a clearer visual.
+    let is_pricing_known = |model: &str| -> bool {
+        !model.trim().is_empty() && model != "unknown"
+    };
     let mut by_model_vec: Vec<ModelBucket> = by_model
         .into_iter()
-        .map(|(model, (in_t, out_t, count))| ModelBucket {
-            cost: cost_for_model(&model, in_t, out_t),
-            input_tokens: in_t,
-            output_tokens: out_t,
-            model,
-            message_count: count,
+        .map(|(model, (in_t, out_t, count))| {
+            let cost = if is_pricing_known(&model) {
+                cost_for_model(&model, in_t, out_t)
+            } else {
+                0.0
+            };
+            ModelBucket {
+                cost,
+                input_tokens: in_t,
+                output_tokens: out_t,
+                model,
+                message_count: count,
+            }
         })
         .collect();
     by_model_vec.sort_by(|a, b| {
@@ -342,6 +368,19 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
     });
 
     let total_cost = by_model_vec.iter().map(|m| m.cost).sum();
+
+    // v0.2-alpha-23 (manual Tauri verification) — count the
+    // buckets whose model couldn't be priced (model == "unknown" or
+    // empty). The frontend stats modal uses this to render a small
+    // caveat under the "预估成本" card. The cost for those buckets is
+    // already 0.0 (see the is_pricing_known filter above), so they
+    // don't affect total_cost — but their tokens DO count toward the
+    // total token tile, which is what the user actually wants for
+    // budgeting.
+    let unknown_model_buckets = by_model_vec
+        .iter()
+        .filter(|m| m.model.trim().is_empty() || m.model == "unknown")
+        .count() as i64;
 
     // v0.1.5 S12 aggregates — derived from the per-row scan above.
     // fallback_hit_rate is "of messages that actually carried a
@@ -378,6 +417,7 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
         avg_latency_ms,
         cost_threshold_count,
         by_rule,
+        unknown_model_buckets,
     })
 }
 

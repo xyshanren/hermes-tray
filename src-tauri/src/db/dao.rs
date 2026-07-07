@@ -133,6 +133,11 @@ pub trait SessionDAO: Send + Sync {
         persona_id: Option<&str>,
         project_dir: Option<&str>,
         project_context: Option<&str>,
+        // v0.2-alpha-23 (manual Tauri verification) — see
+        // src/db/session.rs for the rationale (stats by-model was
+        // always "unknown" because the INSERT skipped the model
+        // column).
+        model: Option<&str>,
     ) -> DbResult<Session>;
     fn update(&self, id: &str, patch: SessionPatch) -> DbResult<Session>;
     fn delete(&self, id: &str) -> DbResult<()>;

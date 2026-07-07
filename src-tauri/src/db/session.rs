@@ -95,15 +95,21 @@ impl<'a> SessionDAO for SessionDao<'a> {
         persona_id: Option<&str>,
         project_dir: Option<&str>,
         project_context: Option<&str>,
+        // v0.2-alpha-23 (manual Tauri verification) — record the
+        // model the user picked so the stats modal can group usage
+        // by model instead of showing "unknown". Without this,
+        // sessions.model is always NULL → COALESCE fallback in the
+        // stats SQL → user sees "unknown" in the by-model table.
+        model: Option<&str>,
     ) -> DbResult<Session> {
         let conn = self.pool.get()?;
         let id = Self::new_id();
         let now = Self::unix_ms_now();
         conn.execute(
             "INSERT INTO sessions \
-             (id, title, persona_id, project_dir, project_context, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
-            params![id, title, persona_id, project_dir, project_context, now],
+             (id, title, persona_id, project_dir, project_context, model, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            params![id, title, persona_id, project_dir, project_context, model, now],
         )?;
         self.get(&id)
     }

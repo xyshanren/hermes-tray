@@ -1078,6 +1078,55 @@ html, body {
   margin-bottom: 18px;
 }
 
+/* v0.2-alpha-22 (manual Tauri verification) — Gateway mode toggle.
+   Vertical list with primary label + hint subtitle (instead of
+   the alpha-12 horizontal radio that squashed the long Chinese
+   labels into one line). Same UX intent — two radio options for
+   the same concept (Gateway connection mode) — but readable when
+   the modal is narrow. */
+.settings-mode-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.settings-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.settings-mode-option:hover {
+  border-color: var(--accent-color, #6366f1);
+}
+.settings-mode-option.active {
+  border-color: var(--accent-color, #6366f1);
+  background: rgba(99, 102, 241, 0.06);
+}
+.settings-mode-option input[type="radio"] {
+  margin-top: 3px;
+  cursor: pointer;
+}
+.settings-mode-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-mode-option-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.settings-mode-option-hint {
+  font-size: 12px;
+  color: var(--text-secondary, #94a3b8);
+}
+
 .form-group:last-child {
   margin-bottom: 0;
 }
