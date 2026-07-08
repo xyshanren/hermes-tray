@@ -902,21 +902,47 @@ html, body {
 
 /* Code blocks */
 .message-content pre {
-  background: #1e1e1e;
+  /* v0.2-alpha-31.1 — use design tokens instead of hard-coded
+   * #1e1e1e so the code block bg tracks the active theme properly.
+   * On dark theme --code-bg is #020617, on light theme it's
+   * #0F172A — both dark enough that inline body text color
+   * (--text-primary) needs to be flipped to --code-text inside
+   * the block for legibility. Inline links (`<a>`) inside `pre`
+   * used to inherit .message-content a { color: var(--primary) }
+   * which is brand indigo — almost invisible on the dark block
+   * surface, especially in light mode where the block bg is
+   * #0F172A but brand indigo is the same #5B6CFF.
+   *
+   * Fix: scope the link + strong + em rules to .message-content
+   * pre so the brand colour doesn't bleed into the code block,
+   * and let everything inherit the readable --code-text colour. */
+  background: var(--code-bg);
+  color: var(--code-text);
   padding: 12px;
   border-radius: 8px;
   overflow-x: auto;
   margin: 8px 0;
   font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
   font-size: 13px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--code-border);
   position: relative;
 }
 
-.message-content pre code {
+.message-content pre code,
+.message-content pre a,
+.message-content pre strong,
+.message-content pre em {
+  /* Override the global .message-content a { color: var(--primary) }
+   * so links inside code blocks stay readable. Without this, the
+   * brand indigo link colour sits inside a dark code surface and
+   * effectively disappears on light theme. */
   background: none !important;
-  padding: 0 !important;
+  padding: 0;
   color: inherit;
+}
+
+.message-content pre a:hover {
+  text-decoration: underline;
 }
 
 .message-content code {

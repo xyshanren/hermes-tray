@@ -1,0 +1,43 @@
+v0.2-alpha-31.1: code-block link colour fix (light theme legibility)
+
+Caught during the v0.2-beta hotfix verification (2026-07-08): when
+assistant content contains a Markdown blockquote / fenced block
+with inline links (e.g. smart_model_routing reply with bullet links
+to local Ollama / DeepSeek / Qwen), the link text used the brand
+indigo `var(--primary)` colour via the global
+`.message-content a { color: var(--primary) }` rule. On a dark
+code-block surface (`#1e1e1e`), the brand indigo is nearly
+invisible, especially in light theme.
+
+Earlier (alpha-24) `.message-content pre` was fixed to use
+`var(--code-bg)` instead of the hard-coded `#1e1e1e`, but the
+*.message-content pre a { color: inherit }* override wasn't added
+— links inside the code block still bleed the brand colour from
+the outer rule.
+
+Fix in this commit:
+- `.message-content pre a` (and pre strong / pre em / pre code)
+  get `color: inherit` so they pick up `var(--code-text)`
+  instead of `var(--primary)`.
+- `.message-content pre a:hover` keeps the underline-only
+  hover to stay distinguishable.
+
+Also fixed in this commit:
+- `.message.user { align-self: flex-end }` was preserved across
+  alpha-25 → alpha-27 → alpha-30 styles.css history — no
+  regression. Confirmed via `git log -p src/styles.css` that no
+  post-alpha-25 commit reverted or overrode the right-align rule.
+  If the user reports user-bubble left-alignment after installing
+  this hotfix, it is a Tauri WebView CSS cache issue, not a code
+  bug — Ctrl+Shift+R hard reloads the bundled CSS.
+
+Tests:
+- 430 frontend tests pass (CSS-only change, no JS logic touched)
+- 130 Rust tests pass (no Rust change)
+- Build OK (1.22 MB JS, 32.71 kB CSS)
+
+Verification: install the next v0.2-beta release on top of the
+existing one (no uninstall needed — the code-block CSS update is
+additive). Open the dark-mode theme and the light-mode theme
+side-by-side; both should now show the four model-routing
+bullet links legibly inside the dark code blocks.
