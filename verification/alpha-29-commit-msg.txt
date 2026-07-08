@@ -1,0 +1,54 @@
+v0.2-alpha-29: drop pre-release suffix from tauri version (MS fix)
+
+alpha-28 bumped src-tauri/tauri.conf.json + Cargo.toml versions to
+`0.2.0-beta` to fix GitHub release asset filenames (was reporting
+`0.1.5_*` despite shipping alpha-27 code). The CI re-run failed at
+the windows "Build Tauri app" step with exit code 1.
+
+Root cause: **Windows MSI / NSIS installers reject version strings
+with `-` (hyphen)**. The MSI ProductVersion field and the NSIS
+installer-name sanitizer both require Major.Minor.Build numeric
+semver (`0.2.0`), not pre-release suffixes (`0.2.0-beta`). When
+tauri-action pushes `0.2.0-beta` through the bundle pipeline on
+windows-latest, the MSI builder rejects it, MSBuild exits 1, and
+the upload-artifact step never runs — release job sees no assets.
+
+macOS .dmg and Linux .deb accept the hyphen, but cross-platform
+release.yml needs ALL bundles to succeed for the release job to
+upload anything. One failure → whole release fails.
+
+Fix: drop the hyphen suffix in src-tauri/tauri.conf.json +
+src-tauri/Cargo.toml → `0.2.0`. Asset filenames will become
+`hermes-tray-tauri_0.2.0_*` (no longer stale `0.1.5_*`).
+
+package.json stays at `0.2.0-beta` because:
+- It's the npm-style pre-release label that users see in dev tools
+- tauri-action reads tauri.conf.json (not package.json) for asset
+  names, so this stays out of the bundle path
+- We can `npm publish` with `0.2.0-beta` later if we ever distribute
+  the JS-only package separately
+
+GitHub release name keeps `v0.2-beta` (the tag). So the user-visible
+release label stays "v0.2-beta" while the binary version inside MSI
+properties / deb control / dmg Info.plist is `0.2.0`. This is the
+idiomatic split: tag = marketing label, version = code metadata.
+
+This is the second re-tag this morning — see the agent-memory entry
+"Re-tag operation: must re-point LOCAL tag before force-push remote"
+(also written today). Same operational pattern, second occurrence
+suggests we should codify a pre-tag sanity check.
+
+Pre-tag sanity-check script (recommended for v0.3 release workflow):
+
+```bash
+# Before any `git push origin v$X`:
+test "$(git log -1 --format=%s origin/master)" = "$(git log v$X -1 --format=%s)"
+# Fails fast if local tag is on an older SHA than master HEAD.
+```
+
+Re-tag plan after this commit:
+1. push origin master (alpha-29 → 1fde1d9 + alpha-29)
+2. git tag -d v0.2-beta && git tag v0.2-beta (RE-POINT local first!)
+3. git push origin :refs/tags/v0.2-beta && git push origin v0.2-beta
+
+Tests: 430 passing (unchanged). Build: CI will run after re-tag.
