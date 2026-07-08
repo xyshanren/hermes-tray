@@ -1,0 +1,56 @@
+v0.2-alpha-28: align tauri crate version to v0.2.0-beta
+
+Caught during the v0.2-beta release cycle: tauri-action (the
+GitHub Action used in .github/workflows/release.yml) emits
+asset filenames like
+  hermes-tray-tauri_<version>_<arch>.deb
+from the version field in `src-tauri/tauri.conf.json`, while
+`src-tauri/Cargo.toml` controls the version that gets baked
+into the bundle's PE/PE-binary + .pdb metadata.
+
+The first CI-built v0.2-beta release (workflow run on 2026-07-08,
+triggered by tag push) shipped with assets named
+  hermes-tray-tauri_0.1.5_*.msi
+  hermes-tray-tauri_0.1.5_*.dmg
+  hermes-tray-tauri_0.1.5_*.deb
+  hermes-tray-tauri_0.1.5_*setup.exe
+  hermes-tray-tauri.exe  (raw portable, no version in name)
+
+— all five assets were the correct alpha-27 binary, but the
+filename version was stale. Symptom: package.json said
+0.2.0-beta but tauri.conf.json and Cargo.toml still said 0.1.5
+(the value set at the v0.1.5 tag on 2026-07-03).
+
+Fix: bump both to 0.2.0-beta so:
+1. tauri-action picks up 0.2.0-beta for asset filenames.
+2. The Tauri About dialog / windows properties / MSI ProductVersion
+   field show 0.2.0-beta.
+3. Cargo.lock regenerates against the new crate version (no
+   downstream dependents — hermes-tray is standalone; no crates.io
+   publish involved).
+
+This commit triggers a fresh CI release run on next tag push
+(via the re-tag strategy documented below).
+
+Re-tag strategy used immediately after this commit:
+
+1. `git push origin master` — alpha-28 lives on master.
+2. `gh release delete v0.2-beta --yes` (or GitHub REST API since
+   `gh` is unauth'd here) — clears the existing release page so
+   the next tag push creates a fresh one instead of leaving the
+   stale 0.1.5-named assets visible.
+3. `git tag -d v0.2-beta && git tag v0.2-beta` — re-points the
+   local beta tag at the new HEAD that carries this version fix.
+4. `git push origin v0.2-beta --force` — triggers release.yml
+   with the corrected version fields. New assets will be named
+   `hermes-tray-tauri_0.2.0-beta_*`.
+
+No code logic changes. No tests added.
+Tests: 430 passing (unchanged — version strings are not exercised).
+Build: skipped (CI will rebuild on tag push).
+
+Tauri release-CI users: if your tauri config ever drifts from
+package.json (e.g. forgetting to bump after a tag), the FIRST
+release after the bump ships wrong filenames even though the
+binary is correct. Add a `grep -q "0.2.0-beta" src-tauri/tauri.conf.json`
+pre-tag sanity check to your release script.
