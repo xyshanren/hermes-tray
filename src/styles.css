@@ -220,8 +220,15 @@ html, body {
   background: var(--bg-tertiary);
 }
 .session-item.active {
-  background: var(--primary-soft);
-  border-left: 3px solid var(--primary);
+  /* v0.2-alpha-30 — user requested the active sidebar item be more
+   * visible. Border darker (indigo-700 #4338CA vs the global
+   * --primary indigo-500 #5B6CFF) + thicker (3px → 4px). We do NOT
+   * touch --primary itself because the brand token is used by
+   * primary buttons, input focus glow, and chip borders elsewhere.
+   * Adding a slightly darker background too (--primary-soft 8% →
+   * 12%) so the whole active row reads more clearly. */
+  background: rgba(91, 108, 255, 0.12);
+  border-left: 4px solid #4338CA;
 }
 .dark .session-item.active {
   background: var(--primary-soft);
