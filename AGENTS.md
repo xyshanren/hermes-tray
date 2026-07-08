@@ -18,6 +18,7 @@
 | 后端 | Rust + rusqlite + tokio + aes-gcm + argon2 |
 | 测试 | 13 个 .test.ts 文件，430 tests passing (vitest + happy-dom) |
 | 设计稿位置 | `D:\work\workspace\MiniMax\projects\hermes-tray-notes\`（20 张 SVG + 验收报告 + UI 设计要求） |
+| 路线图 | [`ROADMAP.md`](./ROADMAP.md) — v0.2-beta → v0.3.0 P3 modal-by-modal + P2 deferred list |
 
 ---
 

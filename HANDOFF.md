@@ -1,6 +1,8 @@
 # Hermes Chat (hermes-tray) — Session Handoff
 
-> Updated 2026-07-06 19:55 — **v0.2-beta ready to tag**. All 11 views
+> Updated 2026-07-08 10:00 — **v0.2-beta shipped (alpha-29, tag `v0.2-beta`)**;
+> next: P3 modal-by-modal pass per [`ROADMAP.md`](./ROADMAP.md).
+> Current focus: 3.2 Backup/Restore (alpha-30).
 > migrated to Preact JSX, 4 missing SVG designs shipped, Step 9
 > pixel verification complete (6 of 20 states captured + 1 bug
 > fixed). Read this + `AGENTS.md` to resume work.
