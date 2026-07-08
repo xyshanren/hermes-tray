@@ -288,7 +288,7 @@ mod tests {
         let db = fresh_db();
         // Seed 3 sessions.
         for title in ["alpha", "beta", "gamma"] {
-            db.session().create(title, None, None, None).unwrap();
+            db.session().create(title, None, None, None, None).unwrap();
         }
         assert_eq!(db.session().list(10, 0).unwrap().len(), 3);
         // Clear all.
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn clear_all_cascades_to_messages() {
         let db = fresh_db();
-        let s1 = db.session().create("with-messages", None, None, None).unwrap();
+        let s1 = db.session().create("with-messages", None, None, None, None).unwrap();
         // Append 2 messages to s1.
         db.message()
             .append(&s1.id, "user", "hi", None)
@@ -309,7 +309,7 @@ mod tests {
             .append(&s1.id, "assistant", "hello", None)
             .unwrap();
         // Add a 2nd session with no messages.
-        db.session().create("empty", None, None, None).unwrap();
+        db.session().create("empty", None, None, None, None).unwrap();
         // Clear all — messages from s1 should cascade-delete.
         let removed = db.session().clear_all().unwrap();
         assert_eq!(removed, 2);

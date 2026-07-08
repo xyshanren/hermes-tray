@@ -1,0 +1,66 @@
+v0.2-alpha-31: strip verbatim `\\?\` prefix from scanned project paths
+
+User-reported bug from the v0.2-beta msi manual verification
+(2026-07-08): the chat-view hero card for new sessions renders the
+project path as `项目: hermes-tray (\\D:\work\workspace\hermes-tray)`
+instead of the cleaner `D:\work\workspace\hermes-tray`.
+
+Root cause: `Path::canonicalize()` on Windows always returns the
+verbatim path form `\\?\D:\…` to bypass the legacy 260-char
+MAX_PATH limit. `scan_project` was storing the canonical string
+verbatim — the prefix is invisible to .NET/Win32 APIs but a
+frontend `D:\…` consumer expects the un-prefixed form. The leading
+`\\?\` re-appeared in `to_string_lossy()` and was returned to the
+TS side via Tauri's JSON-RPC bridge.
+
+The user saw two `\\` characters because each `\` in the Rust-side
+verbatim string is one literal character — `\\?\` is two
+backslashes plus `?`. The screenshot's renderer smudged the `?`
+char (some Windows fonts or anti-aliasing drop it at low DPI),
+which is why the user described it as "乱码".
+
+Fix: `src-tauri/src/db/project.rs` adds a `strip_windows_verbatim_prefix`
+helper that drops the leading `\\?\` while preserving the `UNC\`
+marker for network-share paths (which canonicalize adds verbatim
+for paths longer than MAX_PATH). The helper is wired into
+`scan_project` so every persisted `project_context.project_dir`
+now stores the regular `D:\…` form (or `\\server\share\…` for UNC).
+
+Out of scope for this commit (deferred to follow-up alphas):
+- shortenPath() in sessions-list-view.tsx still renders the
+  abbreviation as `~/workspace/hermes-tray` — for Windows users
+  this reads as a `~` placeholder that they don't naturally map
+  to a drive letter. Will switch to `D:\…\hermes-tray` style in
+  alpha-31.1 once we have user confirmation on what the
+  Windows-friendly display should look like.
+- Header chip "未关联项目" fallback (alpha-31.2)
+- fetchModelInfo re-fetch on reconnect (alpha-31.3)
+- Footer persona populate on boot (alpha-31.4)
+
+Pre-existing bug also patched: `src-tauri/src/db/session.rs`
+tests at lines 291/303/312 were still calling the 4-arg
+`session().create(...)` signature after alpha-23 added a 5th
+`model: Option<&str>` parameter. The Tauri build never tripped
+on these (production callsites were correct), but `cargo test`
+failed to compile since alpha-23 landed. Updated all 3 call
+sites to pass `None` for the model slot.
+
+Tests:
+- 4 new Rust unit tests for `strip_windows_verbatim_prefix`:
+  - strips local drive verbatim (`\\?\D:\…` → `D:\…`)
+  - preserves UNC marker (`\\?\UNC\server\share\…` → `\\server\share\…`)
+  - passes through already-clean paths unchanged
+  - handles drive-relative rare case
+- 130 Rust tests pass (was failing to compile, fixed)
+- 430 frontend tests pass (unchanged)
+- Build OK (1.22 MB JS, 32.71 kB CSS)
+
+Verification: rebuild msi via the next CI release, install over
+the existing v0.2-beta install, create a new session with a
+project path configured. The hero card should now read:
+  `项目: hermes-tray (D:\work\workspace\hermes-tray)`
+instead of the `\\?\…` form.
+
+No tag/push yet — wait for alpha-31.1~.4 polish before
+shipping another release (avoids the alpha-29 lesson of
+shipping prematurely).

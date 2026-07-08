@@ -73,11 +73,24 @@ pub fn scan_project(path: &Path) -> Result<ProjectContext, String> {
         return Err(format!("not a directory: {}", path.display()));
     }
 
-    let project_dir = path
-        .canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .to_string();
+    let project_dir = {
+        let raw = path
+            .canonicalize()
+            .unwrap_or_else(|_| path.to_path_buf())
+            .to_string_lossy()
+            .to_string();
+        // v0.2-alpha-31 — strip the Windows `\\?\` verbatim path prefix
+        // that `Path::canonicalize()` always adds on Windows. Without this,
+        // the prefix leaks into the DB project_context and the chat-view
+        // hero card renders `\\?\D:\work\workspace\hermes-tray` (which the
+        // user reported as "乱码" — `\\?\` is visually two literal
+        // backslashes plus a question mark, then `D:\…`).
+        //
+        // Fall back to the original input if `strip_verbatim_prefix`
+        // doesn't recognise the string — keeps handling for non-Windows
+        // paths intact (canonicalize on Unix doesn't add the prefix).
+        strip_windows_verbatim_prefix(&raw)
+    };
 
     let mut files_scanned: Vec<String> = Vec::new();
 
@@ -473,6 +486,37 @@ fn unix_ms_now() -> i64 {
         .unwrap_or(0)
 }
 
+/// v0.2-alpha-31 — strip the Windows verbatim-path prefix (`\\?\`) that
+/// `Path::canonicalize()` prepends on Windows. Without this, the
+/// stored `project_dir` reads `\\?\D:\work\…` which the frontend
+/// renders as a literal-backslash soup that the user reported as
+/// "乱码". On non-Windows hosts the prefix isn't present so we fall
+/// through unchanged.
+///
+/// Also handles the UNC form (`\\?\UNC\server\share\…`) by preserving
+/// the `UNC\` token — Windows canonicalize uses it for non-local
+/// paths.
+///
+/// Reference: <https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file>
+fn strip_windows_verbatim_prefix(s: &str) -> String {
+    // Use byte slicing instead of `starts_with("\\?\")` because Rust
+    // string escape \\\\ in source = `\\` (4 source chars → 2 actual
+    // backslashes) on the input side; both `\` are real chars.
+    if s.starts_with(r"\\?\") {
+        let rest = &s[4..];
+        // Preserve UNC marker (Windows network paths look like
+        // `\\?\UNC\server\share\…` — converting to `\\server\share\…`
+        // is the canonical Win32 "DOS path" form).
+        if let Some(stripped_unc) = rest.strip_prefix("UNC\\") {
+            return format!(r"\\{}", stripped_unc);
+        }
+        return rest.to_string();
+    }
+    // Already non-verbatim (typical on Unix; also fine on Windows for
+    // paths that fit below MAX_PATH).
+    s.to_string()
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -487,6 +531,49 @@ mod tests {
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(p, body).unwrap();
+    }
+
+    #[test]
+    fn strip_windows_verbatim_prefix_strips_local() {
+        // Most common case: canonicalize adds `\\?\C:\…` for a local
+        // drive; we want to render `C:\…` for the UI.
+        assert_eq!(
+            strip_windows_verbatim_prefix(r"\\?\D:\work\workspace\hermes-tray"),
+            r"D:\work\workspace\hermes-tray"
+        );
+    }
+
+    #[test]
+    fn strip_windows_verbatim_prefix_preserves_unc_marker() {
+        // Network share path: keep the `\\server\share\…` form so
+        // explorer / `Path` API still recognise it.
+        assert_eq!(
+            strip_windows_verbatim_prefix(r"\\?\UNC\server\share\path"),
+            r"\\server\share\path"
+        );
+    }
+
+    #[test]
+    fn strip_windows_verbatim_prefix_passes_through_already_clean() {
+        // Inputs that don't carry the prefix (Unix paths, or
+        // Win32 paths under MAX_PATH) should round-trip unchanged.
+        assert_eq!(
+            strip_windows_verbatim_prefix(r"D:\work\workspace\hermes-tray"),
+            r"D:\work\workspace\hermes-tray"
+        );
+        assert_eq!(
+            strip_windows_verbatim_prefix("/home/user/code"),
+            "/home/user/code"
+        );
+    }
+
+    #[test]
+    fn strip_windows_verbatim_prefix_handles_drive_relative() {
+        // Drive-relative path under verbatim prefix (rare but valid).
+        assert_eq!(
+            strip_windows_verbatim_prefix(r"\\?\D:work\hermes-tray"),
+            r"D:work\hermes-tray"
+        );
     }
 
     #[test]
