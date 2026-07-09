@@ -281,12 +281,53 @@ html, body {
 
 .session-subtitle {
   /* v0.2-alpha-27 — design 01 subtitle: "~/code/hermes · 昨天" or
-   * "未关联项目 · 3 天前". Greyer + smaller than title. */
+   * "未关联项目 · 3 天前". Greyer + smaller than title.
+   * v0.2-alpha-32.3: now contains a chip + separator + time; chip
+   * carries the project, separator + time stay muted. */
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.session-project-chip {
+  /* v0.2-alpha-32.3: pill-shaped badge showing which project this
+   * session is associated with. Tinted background draws the eye so
+   * the user can see at a glance that "the project path is
+   * metadata, not a file location" (Issue 4). Tooltip on the
+   * element shows the full un-shortened path. */
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--primary);
+  background: rgba(91, 108, 255, 0.1);
+  border: 1px solid rgba(91, 108, 255, 0.25);
+  border-radius: 999px;
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-project-chip--empty {
+  /* "未关联项目" placeholder — neutral, no primary tint. */
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px dashed var(--border);
+  font-style: italic;
+}
+.session-subtitle-sep {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.session-subtitle-time {
+  flex-shrink: 0;
 }
 
 .session-delete {
@@ -1214,6 +1255,124 @@ html, body {
   to   { transform: translateX(100%); opacity: 0; }
 }
 
+/* ── v0.2-alpha-32.3: 数据存储位置 (collapsible details) ────────── */
+/* Issue 4: users assumed "默认项目路径" was a file-storage
+ * location and were surprised when the directory stayed empty.
+ * The fix: a <details> block (collapsed by default) listing the
+ * OS-specific app-config paths where sessions.db / config.json /
+ * media actually live, plus a callout explicitly stating that the
+ * project path is metadata for the AI, not a storage path. */
+
+.settings-group--collapsible {
+  /* Same vertical rhythm as the other settings groups; the
+   * <details> handles its own internal padding. */
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  margin-bottom: 16px;
+}
+
+.settings-storage-info {
+  /* Reset <details>/<summary> defaults so the summary looks like
+   * a normal group header. */
+}
+
+.settings-storage-info > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.settings-storage-info > summary::-webkit-details-marker {
+  display: none;
+}
+.settings-storage-info > summary::before {
+  content: "▸";
+  display: inline-block;
+  color: var(--text-muted);
+  font-size: 10px;
+  transition: transform 0.15s;
+}
+.settings-storage-info[open] > summary::before {
+  transform: rotate(90deg);
+}
+.settings-storage-info > summary:hover {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+}
+.settings-storage-info-hint {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.settings-storage-info-body {
+  padding: 0 16px 16px;
+}
+
+.settings-storage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.settings-storage-table th,
+.settings-storage-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.settings-storage-table thead th {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.settings-storage-table tbody th {
+  width: 80px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.settings-storage-table code {
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  word-break: break-all;
+}
+.settings-storage-table small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  display: inline-block;
+  margin-top: 2px;
+}
+
+.settings-storage-info-callout {
+  margin: 0;
+  padding: 8px 10px;
+  background: rgba(91, 108, 255, 0.06);
+  border-left: 3px solid var(--primary);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.settings-storage-info-callout strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 /* ── Settings Button ────────────────────────────── */
 
 .settings-btn {
@@ -1400,6 +1559,26 @@ html, body {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 4px;
+}
+/* v0.2-alpha-32.3: stronger visual weight for hints that correct a
+ * misconception (e.g. "项目路径不是存储位置" used to be 12 px muted
+ * grey and got skipped in manual verification). Background tint
+ * + left border draw the eye; icon + strong tag make the point
+ * unmissable. Used by the "默认项目上下文" hint. */
+.form-hint--emphasis {
+  display: block;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: rgba(91, 108, 255, 0.08);
+  border-left: 3px solid var(--primary);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+.form-hint--emphasis strong {
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 /* v0.2-alpha-2 — Segmented control (used for theme picker in settings modal).

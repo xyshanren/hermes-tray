@@ -154,22 +154,27 @@ describe("config-schema", () => {
   });
 });
 
-// ── 4-group structure (alpha-13) ────────────────────────────────────────
+// ── 5-group structure (alpha-13 → alpha-32.3) ───────────────────────────
+//
+// Originally 4 groups: 连接 / 新建会话默认值 / 偏好 / 危险操作区.
+// alpha-32.3 added 数据存储位置 as a collapsible <details> group
+// between 偏好 and 危险操作区 (Issue 4: users kept asking "where is
+// my data stored?"; the project-path field's label was misleading).
 
-describe("SettingsModal 4-group structure (SVG 11)", () => {
+describe("SettingsModal 5-group structure (SVG 11 + alpha-32.3 storage)", () => {
   it("renders nothing when store is closed", () => {
     const root = mountSettingsModalInto();
     expect(root.children).toHaveLength(0);
   });
 
-  it("renders panel + 4 form groups when store opens", async () => {
+  it("renders panel + 5 form groups when store opens", async () => {
     const root = mountSettingsModalInto();
     await flushRender();
     settingsStore.setOpen(true);
     await flushRender();
     expect(root.querySelector(".modal-close-btn")).not.toBeNull();
     const groups = root.querySelectorAll(".settings-group");
-    expect(groups.length).toBe(4);
+    expect(groups.length).toBe(5);
     const titles = Array.from(groups).map((g) =>
       g.querySelector("h3")?.textContent,
     );
@@ -177,6 +182,10 @@ describe("SettingsModal 4-group structure (SVG 11)", () => {
       "连接",
       "新建会话默认值",
       "偏好",
+      // alpha-32.3: no <h3> on the collapsible storage group — the
+      // title lives in the <summary>. We accept undefined here and
+      // verify it separately via the storage-info tests.
+      undefined,
       expect.stringContaining("危险操作区"),
     ]);
   });
@@ -241,6 +250,93 @@ describe("新建会话默认值 group", () => {
     await flushRender();
     expect(root.querySelector("#setting-default-project-path")).not.toBeNull();
     expect(root.querySelector("#setting-default-model")).not.toBeNull();
+  });
+
+  // v0.2-alpha-32.3 — Issue 4: rename the label from "默认项目路径"
+  // to "默认项目上下文" so users don't mistake the field for a file
+  // storage location. The hint now opens with "这里是给 AI 提供项目
+  // 背景，不是存数据的地方" and references the backup modal.
+  it("alpha-32.3: label is renamed to 默认项目上下文 with an emphasis-styled hint", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    const label = root.querySelector('label[for="setting-default-project-path"]');
+    expect(label).not.toBeNull();
+    expect(label!.textContent).toBe("默认项目上下文");
+    // No more "(T-Q-S8)" ticket-id suffix.
+    expect(label!.textContent).not.toMatch(/T-Q-S8/);
+    // Hint is the new emphasis variant (background + border-left).
+    const hint = root.querySelector(".form-hint--emphasis");
+    expect(hint).not.toBeNull();
+    // Contains the three corrective phrases so users can't miss them.
+    const text = hint!.textContent ?? "";
+    expect(text).toMatch(/不是.*存数据/);
+    expect(text).toMatch(/README|package\.json|Cargo\.toml/);
+    expect(text).toMatch(/创建加密备份/);
+  });
+});
+
+// ── v0.2-alpha-32.3: 数据存储位置 (collapsible details) ──────────────────
+
+describe("数据存储位置 group (alpha-32.3)", () => {
+  it("renders a collapsed <details> with the title and 3 platform rows", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    const details = root.querySelector("details.settings-storage-info");
+    expect(details).not.toBeNull();
+    // Collapsed by default — paths hidden until the user clicks the
+    // summary. We don't want this to add visual weight to the modal.
+    expect(details!.hasAttribute("open")).toBe(false);
+    // The summary carries the title + "（点开查看）" hint.
+    const summary = details!.querySelector("summary");
+    expect(summary).not.toBeNull();
+    expect(summary!.textContent).toContain("数据存储位置");
+    expect(summary!.textContent).toMatch(/点开查看/);
+  });
+
+  it("when opened, lists Windows + macOS + Linux paths with the config identifier", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    const details = root.querySelector("details.settings-storage-info") as HTMLDetailsElement;
+    details.open = true;
+    await flushRender();
+    const table = details.querySelector(".settings-storage-table");
+    expect(table).not.toBeNull();
+    const rows = table!.querySelectorAll("tbody tr");
+    expect(rows.length).toBe(3);
+    const tableText = table!.textContent ?? "";
+    // Each OS row.
+    expect(tableText).toMatch(/Windows/);
+    expect(tableText).toMatch(/macOS/);
+    expect(tableText).toMatch(/Linux/);
+    // Tauri bundle identifier from src-tauri/tauri.conf.json — if
+    // this drifts the callout below becomes a lie, so pin the
+    // expected value here.
+    expect(tableText).toMatch(/com\.admin\.hermes-tray-tauri/);
+    // Real-file targets (sessions.db / config.json).
+    expect(tableText).toContain("sessions.db");
+    expect(tableText).toContain("config.json");
+  });
+
+  it("contains a callout reminding that the project path is metadata, not a storage path", async () => {
+    const root = mountSettingsModalInto();
+    await flushRender();
+    settingsStore.setOpen(true);
+    await flushRender();
+    const details = root.querySelector("details.settings-storage-info") as HTMLDetailsElement;
+    details.open = true;
+    await flushRender();
+    const callout = details.querySelector(".settings-storage-info-callout");
+    expect(callout).not.toBeNull();
+    const text = callout!.textContent ?? "";
+    expect(text).toMatch(/默认项目上下文/);
+    expect(text).toMatch(/不会写文件/);
+    expect(text).toMatch(/创建加密备份/);
   });
 });
 

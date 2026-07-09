@@ -427,6 +427,7 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
           sortOrder={sortOrder}
           onSortOrderChange={setSortOrder}
         />
+        <StorageInfoGroup />
         <DangerZoneGroup
           onBackupCreate={handleBackupCreate}
           onBackupRestore={handleBackupRestore}
@@ -666,7 +667,7 @@ function NewSessionDefaultsGroup({
     >
       <h3 id="settings-newsession-title">新建会话默认值</h3>
       <div class="form-group">
-        <label for="setting-default-project-path">默认项目路径 (T-Q-S8)</label>
+        <label for="setting-default-project-path">默认项目上下文</label>
         <input
           id="setting-default-project-path"
           type="text"
@@ -676,8 +677,12 @@ function NewSessionDefaultsGroup({
             onProjectPathChange((e.currentTarget as HTMLInputElement).value)
           }
         />
-        <span class="form-hint">
-          新建会话时自动扫描此目录的 README + manifest + git 信息，注入到 system prompt。留空则不附加项目上下文。
+        <span class="form-hint form-hint--emphasis" role="note">
+          <span aria-hidden="true">ℹ️</span>{" "}
+          这里是给 AI 提供项目背景，<strong>不是</strong>存数据的地方。
+          新建会话时会自动读项目根目录的 README、package.json / Cargo.toml /
+          pyproject.toml / go.mod、.git/config，压缩成 4KB 摘要塞给 AI，
+          让它不用你贴就能聊这个项目。要备份数据请用<strong>数据 → 创建加密备份</strong>。
         </span>
       </div>
       <div class="form-group">
@@ -854,6 +859,93 @@ function PreferencesGroup({
 // Backup create/restore open the backup modal directly (no inline
 // confirmation here — alpha-9 already does that flow inside the
 // backup modal with PasswordInput + CountdownButton).
+
+// ── v0.2-alpha-32.3: 数据存储位置 (Issue 4) ────────────────────────────────
+//
+// Manual verification of alpha-32 surfaced "默认项目路径感觉是个摆设"
+// — users assumed sessions/files would be written into the project
+// directory, then were confused that it stayed empty. In fact the
+// project path is metadata (scanned into a 4 KB summary for the
+// system prompt). All actual app data lives in the OS-standard
+// app config dir, regardless of project path.
+//
+// The group is collapsed by default (click to expand) so it doesn't
+// add visual weight for users who don't care. Inside: an OS-keyed
+// list of paths for sessions.db / config.json / media cache, plus
+// an explicit reminder that the project path is NOT a storage path,
+// and a one-click link into the backup modal.
+
+function StorageInfoGroup(): preact.JSX.Element {
+  // Path constants match the Tauri config_dir layout. Update
+  // src-tauri/tauri.conf.json → identifier if these change.
+  const identifier = "com.admin.hermes-tray-tauri";
+  const paths: Array<{ os: string; config: string; data: string; media: string }> = [
+    {
+      os: "Windows",
+      config: `%APPDATA%\\${identifier}\\`,
+      data: `%APPDATA%\\${identifier}\\sessions.db`,
+      media: `%APPDATA%\\${identifier}\\media\\`,
+    },
+    {
+      os: "macOS",
+      config: `~/Library/Application Support/${identifier}/`,
+      data: `~/Library/Application Support/${identifier}/sessions.db`,
+      media: `~/Library/Application Support/${identifier}/media/`,
+    },
+    {
+      os: "Linux",
+      config: `~/.config/${identifier}/`,
+      data: `~/.config/${identifier}/sessions.db`,
+      media: `~/.config/${identifier}/media/`,
+    },
+  ];
+
+  return (
+    <section
+      class="settings-group settings-group--collapsible"
+      aria-labelledby="settings-storage-title"
+    >
+      <details class="settings-storage-info">
+        <summary>
+          <span aria-hidden="true">📂</span>{" "}
+          <span id="settings-storage-title">数据存储位置</span>
+          <span class="settings-storage-info-hint">
+            （点开查看）会话/Persona/项目元数据存在哪
+          </span>
+        </summary>
+        <div class="settings-storage-info-body">
+          <table class="settings-storage-table" aria-label="按平台列出数据存储路径">
+            <thead>
+              <tr>
+                <th scope="col">平台</th>
+                <th scope="col">路径</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paths.flatMap((p) => [
+                <tr>
+                  <th scope="row">{p.os}</th>
+                  <td>
+                    <code>{p.data}</code>
+                    <br />
+                    <small>
+                      <code>{p.config}</code>config.json · media/
+                    </small>
+                  </td>
+                </tr>,
+              ])}
+            </tbody>
+          </table>
+          <p class="settings-storage-info-callout">
+            <strong>默认项目上下文</strong>是给 AI 提供项目背景
+            （README / package.json / .git/config），不会写文件到这里。
+            备份请用下方<strong>创建加密备份</strong>。
+          </p>
+        </div>
+      </details>
+    </section>
+  );
+}
 
 function DangerZoneGroup({
   onBackupCreate,

@@ -367,6 +367,73 @@ describe("<SessionList /> (render shell)", () => {
   });
 });
 
+// v0.2-alpha-32.3 — Issue 4 fix: the project directory is metadata
+// for the AI's system prompt, NOT a file storage location. To make
+// that visible, the session subtitle now renders the project as a
+// pill-shaped chip (📁 ~/parent/child) instead of being a single
+// muted string mixed into "~/... · 5 分钟前". Tooltip on the chip
+// shows the full un-shortened path so users can confirm where the
+// path actually came from. When the session has no project, the
+// chip becomes a dashed "未关联项目" placeholder.
+describe("session-project-chip (alpha-32.3)", () => {
+  it("renders a chip with the shortened path and a tooltip with the full path", () => {
+    sessionListStore.setFirstPage([
+      {
+        ...baseSession,
+        id: "s-with-project",
+        project_context: projectContextJson, // "D:\\work\\hermes-tray"
+      },
+    ]);
+    const { host } = mountView();
+    const chip = host.querySelector(".session-project-chip");
+    expect(chip).not.toBeNull();
+    // No "--empty" class when a project is attached.
+    expect(chip!.classList.contains("session-project-chip--empty")).toBe(false);
+    // Chip contains the shortened path (last 2 segments).
+    expect(chip!.textContent).toContain("hermes-tray");
+    // Tooltip carries the full un-shortened path.
+    expect(chip!.getAttribute("title")).toBe("D:\\work\\hermes-tray");
+    // The 📁 icon is in the chip (visually conveys "this is a
+    // directory reference, not a file location").
+    expect(chip!.textContent).toMatch(/📁/);
+  });
+
+  it("renders a dashed '未关联项目' placeholder when no project is attached", () => {
+    sessionListStore.setFirstPage([
+      { ...baseSession, id: "s-no-project", project_context: null },
+    ]);
+    const { host } = mountView();
+    const chip = host.querySelector(".session-project-chip");
+    expect(chip).not.toBeNull();
+    expect(chip!.classList.contains("session-project-chip--empty")).toBe(true);
+    expect(chip!.textContent).toContain("未关联项目");
+    // The "·" separator + relative time still render after the chip.
+    expect(host.querySelector(".session-subtitle-time")).not.toBeNull();
+  });
+
+  it("chip is independent from the time so it can be a future click target", () => {
+    // The chip will become a click target in alpha-32.4 (per-session
+    // override picker). For now it's read-only with a tooltip, but
+    // it's already structurally a separate element so the future
+    // change is one event handler, not a layout rewrite.
+    sessionListStore.setFirstPage([
+      {
+        ...baseSession,
+        id: "s-future",
+        project_context: projectContextJson,
+      },
+    ]);
+    const { host } = mountView();
+    const chip = host.querySelector(".session-project-chip") as HTMLElement;
+    const time = host.querySelector(".session-subtitle-time") as HTMLElement;
+    expect(chip).not.toBeNull();
+    expect(time).not.toBeNull();
+    // They are sibling elements under .session-subtitle, not nested.
+    expect(chip.parentElement).toBe(time.parentElement);
+    expect(chip.parentElement?.classList.contains("session-subtitle")).toBe(true);
+  });
+});
+
 /**
  * Set the value of a controlled <input> the way the user would. We
  * have to bypass Preact's value-tracking setter so the synthetic

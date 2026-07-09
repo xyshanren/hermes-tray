@@ -1,0 +1,107 @@
+v0.2-alpha-32.3: Issue 4 UX polish — project path is metadata, not storage
+
+Manual verification of alpha-32 surfaced a long-standing
+mental-model gap: the "默认项目路径" setting makes users
+assume sessions/files would be written into the project
+directory. In fact the path is metadata — Rust's
+`scan_project` reads README/package.json/Cargo.toml/
+.git/config and packs a 4 KB summary into the LLM system
+prompt. Actual app data lives in the OS-standard
+app_config_dir (`%APPDATA%\com.admin.hermes-tray-tauri\`
+on Windows, `~/Library/Application Support/...` on macOS,
+`~/.config/...` on Linux).
+
+This commit delivers the UX fixes I sketched in
+session-2026-07-09 / Issue 4: A (rename + emphasis hint),
+B (collapsible 📂 数据存储 location block), and C
+(session list 📁 project chip). The per-session override
+picker (alpha-32.4 in the proposed plan) is intentionally
+left for the next commit.
+
+A. Label rename + emphasis hint
+- `默认项目路径 (T-Q-S8)` → `默认项目上下文`. Drops the
+  internal ticket suffix so the field's purpose is clear
+  from the label alone.
+- Hint promoted to `.form-hint--emphasis` (background
+  tint + left border + ℹ️ icon). Body rewritten in plain
+  language: "这里是给 AI 提供项目背景，不是存数据的地方
+  … 备份请用数据 → 创建加密备份". Calls out the actual
+  scanned files (README / package.json / Cargo.toml /
+  pyproject.toml / go.mod / .git/config) so users can
+  see what "context" means in practice.
+
+B. New 📂 数据存储位置 group (collapsible <details>)
+- Positioned between 偏好 and 危险操作区, collapsed by
+  default so it doesn't add visual weight to the modal.
+- Inside: a 3-row table (Windows / macOS / Linux) listing
+  `sessions.db`, `config.json`, and `media/` paths for
+  each platform. Tauri bundle identifier is pinned
+  (`com.admin.hermes-tray-tauri`) so the test breaks if
+  anyone changes `src-tauri/tauri.conf.json` without
+  updating this table.
+- Callout block at the bottom restates the message
+  ("默认项目上下文 是给 AI 提供项目背景，…不会写文件到这里")
+  with a pointer to the backup modal.
+- The 4-group test became 5-group; the new group has
+  no <h3> (title lives in the <summary>).
+
+C. Session list 📁 project chip
+- `buildSessionSubtitle` split into `...Parts` returning
+  `{project, projectPlaceholder, time}`. The view now
+  renders project as a pill chip with a 📁 prefix
+  (tinted background + indigo border) and time as a
+  muted line after a "·" separator.
+- Chip carries the shortened path in text + the full
+  un-shortened path in the `title` attribute (tooltip
+  on hover) so users can verify where the path came
+  from.
+- Empty state: dashed-border "未关联项目" placeholder
+  with italic styling — neutral, no primary tint, so
+  it's visually distinct from a real association.
+- The chip is structurally a separate element from the
+  time, ready to become a click target in alpha-32.4
+  (per-session override picker). This commit keeps it
+  read-only — adding the click handler is a one-line
+  change in the next commit.
+
+Tests: 437 → 444 (+7 new).
+settings-modal.test.tsx (+4):
+  - label renamed to 默认项目上下文 with new emphasis
+    hint, no T-Q-S8 suffix
+  - <details.settings-storage-info> renders collapsed
+    with title + "点开查看" hint
+  - when opened, lists 3 OS rows with the bundle
+    identifier + real-file targets
+  - callout contains the project-path-is-metadata
+    reminder + pointer to backup modal
+sessions-list.test.tsx (+3):
+  - chip renders with shortened path text + full path
+    tooltip + 📁 icon
+  - dashed "未关联项目" placeholder when no project
+  - chip is a sibling of the time element (ready for
+    alpha-32.4 click handler)
+settings-modal.test.tsx (modified):
+  - 4-group test → 5-group test
+
+Build: 1.19 MB JS (unchanged) / 38.27 kB CSS
+(+5.57 kB for chip + storage-info + emphasis styles).
+
+NOT in this commit (alpha-32.4 in the proposed plan):
+- per-session project override picker (header chip +
+  dropdown → recent projects + browse + clear)
+- session_update call from the picker
+
+NOT in this commit (v0.3.0 backlog):
+- 3 long-tail issues (CJK session / model selector
+  stuck / user bubble alignment)
+- P3.1 token usage modal
+
+Verification: re-push + re-tag v0.2-beta at alpha-32.3.
+The user should see:
+- settings → 新建会话默认值: label says "默认项目
+  上下文", hint is the new emphasis-styled paragraph
+- settings (anywhere): new "📂 数据存储位置" section,
+  click to expand, see Windows/macOS/Linux paths
+- sidebar: each session row has a 📁 chip next to the
+  time showing which project it belongs to, hover for
+  the full path

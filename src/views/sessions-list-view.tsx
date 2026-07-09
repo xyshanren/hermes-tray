@@ -129,7 +129,17 @@ function SessionItem(props: SessionItemProps) {
   const proj = parseProjectContext(session.project_context);
   // v0.2-alpha-27 — design 01 layout: subtitle = "project_path · relative time"
   // or "未关联项目 · relative time" if no project. Format mirrors the SVG.
-  const subtitle = buildSessionSubtitle(proj?.project_dir ?? null, session.updated_at);
+  //
+  // v0.2-alpha-32.3: split into parts so the view can render the
+  // project as a styled chip and the time as a muted line next to
+  // it. The chip is the visual answer to "I can't tell which project
+  // a session belongs to" (Issue 4) — clicks open the per-session
+  // override picker in alpha-32.4. For now the chip is read-only
+  // with a tooltip showing the full path.
+  const subtitleParts = buildSessionSubtitleParts(
+    proj?.project_dir ?? null,
+    session.updated_at,
+  );
 
   return (
     <div
@@ -167,7 +177,22 @@ function SessionItem(props: SessionItemProps) {
             {session.title || "无标题会话"}
           </span>
         )}
-        {subtitle ? <span class="session-subtitle">{subtitle}</span> : null}
+        <span class="session-subtitle">
+          {subtitleParts.project ? (
+            <span
+              class="session-project-chip"
+              title={proj?.project_dir ?? subtitleParts.project}
+            >
+              <span aria-hidden="true">📁</span> {subtitleParts.project}
+            </span>
+          ) : (
+            <span class="session-project-chip session-project-chip--empty">
+              {subtitleParts.projectPlaceholder}
+            </span>
+          )}
+          <span class="session-subtitle-sep" aria-hidden="true">·</span>
+          <span class="session-subtitle-time">{subtitleParts.time}</span>
+        </span>
       </div>
       {session.total_tokens && session.total_tokens > 0 ? (
         <span class="session-tokens" title={`总 token: ${session.total_tokens}`}>
@@ -292,11 +317,25 @@ function parseProjectContext(json: string | null): { name: string; project_dir: 
  * v0.2-alpha-27 — design 01 subtitle: "project_path · relative time"
  * (e.g. "~/code/hermes · 昨天") or "未关联项目 · 3 天前" if no project.
  * project_dir is shortened to "~/<last-2-segments>" for sidebar compactness.
+ *
+ * v0.2-alpha-32.3: returns structured parts (project + time) so the
+ * view can render the project as a styled chip and the time as a
+ * muted line next to it. The chip is the visual answer to "I can't
+ * tell which project a session belongs to" (Issue 4) — it becomes
+ * a click target in alpha-32.4 (per-session override picker).
  */
-function buildSessionSubtitle(projectDir: string | null, updatedAt: string): string {
+interface SessionSubtitle {
+  /** Shortened project label, or null if no project is attached. */
+  project: string | null;
+  /** "未关联项目" if no project, else empty (chip carries the project). */
+  projectPlaceholder: string;
+  /** Relative time string, always present. */
+  time: string;
+}
+function buildSessionSubtitleParts(projectDir: string | null, updatedAt: string): SessionSubtitle {
   const time = formatRelativeTime(updatedAt);
-  if (!projectDir) return `未关联项目 · ${time}`;
-  return `${shortenPath(projectDir)} · ${time}`;
+  if (!projectDir) return { project: null, projectPlaceholder: "未关联项目", time };
+  return { project: shortenPath(projectDir), projectPlaceholder: "", time };
 }
 
 /** Shorten an absolute path to "~/<last-1-or-2-segments>" for sidebar density. */
