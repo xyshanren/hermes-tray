@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { Eye, EyeOff } from "lucide-preact";
 import { showToast } from "../lib/toast";
 import { CountdownButton } from "../components/ui/countdown-button";
@@ -196,13 +197,37 @@ function CreateCard() {
       </p>
       <div class="form-group">
         <label for="backup-create-path">输出路径</label>
-        <input
-          id="backup-create-path"
-          type="text"
-          placeholder="例如 F:\backups\hermes-2026-06-26.htbk"
-          value={path}
-          onInput={(e) => setPath((e.currentTarget as HTMLInputElement).value)}
-        />
+        <div class="backup-path-row">
+          <input
+            id="backup-create-path"
+            type="text"
+            placeholder="例如 F:\backups\hermes-2026-06-26.htbk"
+            value={path}
+            onInput={(e) => setPath((e.currentTarget as HTMLInputElement).value)}
+          />
+          <button
+            type="button"
+            class="backup-path-browse"
+            title="弹出系统保存对话框选择输出路径"
+            onClick={async () => {
+              try {
+                const picked = await saveDialog({
+                  title: "选择备份输出路径",
+                  defaultPath: path || "hermes-backup.htbk",
+                  filters: [
+                    { name: "Hermes Backup", extensions: ["htbk"] },
+                    { name: "All Files", extensions: ["*"] },
+                  ],
+                });
+                if (typeof picked === "string") setPath(picked);
+              } catch (e) {
+                showToast("无法打开文件对话框", String(e), "error");
+              }
+            }}
+          >
+            📂 浏览…
+          </button>
+        </div>
       </div>
       <PasswordInput
         id="backup-create-password"
@@ -307,17 +332,45 @@ function RestoreCard() {
       </div>
       <div class="form-group">
         <label for="backup-restore-path">输入文件（.htbk）</label>
-        <input
-          id="backup-restore-path"
-          type="text"
-          placeholder="备份文件的完整路径"
-          value={path}
-          onInput={(e) => {
-            setPath((e.currentTarget as HTMLInputElement).value);
-            // Path changed — require re-verification.
-            setVerified(false);
-          }}
-        />
+        <div class="backup-path-row">
+          <input
+            id="backup-restore-path"
+            type="text"
+            placeholder="备份文件的完整路径"
+            value={path}
+            onInput={(e) => {
+              setPath((e.currentTarget as HTMLInputElement).value);
+              // Path changed — require re-verification.
+              setVerified(false);
+            }}
+          />
+          <button
+            type="button"
+            class="backup-path-browse"
+            title="弹出系统打开对话框选择 .htbk 文件"
+            onClick={async () => {
+              try {
+                const picked = await openDialog({
+                  title: "选择要恢复的备份",
+                  multiple: false,
+                  directory: false,
+                  filters: [
+                    { name: "Hermes Backup", extensions: ["htbk"] },
+                    { name: "All Files", extensions: ["*"] },
+                  ],
+                });
+                if (typeof picked === "string") {
+                  setPath(picked);
+                  setVerified(false);
+                }
+              } catch (e) {
+                showToast("无法打开文件对话框", String(e), "error");
+              }
+            }}
+          >
+            📂 打开…
+          </button>
+        </div>
       </div>
       <div class="form-group">
         <label for="backup-restore-password">密码</label>

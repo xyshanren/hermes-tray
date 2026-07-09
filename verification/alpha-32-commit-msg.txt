@@ -1,0 +1,94 @@
+v0.2-alpha-32: backup modal native file picker + missing CSS
+
+P3 (modal-by-modal pass) — item 3.2 Backup / Restore. The
+alpha-9 modal already had the form layout, 5-second restore
+countdown, password strength meter, and eye-icon toggle — but
+three things were missing in alpha-9 and never landed in v0.2:
+
+A. **Native file dialog**. The user had to type the full backup
+   path by hand (`F:\backups\hermes-2026-07-09.htbk` etc.). The
+   design SVG shows a "📂 Browse…" button next to the path
+   input. This commit adds the Tauri dialog plugin
+   (`@tauri-apps/plugin-dialog` 2.4.0 + `tauri-plugin-dialog` 2
+   on the Rust side) and wires `saveDialog()` into the create
+   card and `openDialog()` (with `.htbk` filter) into the
+   restore card. Native file pickers are now the primary path;
+   the text input remains as a fallback for users who want to
+   paste a UNC or WSL path.
+
+B. **The 14+ missing CSS rules** for the backup modal. The
+   alpha-9 JSX uses `.backup-card`, `.backup-card-header`,
+   `.password-input-row`, `.password-strength`,
+   `.password-strength-bar`, `.password-strength-label`,
+   `.backup-card-danger`, `.backup-verified-badge`,
+   `.backup-confirm-row`, `.countdown-confirm`, and now
+   `.backup-path-row` + `.backup-path-browse` — none of which
+   had matching CSS rules in styles.css. The modal was
+   rendering with browser-default fallback styles. This commit
+   fills in those rules plus visual polish:
+   - `.modal-backup` widened to 560px (was 520px, too narrow
+     for two side-by-side cards), max-height 90vh with scroll
+     for small viewports.
+   - `.backup-card` gets a 1px border, 8px radius, soft
+     bg-primary background, and a 16px gap to its sibling card.
+   - `.backup-card-danger` (the restore card) gets a
+     1px red-tinted border + soft red-tint background, matching
+     the AGENTS.md §4 hard requirement ("dangerous actions:
+     red outline, NOT solid red").
+   - `.password-input-row` is a focused-within-styled flex
+     row so the eye-icon button visually attaches to the input.
+   - `.password-strength-bar` is now a CSS-variable driven
+     progress bar (`--strength-pct` + `--strength-color`)
+     instead of needing JS to set width per password score.
+   - `.countdown-confirm.danger` matches the danger border.
+
+C. **Drop dead code** — `.backup-tabs` / `.backup-tab` rules
+   were left over from the pre-alpha-9 tab-nav layout. The
+   alpha-9 split-into-cards refactor didn't remove them.
+   Removed in this commit.
+
+Plugin / capability wiring (Rust + Tauri):
+
+- `src-tauri/Cargo.toml` — added `tauri-plugin-dialog = "2"`.
+- `src-tauri/src/lib.rs` — registered
+  `tauri_plugin_dialog::init()` in the `.plugin(...)` chain.
+- `src-tauri/capabilities/default.json` — added
+  `dialog:default`, `dialog:allow-save`, `dialog:allow-open`.
+- `package.json` — added `@tauri-apps/plugin-dialog: 2.4.0`.
+- `src/views/backup-modal.tsx` — imported `open as openDialog,
+  save as saveDialog` from `@tauri-apps/plugin-dialog`; both
+  create + restore cards now have a `<button
+  class="backup-path-browse">` next to the path input that
+  invokes the right dialog function and writes the result back
+  to the input.
+
+Tests:
+- 3 new tests in `src/views/backup-modal.test.tsx`:
+  - create card browse button invokes saveDialog with the
+    expected title + `.htbk` filter
+  - restore card browse button invokes openDialog with
+    `multiple: false, directory: false` + `.htbk` filter
+  - both browse buttons are `type="button"` (not the default
+    form-submit type, which would accidentally navigate)
+- 430 existing frontend tests still pass
+- (Rust tests unchanged — plugin wiring is bootstrap-only)
+
+Verification plan:
+- This release ships the alpha-32 binary on the existing
+  v0.2-beta tag (force-push). User uninstalls the previous
+  v0.2-beta msi and reinstalls to ensure the plugin DLL loads.
+  Cold-start: open settings → 数据 → 创建加密备份. The
+  create card now has a "📂 浏览…" button next to the path
+  input; clicking it opens a native Windows save dialog
+  filtered to `.htbk`.
+- Restore card same, but "📂 打开…" opens a Windows file-open
+  dialog filtered to `.htbk`.
+- No regression on the existing restore flow (5s countdown,
+  checkbox, password strength, eye toggle all unchanged).
+
+Caveat: this release does NOT yet fix the 3 long-tail items
+recorded in ROADMAP.md "Long-tail issues carried into v0.3.0"
+(user bubble alignment, header model selector stuck on
+`hermes-agent`, dark-code-bubble CJK invisible for one
+session). Those are scheduled for the v0.3 cross-cutting audit
+that requires mavis-team review.

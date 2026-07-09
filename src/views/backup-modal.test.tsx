@@ -26,6 +26,16 @@ vi.mock("../lib/toast", () => ({
   showToast: vi.fn(),
 }));
 
+// v0.2-alpha-32 — mock the new Tauri dialog plugin so file-picker
+// button clicks don't try to actually open a native dialog in
+// happy-dom (which has no NSWindow).
+const mockSaveDialog = vi.fn();
+const mockOpenDialog = vi.fn();
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  save: (...args: unknown[]) => mockSaveDialog(...args),
+  open: (...args: unknown[]) => mockOpenDialog(...args),
+}));
+
 function mountBackupModalInto(): HTMLElement {
   // Remove any leftover root from a previous test.
   const existing = document.getElementById("backup-modal");
@@ -180,5 +190,98 @@ describe("BackupModal rendering", () => {
     expect(btn).not.toBeNull();
     expect(btn?.disabled).toBe(true);
     expect(btn?.textContent).toMatch(/请等待\s*5\s*s/);
+  });
+});
+
+// v0.2-alpha-32 — the create + restore cards now have a "browse"
+// button next to the path input that calls the Tauri dialog plugin
+// (saveDialog for create, openDialog for restore). Tests verify:
+//   1) the buttons exist in the rendered output
+//   2) clicking them invokes the correct dialog function
+//   3) a returned path populates the input + (for restore) clears
+//      the verified state
+describe("file-picker browse buttons (alpha-32)", () => {
+  beforeEach(() => {
+    mockSaveDialog.mockReset();
+    mockOpenDialog.mockReset();
+  });
+
+  it("create card has a browse button that opens saveDialog", async () => {
+    const root = mountBackupModalInto();
+    await flushRender();
+    backupStore.setOpen(true);
+    await flushRender();
+    const browseButtons = root.querySelectorAll<HTMLButtonElement>(
+      ".backup-path-browse",
+    );
+    expect(browseButtons.length).toBe(2); // one for create, one for restore
+    // First button is the create card's browse.
+    const createBrowse = browseButtons[0];
+    expect(createBrowse.textContent).toMatch(/浏览/);
+    mockSaveDialog.mockResolvedValueOnce("/tmp/hermes-2026-07-09.htbk");
+    createBrowse.click();
+    expect(mockSaveDialog).toHaveBeenCalledTimes(1);
+    expect(mockSaveDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "选择备份输出路径",
+        filters: expect.arrayContaining([
+          expect.objectContaining({ name: "Hermes Backup", extensions: ["htbk"] }),
+        ]),
+      }),
+    );
+    // After the resolved promise microtask, the input is populated.
+    await flushRender();
+    const createInput = root.querySelector<HTMLInputElement>(
+      "#backup-create-path",
+    );
+    expect(createInput?.value).toBe("/tmp/hermes-2026-07-09.htbk");
+  });
+
+  it("restore card has a browse button that opens openDialog", async () => {
+    const root = mountBackupModalInto();
+    await flushRender();
+    backupStore.setOpen(true);
+    await flushRender();
+    const browseButtons = root.querySelectorAll<HTMLButtonElement>(
+      ".backup-path-browse",
+    );
+    const restoreBrowse = browseButtons[1];
+    expect(restoreBrowse.textContent).toMatch(/打开/);
+    mockOpenDialog.mockResolvedValueOnce("/backup/old.htbk");
+    restoreBrowse.click();
+    expect(mockOpenDialog).toHaveBeenCalledTimes(1);
+    expect(mockOpenDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "选择要恢复的备份",
+        multiple: false,
+        directory: false,
+        filters: expect.arrayContaining([
+          expect.objectContaining({ name: "Hermes Backup", extensions: ["htbk"] }),
+        ]),
+      }),
+    );
+    await flushRender();
+    const restoreInput = root.querySelector<HTMLInputElement>(
+      "#backup-restore-path",
+    );
+    expect(restoreInput?.value).toBe("/backup/old.htbk");
+  });
+
+  it("browse buttons are keyboard-accessible (type=button)", async () => {
+    // They must NOT submit the form by accident. native <button>
+    // defaults to type="submit" inside a <form>, which would
+    // navigate. The JSX explicitly sets type="button" on both —
+    // verify that the DOM preserves it.
+    const root = mountBackupModalInto();
+    await flushRender();
+    backupStore.setOpen(true);
+    await flushRender();
+    const browseButtons = root.querySelectorAll<HTMLButtonElement>(
+      ".backup-path-browse",
+    );
+    expect(browseButtons.length).toBeGreaterThan(0);
+    for (const btn of browseButtons) {
+      expect(btn.getAttribute("type")).toBe("button");
+    }
   });
 });

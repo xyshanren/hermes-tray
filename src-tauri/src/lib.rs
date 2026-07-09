@@ -1479,6 +1479,11 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // v0.2-alpha-32 — register the dialog plugin so the
+        // backup-modal `<input>` can spawn a native file-save /
+        // file-open dialog (replaces the previous "type the full
+        // path by hand" flow).
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Initialize SQLite DB pool and manage it as Tauri state.
             // DB is `%APPDATA%\com.hermes.tray\sessions.db`.

@@ -11,6 +11,9 @@
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
     "global-shortcut:allow-is-registered",
+    "dialog:default",
+    "dialog:allow-save",
+    "dialog:allow-open",
     {
       "identifier": "shell:allow-execute",
       "allow": [
