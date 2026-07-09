@@ -1,0 +1,116 @@
+v0.2-alpha-32.4: 5 fixes from alpha-32.3 manual verification review
+
+After alpha-32.3 shipped, the user reviewed 3 specific items
+from the settings page and found 3 real issues + 1 visual
+one. This commit bundles all 5 fixes into a single release
+so the next MSI is a clean drop-in.
+
+1. **Switch component had no CSS (dead UI).** The
+   `src/components/ui/switch.tsx` was added in alpha-13 but
+   nobody ever wrote CSS for it — the `<button role="switch">`
+   rendered with no visible affordance. The two
+   "启动时自动连接" / "自动生成会话名" toggles in settings
+   looked like plain text labels because of this. New
+   `.switch` / `.switch-thumb` styles: 36×20 pill, 16×16
+   thumb that slides 14 px on check, primary colour when
+   checked, muted when off, hover/focus/disabled states.
+   Also added `.settings-toggle-row` for the
+   label-on-left / switch-on-right layout.
+
+2. **auto_connect was a dead switch.** Saved to db_config
+   from alpha-13 but `main.ts:1355` always called
+   `checkConnection()` unconditionally. The toggle changed
+   nothing. Now wired through to gate the initial connect
+   probe + the 30 s periodic health check. Slack/Discord
+   pattern: OFF = don't auto-connect, show "未连接" +
+   manual 重试 button (always available). Default
+   `loadAutoConnect()` returns `true` to match the
+   CONFIG_SCHEMA `defaultValue = "true"` so existing users
+   see no regression. Settings changes take effect on next
+   launch — intentional, so toggling off mid-session
+   doesn't yank a live connection.
+
+3. **auto_rename was a dead switch.** main.ts:1430
+   unconditionally renamed sessions on the first user
+   message. Now gated by `loadAutoRename()`. OFF = sessions
+   keep their default "新会话" title until manually
+   renamed. Same default-true convention as auto_connect.
+
+4. **DB migration 0005: strip Windows verbatim prefix from
+   old `sessions.project_context` rows.** The Rust scanner
+   in `src/db/project.rs` learned to strip `\\?\` in
+   alpha-31, but rows written by alpha-13..alpha-30 still
+   have the prefix baked into the JSON. Manual
+   verification of alpha-32.3 surfaced it leaking into the
+   sidebar chip tooltip — looks like garbled text to users
+   who don't know what `\\?\` means. New migration
+   `0005_strip_windows_verbatim_prefix.sql` uses SQLite
+   JSON1 (bundled with rusqlite) to:
+   - json_extract(project_context, '$.project_dir')
+   - check substr(..., 1, 4) = '\\?\'
+   - json_replace with substr(..., 5)
+   Migration is idempotent (no-op when no rows match). The
+   WHERE clause guards so we don't churn rows that are
+   already clean. Schema version bumped 4 → 5. The
+   migration runs automatically on next launch — no user
+   action required.
+
+5. **Storage info style polish (option 2 from review).**
+   The alpha-32.3 version had a tinted blue background +
+   bordered card that visually popped out from the rest
+   of the settings page. Switched to "no border, no
+   background" treatment: the summary now flows with the
+   other group headers, the chevron is the only visual
+   cue that it's interactive, the body has 14 px left
+   padding (instead of 16 px box padding) so the table
+   feels like it belongs to the same row as the summary.
+   Hover changes the summary text colour to primary.
+
+Tests: 444 → 451 (+7 frontend) + 128 → 133 Rust lib (+5
+new, but really +3 alpha-32.4 specific + 2 already
+existed as "migrations_array_is_sorted_and_complete" /
+"migrations_array_contains_no_duplicates" which now
+   pass with the new v5 entry too). The pre-existing
+   `tests/db_session_message_test.rs` has compile errors
+   unrelated to this commit (DAO method signature drift
+   in a later alpha). Filed in HANDOFF for v0.3.0 cleanup.
+
+New frontend tests:
+- loadAutoConnect returns true when key unset, true on
+  "true", false on "false" (case-insensitive)
+- loadAutoRename same shape
+- 4 + 3 = 7 cases total
+
+New Rust tests:
+- strips_prefix_from_rows_that_have_it: 4-char \\?\ on
+  the path is removed, non-prefixed path is untouched
+- is_idempotent_when_no_rows_have_the_prefix: a clean DB
+  is a no-op
+- embedded_migration_sql_matches_the_file: pins the
+  MIGRATIONS[5] embedded copy to the .sql file on disk
+  so an edited-but-not-rebuilt file is caught
+- (plus 2 existing tests now also pass with v5 registered)
+
+Build: 1.19 MB JS / 39.27 kB CSS (+1 kB for the switch
+toggle styles + storage-info tweak).
+
+NOT in this commit:
+- per-session project override picker (alpha-32.5 plan)
+- 3 long-tail issues (CJK session / model selector /
+  user bubble alignment) — v0.3.0 backlog
+- P3.1 token usage modal — v0.3.0 backlog
+
+Verification: re-push + re-tag v0.2-beta at alpha-32.4.
+The user should see:
+- settings → 偏好: both switches now render as visible
+  pill toggles (one thumb visible, slides on click).
+  Toggling either one and saving should re-apply on
+  next launch
+- side panel: 旧 sessions with the `\\?\` prefix in the
+  chip tooltip should show clean paths after one app
+  restart (the migration runs on first launch of
+  alpha-32.4)
+- settings → 数据存储位置: the summary now flows
+  visually with the other group headers (no border, no
+  background tint), only the chevron and hover colour
+  change signal interactivity

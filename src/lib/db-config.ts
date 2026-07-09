@@ -62,6 +62,8 @@ export async function getConfigString(key: string): Promise<string | null> {
 const KEY_DEFAULT_PROJECT_PATH = "default_project_path";
 const KEY_DEFAULT_MODEL = "default_model";
 const KEY_DEFAULT_PERSONA_ID = "default_persona_id";
+const KEY_AUTO_CONNECT = "auto_connect";
+const KEY_AUTO_RENAME = "auto_rename";
 
 export async function loadDefaultProjectPath(): Promise<string | null> {
   return getConfigString(KEY_DEFAULT_PROJECT_PATH);
@@ -81,6 +83,29 @@ export async function setDefaultPersonaId(id: string | null): Promise<void> {
   // the same). The Rust side doesn't have a "delete key" command,
   // so empty-string is the closest analog.
   await setConfig(KEY_DEFAULT_PERSONA_ID, id ?? "");
+}
+
+// v0.2-alpha-32.4: the auto_connect / auto_rename toggles were dead
+// switches in alpha-13 through alpha-32.3 (saved to db_config but
+// never read by main.ts). Now they gate real behaviour — see the
+// wiring in main.ts: gateCheckConnection + gateAutoRename. The
+// default of `true` matches the historical "always-on" behaviour so
+// existing users see no regression; the only difference is that
+// turning the toggle OFF now actually does something.
+
+// "true" | "false" stored in db_config (CONFIG_SCHEMA). Returns
+// true when the key is unset OR the stored value is "true" — this
+// matches the schema's defaultValue = "true" so users who never
+// touched the toggle still get the auto-on behaviour.
+export async function loadAutoConnect(): Promise<boolean> {
+  const raw = await getConfig(KEY_AUTO_CONNECT);
+  if (raw == null) return true;
+  return raw.trim().toLowerCase() !== "false";
+}
+export async function loadAutoRename(): Promise<boolean> {
+  const raw = await getConfig(KEY_AUTO_RENAME);
+  if (raw == null) return true;
+  return raw.trim().toLowerCase() !== "false";
 }
 
 // ── Test helpers ──────────────────────────────────────────────────────────

@@ -98,6 +98,8 @@ import { mountSplashScreen } from './views/splash-mount';
 import { splashStore } from './views/splash-store';
 import { initThemeAtBoot } from './lib/theme';
 import {
+  loadAutoConnect,
+  loadAutoRename,
   loadDefaultPersonaId,
   loadDefaultModel,
   loadDefaultProjectPath,
@@ -687,6 +689,15 @@ async function scanProject(path: string): Promise<ProjectContext | null> {
 }
 
 let defaultProjectPath: string | null = null;
+// v0.2-alpha-32.4: the auto_connect / auto_rename toggles in
+// settings were dead switches from alpha-13 to alpha-32.3 — saved
+// to db_config but never read. Now they gate the corresponding
+// behaviour in main.ts (checkConnection + auto-rename logic).
+// Loaded once at boot; settings changes don't take effect until
+// next launch. That's intentional — toggling "auto_connect" off
+// mid-session shouldn't yank a live connection.
+let autoConnect = true;
+let autoRename = true;
 
 // ── Token stats (T-Q-S9) ──────────────────────────────────────────────────────
 //
@@ -1244,6 +1255,14 @@ window.addEventListener('DOMContentLoaded', async () => {
   // ── T-Q-S12-light: default model init ────────────────────
   defaultModel = await loadDefaultModel();
 
+  // v0.2-alpha-32.4: load the auto_connect / auto_rename toggles.
+  // Both default to true (match the CONFIG_SCHEMA defaultValue). The
+  // toggles in settings-modal now actually do something — see the
+  // gating in checkConnection() and the sendMessage() auto-rename
+  // block below.
+  autoConnect = await loadAutoConnect();
+  autoRename = await loadAutoRename();
+
   // ── T-Q-S9: stats modal wiring ───────────────────
   document.getElementById('sidebar-stats-btn')?.addEventListener('click', () => openStatsModal());
   mountStatsModal();
@@ -1352,12 +1371,23 @@ function openStatsModal(): void {
     try { await disposeTrayMenuHandle(); } catch { /* ignore */ }
   });
 
-  checkConnection();
-
-  // Periodic health check every 30 seconds
-  setInterval(() => {
+  // v0.2-alpha-32.4: gate the initial connection probe + the 30s
+  // periodic health check on the auto_connect preference. When OFF,
+  // the app starts in the "未连接" state and the user must click
+  // 重试 in the no-network card to connect. The retry button is
+  // always available — see onRetryConnection in chat-view.tsx.
+  if (autoConnect) {
     checkConnection();
-  }, 30000);
+    // Periodic health check every 30 seconds
+    setInterval(() => {
+      checkConnection();
+    }, 30000);
+  } else {
+    // Explicitly mark as disconnected so the no-network card shows
+    // up immediately on first paint instead of being stuck in
+    // "connecting".
+    updateConnectionStatus('disconnected');
+  }
 });
 
 // showToast + ToastType moved to ./lib/toast (sonner wrapper) —
@@ -1427,7 +1457,11 @@ async function handleSubmit(content: string, attachmentsAtSend: PendingAttachmen
     // overwrite a deliberate choice. Title-only update — no need to
     // wait for the SSE reply before showing the rename in the
     // sidebar.
-    if (currentSession && (currentSession.title === '' || currentSession.title === '新会话')) {
+    //
+    // v0.2-alpha-32.4: gated by the auto_rename preference. When
+    // OFF, sessions keep their default "新会话" title until the
+    // user manually renames them.
+    if (autoRename && currentSession && (currentSession.title === '' || currentSession.title === '新会话')) {
       const autoTitle = content.trim().slice(0, 30);
       if (autoTitle.length > 0) {
         invoke<Session>('session_update', {
