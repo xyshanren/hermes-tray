@@ -333,7 +333,11 @@ describe("数据危险操作区 group", () => {
     ]);
   });
 
-  it("点击 创建加密备份 关闭 settings 并打开 backup modal", async () => {
+  it("点击 创建加密备份 打开 backup modal 同时保留 settings 在背景", async () => {
+    // v0.2-alpha-32.2: instead of closing settings first (which
+    // dropped the user back on chat after closing the backup modal),
+    // we layer the backup modal on top of settings (z-index 150
+    // vs 100). Settings stays open underneath as a dim background.
     const root = mountSettingsModalInto();
     await flushRender();
     settingsStore.setOpen(true);
@@ -344,11 +348,11 @@ describe("数据危险操作区 group", () => {
     ).find((b) => b.textContent?.includes("创建加密备份"));
     createBtn?.click();
     await flushRender();
-    expect(settingsStore.getOpen()).toBe(false);
+    expect(settingsStore.getOpen()).toBe(true);
     expect(backupStore.getOpen()).toBe(true);
   });
 
-  it("点击 恢复备份 关闭 settings 并打开 backup modal", async () => {
+  it("点击 恢复备份 打开 backup modal 同时保留 settings 在背景", async () => {
     const root = mountSettingsModalInto();
     await flushRender();
     settingsStore.setOpen(true);
@@ -358,7 +362,7 @@ describe("数据危险操作区 group", () => {
     ).find((b) => b.textContent?.includes("恢复备份"));
     restoreBtn?.click();
     await flushRender();
-    expect(settingsStore.getOpen()).toBe(false);
+    expect(settingsStore.getOpen()).toBe(true);
     expect(backupStore.getOpen()).toBe(true);
   });
 

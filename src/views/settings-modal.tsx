@@ -335,14 +335,15 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
   // ── Danger zone handlers (alpha-14) ────────────────────────────────────
 
   function handleBackupCreate(): void {
-    // Open the backup modal in "create" mode. Close settings first so
-    // only one overlay is visible at a time.
-    settingsStore.setOpen(false);
+    // v0.2-alpha-32.2: keep settings open and layer the backup modal
+    // on top (z-index bumped in styles.css for #backup-modal). This
+    // way closing the backup modal returns the user to the settings
+    // page they came from instead of dropping them straight back to
+    // the chat. The user can dismiss settings separately when done.
     backupStore.setOpen(true);
   }
 
   function handleBackupRestore(): void {
-    settingsStore.setOpen(false);
     backupStore.setOpen(true);
   }
 

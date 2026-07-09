@@ -12,7 +12,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "preact";
-import { BackupModal, passwordStrength } from "./backup-modal";
+import { act } from "preact/test-utils";
+import { BackupModal, PasswordInput, passwordStrength } from "./backup-modal";
 import { backupStore } from "./backup-modal-store";
 
 // Mock invoke — backup_create / backup_verify / backup_restore are NOT
@@ -283,5 +284,118 @@ describe("file-picker browse buttons (alpha-32)", () => {
     for (const btn of browseButtons) {
       expect(btn.getAttribute("type")).toBe("button");
     }
+  });
+});
+
+// v0.2-alpha-32.2 — 3 issues found during manual Tauri verification
+// of alpha-32:
+//   1) WebView2/Edge ships a built-in password reveal icon
+//      (`::-ms-reveal`) that shows to the right of our custom eye
+//      button, producing two stacked icons. The CSS fix lives in
+//      styles.css (cannot be unit-tested in happy-dom — visual
+//      regression lives with manual verification + the design SVG
+//      page 03/04 in hermes-tray-notes).
+//   2) "两次密码不一致" fired on the first password input the moment
+//      value reached any non-empty length, even if the confirm field
+//      was untouched. Fix: only flag mismatch when BOTH sides are
+//      >= 8 chars (same floor as the strength meter).
+//   3) Opening the backup modal from settings closed settings first,
+//      so closing backup dropped the user back on chat. Fix: keep
+//      settings open and layer the backup modal above (z-index
+//      bumped in styles.css); settings-modal.tsx no longer calls
+//      settingsStore.setOpen(false) in handleBackupCreate/Restore.
+describe("alpha-32.2 hotfix", () => {
+  function mountPasswordInput(
+    props: Partial<{
+      value: string;
+      confirmValue?: string;
+      showStrength?: boolean;
+      onInput: (v: string) => void;
+    }> = {},
+  ): { root: HTMLElement; last: string } {
+    const last = { current: props.value ?? "" };
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    render(
+      <PasswordInput
+        id="test-pw"
+        label="密码"
+        value={props.value ?? ""}
+        placeholder=""
+        showStrength={props.showStrength ?? true}
+        confirmValue={props.confirmValue}
+        onInput={(v) => {
+          last.current = v;
+        }}
+      />,
+      root,
+    );
+    return { root, get last() { return last.current; } } as { root: HTMLElement; last: string };
+  }
+
+  it("mismatch stays hidden when first input is 8 chars and confirm is empty", async () => {
+    // v0.2-alpha-32 bug: typing 8 chars in the first box would
+    // immediately show "两次密码不一致" before the user touched the
+    // confirm box. The fix is to require BOTH sides to have >= 8
+    // chars before comparing.
+    const { root } = mountPasswordInput({
+      value: "12345678",
+      confirmValue: "",
+      showStrength: true,
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const strength = root.querySelector(".password-strength");
+    expect(strength).not.toBeNull();
+    expect(strength?.getAttribute("data-mismatch")).toBe("false");
+    expect(root.querySelector(".password-strength-label")?.textContent)
+      .not.toMatch(/两次密码不一致/);
+  });
+
+  it("mismatch shows when both inputs are >= 8 chars and differ", async () => {
+    const { root } = mountPasswordInput({
+      value: "12345678",
+      confirmValue: "87654321",
+      showStrength: true,
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const strength = root.querySelector(".password-strength");
+    expect(strength?.getAttribute("data-mismatch")).toBe("true");
+    expect(root.querySelector(".password-strength-label")?.textContent)
+      .toMatch(/两次密码不一致/);
+  });
+
+  it("mismatch stays hidden when both inputs are >= 8 chars and equal", async () => {
+    const { root } = mountPasswordInput({
+      value: "12345678",
+      confirmValue: "12345678",
+      showStrength: true,
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const strength = root.querySelector(".password-strength");
+    expect(strength?.getAttribute("data-mismatch")).toBe("false");
+    expect(root.querySelector(".password-strength-label")?.textContent)
+      .not.toMatch(/两次密码不一致/);
+  });
+
+  it("PasswordInput renders exactly one .password-eye button (no double icon)", async () => {
+    // The double-icon issue is the native ::-ms-reveal pseudo from
+    // WebView2 — it can't be tested in happy-dom (no native chrome).
+    // What we CAN verify is that the JSX produces exactly one custom
+    // eye button per input, so once the CSS fix lands the user sees
+    // one icon total. (settings-modal also uses PasswordInput.)
+    const { root } = mountPasswordInput({ value: "abc" });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const eyes = root.querySelectorAll(".password-eye");
+    expect(eyes.length).toBe(1);
+    // And the eye button is type=button so it won't submit a form.
+    expect(eyes[0]?.getAttribute("type")).toBe("button");
   });
 });

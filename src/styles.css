@@ -1250,6 +1250,15 @@ html, body {
   display: none;
 }
 
+/* v0.2-alpha-32.2: layer the backup modal on top of the settings
+ * modal (z-index: 100) so that opening 备份 from settings keeps
+ * settings visible (dim) underneath. When the user closes the backup
+ * modal they're back on settings, not on chat. The toast layer
+ * (9999) and the model-selector (1245) stay above everything. */
+#backup-modal {
+  z-index: 150;
+}
+
 .modal {
   background: var(--bg-primary);
   border-radius: 16px;
@@ -2052,6 +2061,18 @@ html, body {
   background: var(--bg-secondary);
   overflow: hidden;
   transition: border-color 0.15s, box-shadow 0.15s;
+}
+/* v0.2-alpha-32.2: WebView2 / Edge ships a built-in password reveal
+ * icon (`::-ms-reveal`) and a strong-password autofill button
+ * (`::-webkit-credentials-auto-fill-button`) inside every
+ * `<input type="password">`. They render to the right of our custom
+ * eye button, so the user sees two stacked icons. Suppress both so
+ * the custom toggle is the only one visible. */
+.password-input-row input::-ms-reveal,
+.password-input-row input::-ms-clear,
+.password-input-row input::-webkit-credentials-auto-fill-button,
+.password-input-row input::-webkit-strong-password-auto-fill-button {
+  display: none !important;
 }
 .password-input-row:focus-within {
   border-color: var(--primary);

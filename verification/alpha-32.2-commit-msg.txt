@@ -1,0 +1,91 @@
+v0.2-alpha-32.2: 3 backup-modal hotfixes from manual verification
+
+Three issues found when installing the alpha-32 msi and
+clicking through 加密备份:
+
+1. **Double eye icon on every password input.**
+   The password input box had two stacked eye icons on the
+   right edge — one fixed, one only visible on focus. The
+   left one is the custom `password-eye` button I added in
+   alpha-32. The right one is the **WebView2/Edge built-in
+   password reveal button** (`::-ms-reveal`) — Chromium-
+   based browsers ship this for every `<input
+   type="password">` by default. The fix lives entirely in
+   styles.css: hide all four native reveal/auto-fill
+   pseudos (`::-ms-reveal`, `::-ms-clear`, `::-webkit-
+   credentials-auto-fill-button`, `::-webkit-strong-
+   password-auto-fill-button`) inside the password-input
+   row so our custom eye button is the only one rendered.
+   The test "PasswordInput renders exactly one
+   .password-eye button" pins the JSX invariant so a
+   future refactor can't reintroduce a second custom
+   button by accident.
+
+2. **"两次密码不一致" fired on the first password input
+   alone.** Typing 8 chars in the first box would
+   immediately show "两次密码不一致" before the user
+   touched the second box. Root cause:
+   `backup-modal.tsx PasswordInput`:
+   ```ts
+   const mismatch = confirmValue !== undefined
+     && value !== ""            // ← bug: checks value only
+     && value !== confirmValue;
+   ```
+   Fixed to require BOTH sides to have `length >= 8` (the
+   same floor the strength meter uses) before comparing —
+   if the confirm box is still empty or short, we don't
+   know the user finished typing yet. Three new tests pin
+   the behavior: hidden when first is 8 chars and second
+   is empty; visible when both 8+ and differ; hidden
+   when both 8+ and match.
+
+3. **Closing the backup modal dropped the user back on
+   chat, not on settings.** The user opened the modal
+   from 设置 → 数据 → 创建加密备份, and the natural
+   flow is: settings → backup modal → close → settings.
+   The old `handleBackupCreate`/`handleBackupRestore` in
+   settings-modal.tsx called `settingsStore.setOpen
+   (false)` first, so by the time the backup modal
+   closed, settings was already gone. Fix: remove the
+   `settingsStore.setOpen(false)` calls; the backup modal
+   overlay now sits at `z-index: 150` (styles.css `#backup-
+   modal`) above the settings modal (z-index 100), so it
+   layers on top of dim settings. Closing backup leaves
+   settings still visible; the user dismisses it
+   separately. Two existing tests in settings-modal.test
+   .tsx (which asserted the old close-then-open flow)
+   have been updated to assert the new layered flow.
+
+Tests: 433 → 437 (+4 new).
+- `mismatch stays hidden when first input is 8 chars and
+  confirm is empty`
+- `mismatch shows when both inputs are >= 8 chars and
+  differ`
+- `mismatch stays hidden when both inputs are >= 8 chars
+  and equal`
+- `PasswordInput renders exactly one .password-eye
+  button (no double icon)`
+Two pre-existing settings-modal tests updated to
+reflect the new layer-on-top behavior.
+
+Build: 1.22 MB JS / 32.93 kB CSS.
+
+NOT fixed (out of scope, by design):
+- The "project directory empty" observation: `默认项目
+  路径` is a metadata string stored on the session row
+  in SQLite and used for system-prompt context (scan
+  README/manifest/git). It is NOT a folder where session
+  files are written — those live in `~/.config/hermes-
+  tray/sessions.db`. The settings page already has a
+  hint explaining this; users expecting the path to
+  receive files will need a UX clarification, not a code
+  change. Filing for the v0.3 backlog.
+
+Verification plan: uninstall old msi → install new msi
+→ re-open 加密备份 → expect:
+- 密码输入框 only one eye icon (right side, our custom)
+- typing 8 chars in first box shows "至少 8 位" / "弱",
+  not "两次密码不一致"
+- opening 备份 from settings keeps settings visible
+  (dim) in the background; closing 备份 returns to
+  settings, not chat

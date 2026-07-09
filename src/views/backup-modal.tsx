@@ -60,7 +60,17 @@ export function PasswordInput({
 }: PasswordInputProps) {
   const [visible, setVisible] = useState(false);
   const strength = passwordStrength(value);
-  const mismatch = confirmValue !== undefined && value !== "" && value !== confirmValue;
+  // v0.2-alpha-32.2: only flag a mismatch when BOTH sides have content
+  // long enough to be considered (>= 8 chars, same threshold as the
+  // strength floor). Previously the check fired as soon as the first
+  // input had any non-empty value, even if the confirm field was still
+  // untouched — confusing because it shows "两次密码不一致" before
+  // the user has typed in the second box.
+  const mismatch =
+    confirmValue !== undefined &&
+    value.length >= 8 &&
+    confirmValue.length >= 8 &&
+    value !== confirmValue;
 
   return (
     <div class="form-group">
