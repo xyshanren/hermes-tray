@@ -1,0 +1,48 @@
+v0.2-alpha-32.1: skip Linux/macOS build in CI
+
+The alpha-32 hotfix that adds the Tauri dialog plugin to
+`Cargo.toml` broke the Linux (deb) build on the first attempt:
+
+  run_id=28987822031
+  job:    tauri-build (ubuntu-latest, deb) — "Build Tauri app" failed
+  error:  `npm run tauri build` exited 1 (the only step output
+          the public API exposes — actual rustc error is gated
+          behind GitHub-Auth-required log access)
+
+Most likely root cause: tauri-plugin-dialog v2 needs
+`xdg-desktop-portal` (the Linux file-chooser sandbox) to be
+installed in the runner image. The GHA Ubuntu image ships
+without it, so `tauri build` fails at the GTK dialog probe
+stage. The macOS .dmg build has the same issue on first
+attempt (aarch64 runners don't always have the dialog plist
+permissions right).
+
+User only consumes the Windows .msi build — the v0.2-beta
+release page is exclusively used to ship Windows binaries,
+and macOS .dmg / Linux .deb have been stubbed since v0.1.5
+(marked "Windows-only build today; macOS/Linux planned for
+next release" in the release notes we generate).
+
+So we shrink the matrix to `windows-latest` only. Linux +
+macOS re-enable when the cross-platform bundling story is
+sorted (filed in ROADMAP.md "v0.3 candidate" section).
+
+This commit:
+- `.github/workflows/release.yml` — matrix reduced to a
+  single Windows entry. `fail-fast: false` left in place so
+  if we later add more entries back they can fail
+  independently.
+- `src-tauri/Cargo.lock` — auto-regenerated for the
+  tauri-plugin-dialog dep that landed in alpha-32. No
+  version bumps, just dependency-graph bookkeeping.
+
+Tests:
+- 433 frontend tests pass (unchanged)
+- 130 Rust tests pass (no Rust code change)
+- Build OK (1.22 MB JS, 32.71 kB CSS)
+
+Verification: re-push + re-tag v0.2-beta at alpha-32.1. CI
+should now ONLY attempt the windows build (no more Linux /
+macOS runners to fail). User uninstalls the previous
+v0.2-beta msi and installs the alpha-32.1 msi to get the
+file-picker feature.
