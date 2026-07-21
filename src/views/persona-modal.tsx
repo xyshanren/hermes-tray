@@ -16,7 +16,6 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Persona } from "../types";
 import { showToast } from "../lib/toast";
 import { escapeHtml } from "../lib/sanitize";
-import { useFocusTrap } from "../lib/focus-trap";
 import { personaStore } from "./persona-modal-store";
 
 interface PersonaModalProps {

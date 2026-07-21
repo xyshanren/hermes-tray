@@ -82,9 +82,9 @@ describe("ProjectPicker (alpha-32.5)", () => {
     projectPickerStore.setRecentPaths(["/a", "/b", "/c"]);
     projectPickerStore.setOpen(true);
     const { host } = mount();
-    const items = host.querySelectorAll(".project-picker-item");
-    // /a excluded (current), /b and /c shown + browse button = 3 items
-    // but browse is also .project-picker-item, so filter by .project-picker-item-path
+    // /a excluded (current), /b and /c shown. Filter by the
+    // .project-picker-item-path class so we don't pick up the
+    // browse button which also matches the outer container.
     const paths = host.querySelectorAll(".project-picker-item-path");
     expect(paths.length).toBe(2); // /b and /c
   });
@@ -145,7 +145,7 @@ describe("ProjectPicker (alpha-32.5)", () => {
   it("closes dropdown on Escape key", async () => {
     projectPickerStore.setSession("s1", { name: "x", project_dir: "/x" });
     projectPickerStore.setOpen(true);
-    const { host } = mount();
+    mount();
     await flushRender();
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(projectPickerStore.get().isOpen).toBe(false);

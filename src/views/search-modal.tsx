@@ -10,7 +10,6 @@ import { invoke } from "@tauri-apps/api/core";
 import type { SearchHit } from "../types";
 import { showToast } from "../lib/toast";
 import { escapeHtml, sanitizeSnippet } from "../lib/sanitize";
-import { useFocusTrap } from "../lib/focus-trap";
 import { searchModalStore } from "./search-modal-store";
 
 interface SearchModalProps {

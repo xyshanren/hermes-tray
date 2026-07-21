@@ -1,0 +1,48 @@
+v0.2-beta-pre-release: tsc strict-mode cleanup before re-tagging v0.2-beta
+
+After rebasing 5 v0.3 commits from the other-dev worktree onto
+master (dfccdf0 → 344149a), `npm run build` (which runs
+`tsc && vite build`) failed on 7 strict-mode errors that
+vitest doesn't catch. The other-dev commits were written
+without running `tsc` because vitest's happy-dom tests don't
+trigger TS strict checks.
+
+Fixes (no behavioural change, just removing unused bindings):
+
+- src/views/persona-modal.tsx(19,1):
+  remove unused `useFocusTrap` import
+- src/views/search-modal.tsx(13,1):
+  remove unused `useFocusTrap` import
+- src/views/stats-modal.tsx(26,30):
+  remove unused `formatLatencyMs` import; comment the
+  `latencyBadge` constant as a known TODO for P3.1 (the
+  latency badge is rendered when the agent-side S14 cost
+  metadata ships; the constant is in the source as a stub)
+- src/views/project-picker.test.tsx(85,11):
+  remove unused `items` variable; rely on `.project-picker-item-path`
+  selector for the assertion (the comment was preserved)
+- src/views/project-picker.test.tsx(148,11):
+  remove unused `host` variable in the Escape-key test
+- src/components/ui/toaster.tsx(51,7):
+  remove `pauseWhenPageIsHidden` prop on Sonner — the
+  installed sonner version does not declare that prop, and
+  the toaster still works correctly (default behaviour is
+  acceptable for our use case)
+
+Tests: 464 frontend (unchanged) + 133 Rust lib (unchanged)
++ 5 integration compile errors (pre-existing, filed for v0.3.0
+cleanup in HANDOFF — the session_create signature drift in
+alpha-23 is not introduced by v0.3 work).
+
+Build: 1.20 MB JS / 53.13 kB CSS (CSS +14 kB from the v0.3
+work — many new modal/UI components; v0.3.0 finally catches
+up with the design tokens).
+
+This commit is the local fast-forward / master-tip of the
+v0.3 work the other devs did in a detached worktree. It
+unblocks:
+  - `git push origin master` (currently 3 commits ahead)
+  - force-pushing v0.2-beta tag to trigger GitHub Actions
+  - the v0.2-beta pre-release verification cycle
+
+Next: tag v0.2-beta to the new HEAD + cron-poll CI.

@@ -23,7 +23,7 @@ import type { DailyBucket, TokenStats } from "../types";
 import { showToast } from "../lib/toast";
 import { escapeHtml } from "../lib/sanitize";
 import { statsStore } from "./stats-modal-store";
-import { formatRoutingTrace, formatLatencyMs } from "../main";
+import { formatRoutingTrace } from "../main";
 
 // ── Period type + labels ──────────────────────────────────────────────────
 
@@ -108,9 +108,11 @@ export function StatsModal() {
 // ── Body (once stats are loaded) ──────────────────────────────────────────
 
 function StatsBody({ stats: s }: { stats: TokenStats }) {
-  // S14-agent: derive a one-line "最近 vision" trace + latency badge.
+  // S14-agent: derive a one-line "最近 vision" trace (latency badge
+  // is computed by formatLatencyMs but currently only the routing
+  // trace is rendered — see ROADMAP P3.1 for the badge TODO).
   const routingTrace = formatRoutingTrace(s.recent_routing_decision ?? null);
-  const latencyBadge = formatLatencyMs(s.recent_elapsed_ms);
+  // const latencyBadge = formatLatencyMs(s.recent_elapsed_ms);
 
   const costTotalUsd = s.period_cost_total_usd ?? 0;
   const hasRealCost = costTotalUsd > 0;
