@@ -686,7 +686,7 @@ function NewSessionDefaultsGroup({
         </span>
       </div>
       <div class="form-group">
-        <label for="setting-default-model">默认模型 (T-Q-S12-light)</label>
+        <label for="setting-default-model">默认模型</label>
         <input
           id="setting-default-model"
           type="text"

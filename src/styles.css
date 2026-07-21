@@ -3473,10 +3473,11 @@ html, body {
   margin-bottom: 16px;
 }
 .settings-group h3 {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 12px;
+  letter-spacing: 0.3px;
 }
 
 .settings-danger-zone {
@@ -3552,15 +3553,27 @@ html, body {
 }
 
 .settings-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.settings-status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
 }
-.settings-status--ok { background: var(--success); }
-.settings-status--warn { background: var(--warning); }
-.settings-status--error { background: var(--error); }
-.settings-status--idle { background: var(--text-muted); }
+.settings-status-dot-ok { background: var(--success); }
+.settings-status-dot-fail { background: var(--error); }
+.settings-status-dot-testing { background: var(--warning); animation: statusPulse 1s ease infinite; }
+.settings-status-dot-idle { background: var(--text-muted); }
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
 
 .settings-url-preview {
   display: block;
