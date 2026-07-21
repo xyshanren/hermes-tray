@@ -78,6 +78,11 @@ let deps: ChatStreamDeps | null = null;
 let lastStreamUsage: Record<string, unknown> | null = null;
 let lastStreamRouting: unknown = null;
 let lastStreamElapsedMs: number | null = null;
+/** v0.3: actual model id reported by the gateway in SSE chunks.
+ *  When hermes-agent routes internally, /v1/models only shows the
+ *  proxy entry ("hermes-agent") but each chunk carries the real
+ *  downstream model name. Captured so the UI can show it. */
+let lastStreamModel: string | null = null;
 
 let unlistenChunk: UnlistenFn | null = null;
 let unlistenDone: UnlistenFn | null = null;
@@ -121,6 +126,14 @@ export async function disposeChatStream(): Promise<void> {
   lastStreamUsage = null;
   lastStreamRouting = null;
   lastStreamElapsedMs = null;
+  lastStreamModel = null;
+}
+
+/** v0.3: the actual model id from the most recent SSE stream, or null
+ *  if the gateway hasn't reported one yet. Used by main.ts to show
+ *  the real routed model in the footer pill. */
+export function getLastStreamModel(): string | null {
+  return lastStreamModel;
 }
 
 // ── Stream chunk parser ────────────────────────────────────────────────────
@@ -138,6 +151,11 @@ export function handleStreamChunk(payload: string): void {
     if (data === "[DONE]") continue;
     try {
       const json = JSON.parse(data);
+      // v0.3: capture the actual model the gateway used for this
+      // response (first chunk carries it in OpenAI-compatible streams).
+      if (typeof json.model === "string" && json.model) {
+        lastStreamModel = json.model;
+      }
       const delta = json.choices?.[0]?.delta?.content;
       if (delta) {
         chatStore.appendStreamChunk(delta);
@@ -340,5 +358,6 @@ export function __resetForTests(): void {
   lastStreamUsage = null;
   lastStreamRouting = null;
   lastStreamElapsedMs = null;
+  lastStreamModel = null;
   deps = null;
 }

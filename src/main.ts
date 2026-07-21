@@ -93,7 +93,7 @@ import { chatInputStore, mountChatInput, getChatInputHandle } from './views/chat
 // (current session / personas / model picks / system prompt composer)
 // via initChatStream() — the actual hermesPostStream + listen +
 // message_append + message_record_usage flow lives in chat-stream.ts.
-import { initChatStream, sendChatMessage } from './lib/chat-stream';
+import { initChatStream, sendChatMessage, getLastStreamModel } from './lib/chat-stream';
 import { mountSplashScreen } from './views/splash-mount';
 import { splashStore } from './views/splash-store';
 import { initThemeAtBoot } from './lib/theme';
@@ -1356,7 +1356,18 @@ function openStatsModal(): void {
     setIsLoading: (b) => { state.isLoading = b; },
     setIsStreaming: (b) => { state.isStreaming = b; },
     setMessages: (m) => { state.messages = m; },
-    onAfterReply: () => { void refreshCurrentSessionRow(); },
+    onAfterReply: () => {
+      void refreshCurrentSessionRow();
+      // v0.3: show the actual routed model reported by the gateway in
+      // the SSE stream (e.g. "hermes-agent" proxy → real downstream
+      // model). Falls back to the selector value when the gateway
+      // doesn't report a model field.
+      const actual = getLastStreamModel();
+      if (actual && modelName && actual !== state.currentModel) {
+        modelName.textContent = `${state.currentModel} → ${actual}`;
+        modelName.title = `实际模型: ${actual}`;
+      }
+    },
     buildSystemPrompt: () => buildCurrentSystemPrompt(),
   });
 
