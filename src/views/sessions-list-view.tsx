@@ -175,6 +175,17 @@ function SessionItem(props: SessionItemProps) {
             ) : null}{" "}
             {isRenamed ? <span class="session-rename-pin" aria-label="用户已命名">📌 </span> : null}
             {session.title || "无标题会话"}
+            <span
+              class="session-rename-hint"
+              role="button"
+              aria-label="重命名"
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onStartRename();
+              }}
+            >
+              ✏️
+            </span>
           </span>
         )}
         <span class="session-subtitle">
@@ -234,12 +245,10 @@ interface RenameEditorProps {
 function RenameEditor({ initial, onCommit, onCancel }: RenameEditorProps) {
   const [value, setValue] = useState(initial);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // Focus + select-all on mount (matches v0.1.5 startRename behaviour).
-  // The dependency is intentionally empty so the focus only fires on
-  // the initial mount — re-renders caused by the parent re-rendering
-  // (e.g. another session's token badge updating) shouldn't steal focus.
+  // Focus + select-all on mount.
   useEffect(() => {
     const el = inputRef.current;
     if (el) {
@@ -248,55 +257,70 @@ function RenameEditor({ initial, onCommit, onCancel }: RenameEditorProps) {
     }
   }, []);
 
+  function validate(v: string): string | null {
+    if (!v.trim()) return "标题不能为空";
+    if (v.trim().length > 100) return "标题不能超过 100 字";
+    return null;
+  }
+
   async function commit() {
     const next = value.trim();
+    const validationErr = validate(next);
+    if (validationErr) {
+      setError(validationErr);
+      return;
+    }
     if (next === initial) {
-      // No-op rename (user didn't change anything). Just exit edit mode.
       onCancel();
       return;
     }
     if (submitting) return;
     setSubmitting(true);
+    setError(null);
     try {
       await onCommit(next);
-      // The parent removes rename mode via the store after success.
     } catch (e) {
-      // Parent surfaces the toast; we keep the editor open so the user
-      // doesn't lose their edit. Reset submitting so they can retry.
       setSubmitting(false);
+      setError("保存失败，请重试");
       console.warn("[Rename] commit failed:", e);
     }
   }
 
+  const stateClass = submitting ? " saving" : error ? " error" : "";
+
   return (
-    <input
-      ref={inputRef}
-      type="text"
-      class="session-rename-input"
-      value={value}
-      disabled={submitting}
-      // Stop click + dblclick from bubbling to the row's select handler.
-      onClick={(e) => e.stopPropagation()}
-      onDblClick={(e) => e.stopPropagation()}
-      onInput={(e) => setValue((e.currentTarget as HTMLInputElement).value)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          e.stopPropagation();
-          void commit();
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          e.stopPropagation();
-          onCancel();
-        }
-      }}
-      onBlur={() => {
-        // Blur commits — matches v0.1.5 finishRename behaviour where
-        // clicking away from the input saves the rename. The parent
-        // catches failures and keeps the editor open via re-render.
-        if (!submitting) void commit();
-      }}
-    />
+    <div class="session-rename-wrap">
+      <input
+        ref={inputRef}
+        type="text"
+        class={`session-rename-input${stateClass}`}
+        value={value}
+        disabled={submitting}
+        maxLength={120}
+        onClick={(e) => e.stopPropagation()}
+        onDblClick={(e) => e.stopPropagation()}
+        onInput={(e) => {
+          setValue((e.currentTarget as HTMLInputElement).value);
+          if (error) setError(null);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            void commit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            onCancel();
+          }
+        }}
+        onBlur={() => {
+          if (!submitting) void commit();
+        }}
+      />
+      {submitting ? <span class="rename-spinner" /> : null}
+      {error ? <span class="rename-error-msg">{error}</span> : null}
+    </div>
   );
 }
 

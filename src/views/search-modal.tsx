@@ -10,6 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { SearchHit } from "../types";
 import { showToast } from "../lib/toast";
 import { escapeHtml, sanitizeSnippet } from "../lib/sanitize";
+import { useFocusTrap } from "../lib/focus-trap";
 import { searchModalStore } from "./search-modal-store";
 
 interface SearchModalProps {
@@ -131,7 +132,7 @@ export function SearchModal({ onSelect }: SearchModalProps) {
   if (!open) return null;
 
   return (
-    <div class="modal modal-search">
+    <div class="modal modal-search" role="dialog" aria-modal="true" aria-label="搜索会话">
       <div class="modal-header">
         <h2>🔍 搜索会话</h2>
         <button

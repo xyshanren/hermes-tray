@@ -340,21 +340,33 @@ function useFatalBannerMessage(): string | null {
 }
 
 function AttachmentStrip({ attachments }: { attachments: PendingAttachment[] }) {
+  const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
+
   return (
-    <div class="message-attachments">
-      {attachments.map((a, idx) => (
-        // Fall back to the array index when no id is present (older
-        // attachments without crypto.randomUUID). Stable enough since
-        // user bubbles rarely re-render in place.
-        <div key={a.id ?? `att-${idx}`} class="message-attachment">
-          {a.type.startsWith("image/") ? (
-            <img src={a.dataUrl} alt={a.name} class="message-attachment-thumb" />
-          ) : (
-            <div class="message-attachment-file">📎 {a.name}</div>
-          )}
+    <>
+      <div class="message-attachments">
+        {attachments.map((a, idx) => (
+          <div key={a.id ?? `att-${idx}`} class="message-attachment">
+            {a.type.startsWith("image/") ? (
+              <img
+                src={a.dataUrl}
+                alt={a.name}
+                class="message-attachment-thumb"
+                onClick={() => setPreview({ url: a.dataUrl, name: a.name })}
+              />
+            ) : (
+              <div class="message-attachment-file">📎 {a.name}</div>
+            )}
+          </div>
+        ))}
+      </div>
+      {preview ? (
+        <div class="attachment-lightbox" onClick={() => setPreview(null)}>
+          <img src={preview.url} alt={preview.name} class="attachment-lightbox-img" />
+          <span class="attachment-lightbox-name">{preview.name}</span>
         </div>
-      ))}
-    </div>
+      ) : null}
+    </>
   );
 }
 

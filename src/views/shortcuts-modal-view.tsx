@@ -56,7 +56,7 @@ export function ShortcutsModal() {
 
   if (!state.open) return null;
   return (
-    <div class="modal modal-shortcuts" role="dialog" aria-modal="true">
+    <div class="modal modal-shortcuts" role="dialog" aria-modal="true" aria-label="快捷键">
       <div class="modal-header">
         <h2>⌨ 快捷键</h2>
         <button
