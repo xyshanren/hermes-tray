@@ -27,6 +27,10 @@ export function mountShortcutsModal(targetId = "shortcuts-modal"): HTMLElement {
   };
   syncHidden(shortcutsModalStore.get());
   shortcutsModalStore.subscribe(syncHidden);
+  // v0.3: click-outside-to-close (read-only modal, safe to dismiss).
+  root.addEventListener("click", (e) => {
+    if (e.target === root) shortcutsModalStore.setOpen(false);
+  });
   render(<ShortcutsModal />, root);
   return root;
 }

@@ -32,5 +32,11 @@ export function mountSettingsModal(opts: {
   syncHidden(settingsStore.getOpen());
   settingsStore.subscribe(syncHidden);
 
+  // v0.3: click-outside-to-close. Settings are auto-saved on change
+  // so dismissing via overlay click never loses data.
+  root.addEventListener("click", (e) => {
+    if (e.target === root) settingsStore.setOpen(false);
+  });
+
   render(<SettingsModal onDefaultsChanged={opts.onDefaultsChanged} />, root);
 }

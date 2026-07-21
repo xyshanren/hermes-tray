@@ -24,5 +24,10 @@ export function mountStatsModal(): void {
   syncHidden(statsStore.getOpen());
   statsStore.subscribe(syncHidden);
 
+  // v0.3: click-outside-to-close (read-only modal, safe to dismiss).
+  root.addEventListener("click", (e) => {
+    if (e.target === root) statsStore.setOpen(false);
+  });
+
   render(<StatsModal />, root);
 }

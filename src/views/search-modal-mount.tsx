@@ -28,8 +28,9 @@ export function mountSearchModal(opts: {
 
   // Render the inner panel. Preact renders inside #search-modal, so the
   // <SearchModal /> root element appears as a child of the overlay.
-  // Click on the overlay (outside the panel) closes — see overlay handler
-  // installed in main.ts (kept there because it overlaps with other
-  // overlay modals' close pattern).
+  // v0.3: click-outside-to-close (read-only modal, safe to dismiss).
+  root.addEventListener("click", (e) => {
+    if (e.target === root) searchModalStore.setOpen(false);
+  });
   render(<SearchModal onSelect={opts.onSelect} />, root);
 }
