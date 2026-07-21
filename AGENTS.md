@@ -1,7 +1,10 @@
 # Hermes Chat (hermes-tray) — Agent Memory
 
 > Project memory for hermes-tray. Read this first before touching any file.
-> Updated 2026-07-07 with v0.2-alpha-26 status + manual verification lessons.
+> Updated 2026-07-09 16:54 — v0.2-beta on alpha-32.4, 5 alpha drops in one
+> afternoon (30/31/31.1/31.2/32/32.1/32.2/32.3/32.4). See HANDOFF.md
+> "v0.2-alpha-3x chronology" for the per-release breakdown + lessons
+> learned. Next: alpha-32.5 per-session override picker → v0.3.0.
 
 ---
 
@@ -10,9 +13,9 @@
 | 项 | 值 |
 |---|---|
 | 产品形态 | Tauri 2 桌面应用（Rust 后端 + WebView 前端） |
-| 当前版本 | **v0.2-alpha-26** (tag `v0.2-beta` 已在本地，待 push + release) |
+| 当前版本 | **v0.2-beta on alpha-32.4** (commit `16f02fc`, Windows-only msi) |
 | 上一版本 | v0.1.5（功能完整，UI 待重做） |
-| 下一版本 | v0.2-beta release → v0.2.0 stable |
+| 下一版本 | alpha-32.5 per-session override picker → v0.3.0 big release |
 | 项目根 | `D:\work\workspace\Qoder\hermes-tray` |
 | 前端 | Preact 10 + Vite + Tailwind v3 + shadcn/ui via preact/compat |
 | 后端 | Rust + rusqlite + tokio + aes-gcm + argon2 |
