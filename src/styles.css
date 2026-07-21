@@ -2256,8 +2256,11 @@ html, body {
 /* Card grid: 2 columns */
 .persona-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+  /* v0.3: single-column vertical list (was 2-col grid). Personas are
+   * few (3-8 typical); vertical rows read better and avoid the
+   * horizontal overflow scrollbar the 2-col layout produced. */
+  grid-template-columns: 1fr;
+  gap: 10px;
   max-height: 60vh;
   overflow-y: auto;
 }
@@ -2270,9 +2273,13 @@ html, body {
 }
 .persona-card {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
+  /* v0.3: horizontal row layout for the single-column list —
+   * avatar | meta | actions. More compact than the old stacked
+   * column cards inside a 2-col grid. */
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -2284,8 +2291,10 @@ html, body {
 }
 .persona-card-top {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
+  flex: 1;
+  min-width: 0;
 }
 .persona-card-avatar {
   width: 40px;
@@ -2338,6 +2347,10 @@ html, body {
   font-weight: 500;
 }
 .persona-card-prompt {
+  /* v0.3: hidden in the row layout — the description line already
+   * conveys the persona's purpose; the full prompt is visible in
+   * the edit form. Keeping it would break the avatar|meta|actions row. */
+  display: none;
   font-size: 11px;
   color: var(--text-muted);
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -2350,7 +2363,7 @@ html, body {
 .persona-card-actions {
   display: flex;
   gap: 6px;
-  margin-top: auto;
+  flex-shrink: 0;
 }
 .persona-action-btn {
   background: var(--bg-secondary);
