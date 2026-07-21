@@ -45,6 +45,10 @@ export function Toaster() {
   return (
     <Sonner
       theme={theme}
+      position="top-right"
+      offset="24px"
+      duration={4000}
+      pauseWhenPageIsHidden
       className="toaster group"
       icons={{
         success: <CircleCheck className="h-4 w-4" />,

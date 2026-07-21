@@ -37,7 +37,8 @@ export function showToast(
     case "success":
       return toast.success(title, opts);
     case "error":
-      return toast.error(title, opts);
+      // design spec: error requires manual close (no auto-dismiss)
+      return toast.error(title, { ...opts, duration: Infinity });
     case "warning":
       return toast.warning(title, opts);
     case "info":

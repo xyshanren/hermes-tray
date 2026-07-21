@@ -16,9 +16,11 @@ export interface PersonaStoreState {
   open: boolean;
   mode: PersonaMode;
   editingId: string | null;
+  /** The persona currently selected as default in the header picker. */
+  defaultPersonaId: string | null;
 }
 
-let state: PersonaStoreState = { open: false, mode: "list", editingId: null };
+let state: PersonaStoreState = { open: false, mode: "list", editingId: null, defaultPersonaId: null };
 const listeners = new Set<(s: PersonaStoreState) => void>();
 
 function notify(): void {
@@ -44,11 +46,16 @@ export const personaStore = {
     state = { ...state, editingId };
     notify();
   },
+  setDefaultPersonaId(id: string | null): void {
+    if (state.defaultPersonaId === id) return;
+    state = { ...state, defaultPersonaId: id };
+    notify();
+  },
   /** Close + reset to defaults in one call (used by the closePersonaModal
    *  wrapper in main.ts, and by the × button inside the modal). */
   close(): void {
     if (!state.open && state.mode === "list" && state.editingId === null) return;
-    state = { open: false, mode: "list", editingId: null };
+    state = { ...state, open: false, mode: "list", editingId: null };
     notify();
   },
   /**

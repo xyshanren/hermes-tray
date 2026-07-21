@@ -14,12 +14,13 @@
 // Trigger: Ctrl+/ opens the modal. main.ts wires the global keydown
 // listener (after mount).
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import { shortcutsModalStore, SHORTCUT_GROUPS } from "./shortcuts-modal-store";
-import type { ShortcutsModalState } from "./shortcuts-modal-store";
+import type { ShortcutsModalState, ShortcutGroup } from "./shortcuts-modal-store";
 
 export function ShortcutsModal() {
   const state = useShortcutsModalState();
+  const [filter, setFilter] = useState("");
 
   // Escape-to-close (matches the other v0.2 modals).
   useEffect(() => {
@@ -33,6 +34,25 @@ export function ShortcutsModal() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [state.open]);
+
+  // Reset filter when modal opens/closes.
+  useEffect(() => {
+    if (state.open) setFilter("");
+  }, [state.open]);
+
+  // Filter groups by query (matches description or key names).
+  const filteredGroups: ShortcutGroup[] = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return SHORTCUT_GROUPS;
+    return SHORTCUT_GROUPS.map((g) => ({
+      ...g,
+      shortcuts: g.shortcuts.filter(
+        (row) =>
+          row.description.toLowerCase().includes(q) ||
+          row.keys.some((k) => k.toLowerCase().includes(q)),
+      ),
+    })).filter((g) => g.shortcuts.length > 0);
+  }, [filter]);
 
   if (!state.open) return null;
   return (
@@ -49,7 +69,17 @@ export function ShortcutsModal() {
         </button>
       </div>
       <div class="modal-body shortcuts-body">
-        {SHORTCUT_GROUPS.map((group) => (
+        <input
+          type="text"
+          class="shortcuts-search"
+          placeholder="搜索快捷键..."
+          value={filter}
+          onInput={(e) => setFilter((e.currentTarget as HTMLInputElement).value)}
+        />
+        {filteredGroups.length === 0 ? (
+          <div class="shortcuts-no-results">未找到匹配的快捷键</div>
+        ) : (
+          filteredGroups.map((group) => (
           <section key={group.name} class="shortcuts-group">
             <h3 class="shortcuts-group-name">{group.name}</h3>
             <ul class="shortcuts-list">
@@ -67,7 +97,8 @@ export function ShortcutsModal() {
               ))}
             </ul>
           </section>
-        ))}
+          ))
+        )}
       </div>
       <div class="modal-footer">
         <span class="shortcuts-footer-hint">按 Esc 关闭</span>

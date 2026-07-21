@@ -34,7 +34,9 @@ export function SearchModal({ onSelect }: SearchModalProps) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [loading, setLoading] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Expose the setter for tests via the module singleton.
   _setQuery = setQuery;
@@ -55,6 +57,7 @@ export function SearchModal({ onSelect }: SearchModalProps) {
       setQuery("");
       setHits([]);
       setLoading(false);
+      setActiveIdx(-1);
       queueMicrotask(() => inputRef.current?.focus());
     }
     prevOpenRef.current = open;
@@ -67,6 +70,7 @@ export function SearchModal({ onSelect }: SearchModalProps) {
     if (!trimmed) {
       setHits([]);
       setLoading(false);
+      setActiveIdx(-1);
       return;
     }
     setLoading(true);
@@ -76,10 +80,14 @@ export function SearchModal({ onSelect }: SearchModalProps) {
           query: trimmed,
           limit: SEARCH_LIMIT,
         });
-        if (query.trim() === trimmed) setHits(results);
+        if (query.trim() === trimmed) {
+          setHits(results);
+          setActiveIdx(results.length > 0 ? 0 : -1);
+        }
       } catch (e) {
         showToast("搜索失败", String(e), "error");
         setHits([]);
+        setActiveIdx(-1);
       } finally {
         if (query.trim() === trimmed) setLoading(false);
       }
@@ -96,6 +104,29 @@ export function SearchModal({ onSelect }: SearchModalProps) {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [open]);
+
+  // Scroll active item into view when activeIdx changes.
+  useEffect(() => {
+    if (activeIdx < 0 || !listRef.current) return;
+    const items = listRef.current.querySelectorAll(".search-result-item");
+    items[activeIdx]?.scrollIntoView({ block: "nearest" });
+  }, [activeIdx]);
+
+  /** Keyboard navigation: ↑↓ move, Enter selects. */
+  function handleKeyDown(e: KeyboardEvent) {
+    if (hits.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((prev) => (prev + 1) % hits.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((prev) => (prev <= 0 ? hits.length - 1 : prev - 1));
+    } else if (e.key === "Enter" && activeIdx >= 0 && activeIdx < hits.length) {
+      e.preventDefault();
+      searchModalStore.setOpen(false);
+      onSelect(hits[activeIdx].session_id);
+    }
+  }
 
   if (!open) return null;
 
@@ -116,12 +147,13 @@ export function SearchModal({ onSelect }: SearchModalProps) {
           ref={inputRef}
           type="text"
           class="search-input"
-          placeholder="输入关键词搜索..."
+          placeholder="输入关键词搜索... (↑↓ 导航, Enter 打开)"
           value={query}
           autocomplete="off"
           onInput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)}
+          onKeyDown={handleKeyDown}
         />
-        <div class="search-results">
+        <div class="search-results" ref={listRef}>
           {loading && <div class="search-empty">搜索中...</div>}
           {!loading && query.trim() && hits.length === 0 && (
             <div class="search-empty">
@@ -131,10 +163,11 @@ export function SearchModal({ onSelect }: SearchModalProps) {
           {!loading && hits.length > 0 && (
             <>
               <div class="search-count">{hits.length} 个结果</div>
-              {hits.map((hit) => (
+              {hits.map((hit, idx) => (
                 <div
-                  class="search-result-item"
+                  class={`search-result-item${idx === activeIdx ? " active" : ""}`}
                   key={hit.session_id}
+                  onMouseEnter={() => setActiveIdx(idx)}
                   onClick={() => {
                     searchModalStore.setOpen(false);
                     onSelect(hit.session_id);

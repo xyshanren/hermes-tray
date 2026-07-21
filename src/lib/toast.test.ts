@@ -44,7 +44,7 @@ describe("showToast", () => {
 
     it("routes 'error' to toast.error", () => {
       const id = showToast("失败", "网络异常", "error");
-      expect(errorSpy).toHaveBeenCalledWith("失败", { description: "网络异常" });
+      expect(errorSpy).toHaveBeenCalledWith("失败", { description: "网络异常", duration: Infinity });
       expect(id).toBe("id-error");
     });
 
@@ -72,7 +72,7 @@ describe("showToast", () => {
   describe("message handling", () => {
     it("omits description when message is empty string", () => {
       showToast("仅标题", "", "error");
-      expect(errorSpy).toHaveBeenCalledWith("仅标题", {});
+      expect(errorSpy).toHaveBeenCalledWith("仅标题", { duration: Infinity });
     });
 
     it("omits description when message is undefined", () => {

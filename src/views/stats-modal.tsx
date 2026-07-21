@@ -10,7 +10,7 @@
 // rather than via innerHTML so the bar <rect>s use Preact's tree-shaken
 // render path instead of the v0.1.5 innerHTML-on-resync pattern.
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import {
   formatTokens,
@@ -108,99 +108,67 @@ export function StatsModal() {
 // ── Body (once stats are loaded) ──────────────────────────────────────────
 
 function StatsBody({ stats: s }: { stats: TokenStats }) {
-  // S14-agent: derive a one-line "最近 vision" trace + latency badge so
-  // the user can see what their last vision call did and how long it
-  // took. Empty string → the JSX conditional hides the block.
+  // S14-agent: derive a one-line "最近 vision" trace + latency badge.
   const routingTrace = formatRoutingTrace(s.recent_routing_decision ?? null);
   const latencyBadge = formatLatencyMs(s.recent_elapsed_ms);
 
-  // v0.1.5 S12: 4 new aggregate tiles + 2 breakdown tables (by model,
-  // by rule). The "本月 Cost" tile uses the S12 real value when it's
-  // > 0; otherwise falls back to the char/4 projected `total_cost` so
-  // pre-S12 DBs still render something useful. The label flips between
-  // "本月 Cost (S12)" and "预估成本" depending on which path is active.
   const costTotalUsd = s.period_cost_total_usd ?? 0;
   const hasRealCost = costTotalUsd > 0;
   const costValue = hasRealCost ? costTotalUsd : s.total_cost;
-  const costLabel = hasRealCost ? "本月 Cost (S12)" : "预估成本";
-  // v0.2-alpha-23 (manual Tauri verification) — append a caveat when
-  // some by-model buckets couldn't be priced (unknown / empty model
-  // names from pre-S14 sessions). Without this the user sees a
-  // total_cost that silently ignores some of their token spend.
+  const costLabel = hasRealCost ? "本月 Cost" : "预估成本";
   const unknownBuckets = s.unknown_model_buckets ?? 0;
   const baseSub = hasRealCost
-    ? `S12 真实值 · ${s.by_model.length} 个模型`
+    ? `${s.by_model.length} 个模型`
     : `基于 ${s.by_model.length} 个模型`;
   const costSub = unknownBuckets > 0
-    ? `${baseSub} · ${unknownBuckets} 个模型未识别`
+    ? `${baseSub} · ${unknownBuckets} 个未识别`
     : baseSub;
 
-  // Fallback hit rate as integer percent (0-100). null/undefined guard.
   const fallbackPct = Math.round((s.fallback_hit_rate ?? 0) * 100);
-
-  // Avg latency in seconds, 1 decimal. ms → s, 0 if no data.
   const avgLatencyMs = s.avg_latency_ms ?? 0;
   const avgLatencySec = avgLatencyMs > 0
     ? (avgLatencyMs / 1000).toFixed(1)
     : "0.0";
-
-  // Cost threshold count — show "0 次" when nothing tripped, since
-  // "—" would be visually confusing next to the integer tile siblings.
   const thresholdCount = s.cost_threshold_count ?? 0;
 
   return (
     <>
-      <div class="stats-totals">
-        <div class="stats-totals-cell">
-          <div class="stats-totals-label">总 Token</div>
-          <div class="stats-totals-value">
+      {/* 6 cards in 3×2 grid (design spec) */}
+      <div class="stats-grid">
+        <div class="stats-card">
+          <div class="stats-card-label">总 Token</div>
+          <div class="stats-card-value">
             {formatTokens(s.total_input_tokens + s.total_output_tokens)}
           </div>
-          <div class="stats-totals-sub">
+          <div class="stats-card-sub">
             ↑ {formatTokens(s.total_input_tokens)} / ↓ {formatTokens(s.total_output_tokens)}
           </div>
         </div>
-        <div class="stats-totals-cell">
-          <div class="stats-totals-label">{costLabel}</div>
-          <div class="stats-totals-value">{formatCost(costValue)}</div>
-          <div class="stats-totals-sub">{costSub}</div>
+        <div class="stats-card">
+          <div class="stats-card-label">{costLabel}</div>
+          <div class="stats-card-value">{formatCost(costValue)}</div>
+          <div class="stats-card-sub">{costSub}</div>
         </div>
-        <div class="stats-totals-cell">
-          <div class="stats-totals-label">消息 / 会话</div>
-          <div class="stats-totals-value">{s.total_messages}</div>
-          <div class="stats-totals-sub">{s.total_sessions} 个会话</div>
+        <div class="stats-card">
+          <div class="stats-card-label">消息 / 会话</div>
+          <div class="stats-card-value">{s.total_messages}</div>
+          <div class="stats-card-sub">{s.total_sessions} 个会话</div>
         </div>
-      </div>
-      <div class="stats-totals">
-        <div class="stats-totals-cell">
-          <div class="stats-totals-label">图片 Token (S14)</div>
-          <div class="stats-totals-value">{formatTokens(s.total_image_tokens ?? 0)}</div>
-          <div class="stats-totals-sub">来自 vision 附件的输入 token</div>
+        <div class="stats-card">
+          <div class="stats-card-label">图片 Token</div>
+          <div class="stats-card-value">{formatTokens(s.total_image_tokens ?? 0)}</div>
+          <div class="stats-card-sub">{routingTrace || "vision 附件输入"}</div>
         </div>
-        <div class="stats-totals-cell stats-totals-cell-vision">
-          <div class="stats-totals-label">最近 Vision</div>
-          <div class="stats-totals-value stats-totals-trace">
-            {routingTrace || "—"}
-          </div>
-          <div class="stats-totals-sub">{latencyBadge || ""}</div>
+        <div class="stats-card">
+          <div class="stats-card-label">Fallback 命中率</div>
+          <div class="stats-card-value">{fallbackPct}%</div>
+          <div class="stats-card-sub">平均延迟 {avgLatencySec}s</div>
         </div>
-      </div>
-      <div class="stats-totals">
-        <div class="stats-totals-cell">
-          <div class="stats-totals-label">Fallback 命中率 (S12)</div>
-          <div class="stats-totals-value">{fallbackPct}%</div>
-          <div class="stats-totals-sub">已 fallback / 已路由</div>
-        </div>
-        <div class="stats-totals-cell">
-          <div class="stats-totals-label">平均 Latency (S12)</div>
-          <div class="stats-totals-value">{avgLatencySec}s</div>
-          <div class="stats-totals-sub">来自 elapsed_ms 平均</div>
-        </div>
-        <div class="stats-totals-cell">
-          <div class="stats-totals-label">Cost Threshold 触发</div>
-          <div class="stats-totals-value">{thresholdCount}</div>
-          <div class="stats-totals-sub">
-            {thresholdCount > 0 ? "预算超支次数" : "本周期内无超支"}
+        <div class="stats-card">
+          <div class="stats-card-label">Cost Threshold</div>
+          <div class="stats-card-value">{thresholdCount}</div>
+          <div class="stats-card-sub">
+            {thresholdCount > 0 ? "预算超支次数" : "本周期无超支"}
           </div>
         </div>
       </div>
@@ -208,54 +176,15 @@ function StatsBody({ stats: s }: { stats: TokenStats }) {
         <h3>每日 Token 用量</h3>
         <ChartSvg daily={s.daily} />
       </div>
+      <SortableModelTable byModel={s.by_model} />
       <div class="stats-models-section">
-        <h3>按模型分列</h3>
-        <table class="stats-models-table">
-          <thead>
-            <tr>
-              <th>模型</th>
-              <th>消息</th>
-              <th>Input</th>
-              <th>Output</th>
-              <th>成本</th>
-            </tr>
-          </thead>
-          <tbody>
-            {s.by_model.length === 0 ? (
-              <tr>
-                <td colspan={5} class="stats-empty">暂无数据</td>
-              </tr>
-            ) : (
-              s.by_model.map((m) => {
-                // v0.2-alpha-23 (manual Tauri verification) — when the
-                // model name is "unknown" or empty, the cost is 0.0
-                // (we don't fall back to DEFAULT_PRICING anymore, see
-                // src-tauri/src/db/commands.rs by-model branch).
-                // Rendering as "$0.00" is misleading; show "—" instead
-                // so the user knows we couldn't price that bucket.
-                const isUnknown = !m.model.trim() || m.model === "unknown";
-                return (
-                  <tr key={m.model}>
-                    <td>{escapeHtml(m.model)}</td>
-                    <td>{m.message_count}</td>
-                    <td>{formatTokens(m.input_tokens)}</td>
-                    <td>{formatTokens(m.output_tokens)}</td>
-                    <td>{isUnknown ? "—" : formatCost(m.cost)}</td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-      <div class="stats-models-section">
-        <h3>By Rule (S12)</h3>
+        <h3>By Rule</h3>
         <table class="stats-models-table">
           <thead>
             <tr>
               <th>规则</th>
               <th>命中数</th>
-              <th>成本 (USD)</th>
+              <th>成本 (¥)</th>
             </tr>
           </thead>
           <tbody>
@@ -276,6 +205,84 @@ function StatsBody({ stats: s }: { stats: TokenStats }) {
         </table>
       </div>
     </>
+  );
+}
+
+// ── Sortable model table ─────────────────────────────────────────────────
+
+type SortKey = "model" | "message_count" | "input_tokens" | "output_tokens" | "cost";
+type SortDir = "asc" | "desc";
+
+interface ModelBucket {
+  model: string;
+  message_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost: number;
+}
+
+function SortableModelTable({ byModel }: { byModel: ModelBucket[] }) {
+  const [sortKey, setSortKey] = useState<SortKey>("cost");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const sorted = useMemo(() => {
+    const arr = [...byModel];
+    arr.sort((a, b) => {
+      let cmp: number;
+      if (sortKey === "model") cmp = a.model.localeCompare(b.model);
+      else cmp = (a[sortKey] as number) - (b[sortKey] as number);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return arr;
+  }, [byModel, sortKey, sortDir]);
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "model" ? "asc" : "desc");
+    }
+  }
+
+  const arrow = (key: SortKey) =>
+    sortKey === key ? (sortDir === "asc" ? " ↑" : " ↓") : "";
+
+  return (
+    <div class="stats-models-section">
+      <h3>按模型分列</h3>
+      <table class="stats-models-table">
+        <thead>
+          <tr>
+            <th class="sortable" onClick={() => toggleSort("model")}>模型{arrow("model")}</th>
+            <th class="sortable" onClick={() => toggleSort("message_count")}>消息{arrow("message_count")}</th>
+            <th class="sortable" onClick={() => toggleSort("input_tokens")}>Input{arrow("input_tokens")}</th>
+            <th class="sortable" onClick={() => toggleSort("output_tokens")}>Output{arrow("output_tokens")}</th>
+            <th class="sortable" onClick={() => toggleSort("cost")}>成本 (¥){arrow("cost")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.length === 0 ? (
+            <tr>
+              <td colspan={5} class="stats-empty">暂无数据</td>
+            </tr>
+          ) : (
+            sorted.map((m) => {
+              const isUnknown = !m.model.trim() || m.model === "unknown";
+              return (
+                <tr key={m.model}>
+                  <td>{escapeHtml(m.model)}</td>
+                  <td>{m.message_count}</td>
+                  <td>{formatTokens(m.input_tokens)}</td>
+                  <td>{formatTokens(m.output_tokens)}</td>
+                  <td>{isUnknown ? "—" : formatCost(m.cost)}</td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

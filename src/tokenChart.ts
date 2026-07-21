@@ -109,11 +109,14 @@ export function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 2 : 1)}M`;
 }
 
-/** Format USD with up to 4 decimals. $0.0012 / $1.45 / $1234.56 */
+/**
+ * Format cost in ¥ (CNY) with tiered precision + thousands separator.
+ * design spec: ¥ 分级精度 — <0.01 → 4位, <1 → 3位, <100 → 2位, ≥100 → 千分位整数
+ */
 export function formatCost(usd: number): string {
-  if (usd === 0) return "$0";
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  if (usd < 1) return `$${usd.toFixed(3)}`;
-  if (usd < 100) return `$${usd.toFixed(2)}`;
-  return `$${Math.round(usd).toLocaleString()}`;
+  if (usd === 0) return "¥0";
+  if (usd < 0.01) return `¥${usd.toFixed(4)}`;
+  if (usd < 1) return `¥${usd.toFixed(3)}`;
+  if (usd < 100) return `¥${usd.toFixed(2)}`;
+  return `¥${Math.round(usd).toLocaleString("zh-CN")}`;
 }

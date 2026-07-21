@@ -69,24 +69,24 @@ describe("formatTokens", () => {
 });
 
 describe("formatCost", () => {
-  it("zero: $0", () => {
-    expect(formatCost(0)).toBe("$0");
+  it("zero: ¥0", () => {
+    expect(formatCost(0)).toBe("¥0");
   });
 
   it("sub-cent: 4 decimals", () => {
-    expect(formatCost(0.00012)).toBe("$0.0001");
+    expect(formatCost(0.00012)).toBe("¥0.0001");
   });
 
   it("sub-dollar: 3 decimals", () => {
-    expect(formatCost(0.5)).toBe("$0.500");
+    expect(formatCost(0.5)).toBe("¥0.500");
   });
 
   it("sub-100: 2 decimals", () => {
-    expect(formatCost(1.5)).toBe("$1.50");
-    expect(formatCost(99.99)).toBe("$99.99");
+    expect(formatCost(1.5)).toBe("¥1.50");
+    expect(formatCost(99.99)).toBe("¥99.99");
   });
 
   it("100+: rounded to integer with thousands sep", () => {
-    expect(formatCost(1500)).toBe("$1,500");
+    expect(formatCost(1500)).toBe("¥1,500");
   });
 });

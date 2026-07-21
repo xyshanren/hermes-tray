@@ -145,6 +145,7 @@ export function PersonaModal({ onPersonasChanged }: PersonaModalProps) {
         {storeState.mode === "list" && (
           <PersonaList
             personas={personas}
+            defaultPersonaId={storeState.defaultPersonaId}
             onNew={() => personaStore.setMode("create")}
             onEdit={(id) => {
               personaStore.setEditingId(id);
@@ -168,16 +169,25 @@ export function PersonaModal({ onPersonasChanged }: PersonaModalProps) {
   );
 }
 
-// ── List view ────────────────────────────────────────────────────────────────
+// ── List view (card grid 2×2 + colored circle avatar + green default badge) ──
 
 interface PersonaListProps {
   personas: Persona[];
+  defaultPersonaId: string | null;
   onNew: () => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
 }
 
-function PersonaList({ personas, onNew, onEdit, onDelete }: PersonaListProps) {
+/** Deterministic pastel color from string hash for avatar circle bg. */
+function avatarColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
+  const hue = Math.abs(h) % 360;
+  return `hsl(${hue}, 60%, 88%)`;
+}
+
+function PersonaList({ personas, defaultPersonaId, onNew, onEdit, onDelete }: PersonaListProps) {
   return (
     <>
       <div class="persona-toolbar">
@@ -185,56 +195,59 @@ function PersonaList({ personas, onNew, onEdit, onDelete }: PersonaListProps) {
           + 新建 Persona
         </button>
       </div>
-      <div class="persona-list">
+      <div class="persona-grid">
         {personas.length === 0 ? (
           <div class="persona-empty">暂无 Persona</div>
         ) : (
           personas.map((p) => {
             const builtin = p.is_builtin === 1;
-            const promptPreview = (p.system_prompt || "").slice(0, 120);
-            const promptSuffix = (p.system_prompt || "").length > 120 ? "…" : "";
+            const isDefault = p.id === defaultPersonaId;
             return (
-              <div class="persona-row" key={p.id} data-id={escapeHtml(p.id)}>
-                <div class="persona-avatar">{escapeHtml(p.avatar || "👤")}</div>
-                <div class="persona-info">
-                  <div class="persona-name">
-                    {escapeHtml(p.name)}
-                    {builtin ? (
-                      <span class="persona-tag builtin">内置</span>
-                    ) : null}
+              <div class="persona-card" key={p.id} data-id={escapeHtml(p.id)}>
+                <div class="persona-card-top">
+                  <div
+                    class="persona-card-avatar"
+                    style={{ background: avatarColor(p.id) }}
+                  >
+                    {escapeHtml(p.avatar || "👤")}
                   </div>
-                  <div class="persona-desc">
-                    {escapeHtml(p.description || "(无描述)")}
+                  <div class="persona-card-meta">
+                    <div class="persona-card-name">
+                      {escapeHtml(p.name)}
+                      {builtin ? <span class="persona-tag builtin">内置</span> : null}
+                    </div>
+                    <div class="persona-card-desc">
+                      {escapeHtml(p.description || "(无描述)")}
+                    </div>
                   </div>
-                  <div class="persona-prompt-preview">
-                    {escapeHtml(promptPreview)}
-                    {promptSuffix}
-                  </div>
+                  {isDefault ? <span class="persona-default-badge">默认</span> : null}
                 </div>
-                <div class="persona-actions">
-                  {builtin ? null : (
-                    <>
-                      <button
-                        type="button"
-                        class="persona-action-btn"
-                        onClick={() => onEdit(p.id)}
-                      >
-                        编辑
-                      </button>
-                      <button
-                        type="button"
-                        class="persona-action-btn danger"
-                        onClick={() => {
-                          if (confirm(`确定删除 Persona "${p.name}"？`)) {
-                            void onDelete(p.id);
-                          }
-                        }}
-                      >
-                        删除
-                      </button>
-                    </>
-                  )}
+                <div class="persona-card-prompt">
+                  {escapeHtml((p.system_prompt || "").slice(0, 80))}
+                  {(p.system_prompt || "").length > 80 ? "…" : ""}
                 </div>
+                {!builtin ? (
+                  <div class="persona-card-actions">
+                    <button
+                      type="button"
+                      class="persona-action-btn"
+                      onClick={() => onEdit(p.id)}
+                    >
+                      编辑
+                    </button>
+                    <button
+                      type="button"
+                      class="persona-action-btn danger"
+                      onClick={() => {
+                        if (confirm(`确定删除 Persona "${p.name}"？`)) {
+                          void onDelete(p.id);
+                        }
+                      }}
+                    >
+                      删除
+                    </button>
+                  </div>
+                ) : null}
               </div>
             );
           })
@@ -302,9 +315,24 @@ function PersonaForm({ persona, onCancel, onSave }: PersonaFormProps) {
         />
       </div>
       <div class="form-group">
-        <label>系统提示词 *</label>
+        <div class="persona-prompt-header">
+          <label>系统提示词 *</label>
+          <div class="persona-prompt-tools">
+            <span class="persona-char-count">{prompt.length} 字</span>
+            {prompt.length > 0 ? (
+              <button
+                type="button"
+                class="persona-clear-btn"
+                onClick={() => setPrompt("")}
+              >
+                清空
+              </button>
+            ) : null}
+          </div>
+        </div>
         <textarea
-          rows={8}
+          class="persona-prompt-editor"
+          rows={10}
           placeholder="定义助手的角色、风格、约束..."
           value={prompt}
           onInput={(e) =>
@@ -314,7 +342,7 @@ function PersonaForm({ persona, onCancel, onSave }: PersonaFormProps) {
         <span class="form-hint">每次新建会话时自动注入到 system 消息</span>
       </div>
       <div class="form-group">
-        <label>绑定 Model (T-Q-S12-light)</label>
+        <label>绑定 Model</label>
         <input
           type="text"
           maxLength={80}
