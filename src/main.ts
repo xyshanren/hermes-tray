@@ -1548,9 +1548,13 @@ async function checkConnection() {
       updateConnectionStatus('connected');
       await fetchModelInfo();
     } else {
+      // v0.3 Phase 4: mark disconnected so chatStore shows the
+      // no-network card and model selector re-fetches on recovery.
+      updateConnectionStatus('disconnected');
       if (statusText) statusText.textContent = `连接失败 (HTTP ${response.status})`;
     }
   } catch (e) {
+    updateConnectionStatus('disconnected');
     if (statusText) statusText.textContent = `连接失败: ${e}`;
   }
 }
@@ -1591,6 +1595,10 @@ async function fetchModelInfo() {
  * models returned by /v1/models. Idempotent: clearing the existing
  * options first so a re-fetch (after gateway restart) doesn't dup.
  */
+// v0.3 Phase 4: attach the change listener exactly once to avoid
+// accumulation across 30s health-check re-fetches (listener leak).
+let modelSelectorListenerAttached = false;
+
 function populateModelSelector(models: Array<{ id: string }>): void {
   const sel = document.getElementById('model-selector') as HTMLSelectElement | null;
   const wrapper = document.getElementById('header-model-selector');
@@ -1603,10 +1611,13 @@ function populateModelSelector(models: Array<{ id: string }>): void {
     if (m.id === state.currentModel) opt.selected = true;
     sel.appendChild(opt);
   }
-  sel.addEventListener('change', () => {
-    state.currentModel = sel.value;
-    if (modelName) modelName.textContent = state.currentModel;
-  });
+  if (!modelSelectorListenerAttached) {
+    sel.addEventListener('change', () => {
+      state.currentModel = sel.value;
+      if (modelName) modelName.textContent = state.currentModel;
+    });
+    modelSelectorListenerAttached = true;
+  }
   wrapper.hidden = false;
 }
 
