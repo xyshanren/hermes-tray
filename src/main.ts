@@ -944,8 +944,10 @@ async function onRecordingComplete(): Promise<void> {
     const text = await invoke<string>('hermes_proxy_transcribe', {
       args: {
         url,
-        audioBase64,
-        mimeType: blob.type,
+        // Rust TranscribeArgs uses snake_case (no serde rename_all):
+        // audio_base64 / mime_type. camelCase here = "missing field".
+        audio_base64: audioBase64,
+        mime_type: blob.type,
       },
       headers: authHeaders(),
     });
