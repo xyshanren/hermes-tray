@@ -1,16 +1,36 @@
 # Hermes Chat (hermes-tray) — Session Handoff
 
-> Updated 2026-07-09 16:54 — **v0.2-beta on alpha-32.4 (tag `v0.2-beta`)**;
-> next: alpha-32.5 per-session override picker → v0.3.0 big release
-> (32.3 + 32.4 + 32.5 + 3 long-tail + P3.1 token usage).
-> Current focus: alpha-32.4 just shipped, awaiting user manual
-> verification of 5 items.
+> Updated 2026-07-09 17:00 — **v0.2-beta on alpha-32.4 verified ✅
+> (5/5 items passed manual MSI verification)**. User has paused
+> Mavis session; subsequent development (alpha-32.5 per-session
+> override picker + v0.3.0) will be done by other developers, then
+> Mavis will be re-summoned for verification + the v0.3.0 release.
 > 5 alpha-3x drops landed in one afternoon (32, 32.1, 32.2, 32.3,
 > 32.4) after the alpha-32 backup modal exposed 3 real bugs
 > (native password reveal, premature mismatch validation, settings
 > close-on-open UX) + a long-standing mental-model gap (project
 > path is metadata, not storage) + 2 dead settings switches. Read
 > this + `AGENTS.md` + `ROADMAP.md` to resume work.
+
+### Handoff state (for the next dev)
+
+- **Verified**: alpha-32.4 (commit `16f02fc`, tag `v0.2-beta`).
+  All 5 manual verification items passed (Switch UI, auto_connect
+  OFF, auto_rename OFF, `\\?\` prefix migration, storage-info
+  style polish).
+- **Next release**: alpha-32.5 — per-session project override
+  picker. Spec in `ROADMAP.md` § 3.7. Backend `session_update`
+  already accepts `project_dir` + `project_context` patches
+  (alpha-23) — frontend-only feature.
+- **After alpha-32.5**: v0.3.0 big release bundling 32.3 + 32.4 +
+  32.5 + 3 long-tail (CJK / model selector / user bubble) +
+  P3.1 token usage modal. mavis-team audit candidates listed in
+  `ROADMAP.md` "Cross-cutting audit" section.
+- **CI**: Windows-only matrix (alpha-32.1 dropped Linux + macOS
+  to dodge xdg-desktop-portal build failure). All 451 frontend
+  tests + 133 Rust lib tests passing at alpha-32.4. Pre-existing
+  `tests/db_session_message_test.rs` has compile errors unrelated
+  to alpha-32.4 (DAO signature drift) — file for v0.3.0 cleanup.
 
 ---
 
