@@ -108,6 +108,31 @@ export async function loadAutoRename(): Promise<boolean> {
   return raw.trim().toLowerCase() !== "false";
 }
 
+// ── Recent project paths (alpha-32.5 MRU) ────────────────────────────────
+
+const KEY_RECENT_PROJECT_PATHS = "recent_project_paths";
+
+/** Load the MRU project paths list (most-recent first, max 5). */
+export async function loadRecentProjectPaths(): Promise<string[]> {
+  const raw = await getConfig(KEY_RECENT_PROJECT_PATHS);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw) as unknown;
+    if (Array.isArray(arr)) return arr.filter((x): x is string => typeof x === "string").slice(0, 5);
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/** Push a path to the front of the MRU list (dedup + cap at 5). */
+export async function pushRecentProjectPath(path: string): Promise<string[]> {
+  const current = await loadRecentProjectPaths();
+  const updated = [path, ...current.filter((p) => p !== path)].slice(0, 5);
+  await setConfig(KEY_RECENT_PROJECT_PATHS, JSON.stringify(updated));
+  return updated;
+}
+
 // ── Test helpers ──────────────────────────────────────────────────────────
 
 /** Test-only: lets the test suite reset module-level state (none

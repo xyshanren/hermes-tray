@@ -103,6 +103,8 @@ import {
   loadDefaultPersonaId,
   loadDefaultModel,
   loadDefaultProjectPath,
+  loadRecentProjectPaths,
+  pushRecentProjectPath,
   setDefaultPersonaId,
 } from './lib/db-config';
 import { applyBootConfig } from './lib/boot';
@@ -112,6 +114,9 @@ import { initShareUI } from './lib/share-ui';
 import { mountConfirmModal, requestConfirm } from './views/confirm-modal-mount';
 import { mountShortcutsModal } from './views/shortcuts-modal-mount';
 import { shortcutsModalStore } from './views/shortcuts-modal-store';
+import { mountProjectPicker } from './views/project-picker-mount';
+import { projectPickerStore } from './views/project-picker-store';
+import { open as openFolderDialog } from '@tauri-apps/plugin-dialog';
 import type { ChatMessage as Message, PendingAttachment } from './views/chat-view-store';
 // Re-export the chat formatters from main.ts so the existing
 // src/messageBar.test.ts + src/routingTrace.test.ts suites (which
@@ -415,6 +420,7 @@ async function handleSessionDelete(id: string): Promise<void> {
     if (currentSessionId === id) {
       currentSessionId = null;
       currentSession = null;
+      projectPickerStore.setSession(null, null);
       state.messages = [];
       chatWelcomeStore.setContext(null);
       chatStore.setMessages([]);
@@ -472,10 +478,10 @@ async function selectSession(id: string): Promise<void> {
     chatStore.setError('加载会话失败');
     chatStore.setMessages([]);
   }
-  // v0.2-alpha-27 — design 01: header chip shows the active session's
-  // project name (parsed from project_context JSON). Hidden when no
-  // active session or no project_dir.
-  updateHeaderProjectChip();
+  // v0.2-alpha-32.5 — per-session project override picker. Updates
+  // the header chip via projectPickerStore (replaces the old
+  // imperative updateHeaderProjectChip DOM patching).
+  syncProjectPickerStore();
 }
 
 async function createSession(): Promise<string | null> {
@@ -518,6 +524,7 @@ async function createSession(): Promise<string | null> {
     });
     currentSessionId = session.id;
     currentSession = session;
+    syncProjectPickerStore();
     state.messages = [];
     // v0.2-alpha-16: drive the welcome bubble via the store instead of
     // building innerHTML inline. The persona + project context are
@@ -644,6 +651,7 @@ async function onPersonaPickerChange(): Promise<void> {
   const newId = select.value || null;
   currentPersonaId = newId;
   await setDefaultPersonaId(newId);
+  personaStore.setDefaultPersonaId(newId);
   const persona = personasCache.find(p => p.id === newId);
   showToast('已切换 Persona', persona ? `${persona.avatar ?? ''} ${persona.name}` : '默认 (无)', 'success');
 }
@@ -971,6 +979,7 @@ async function onRecordingComplete(): Promise<void> {
 // wrapper is needed.
 
 function openPersonaModal(): void {
+  personaStore.setDefaultPersonaId(currentPersonaId);
   personaStore.setOpen(true);
 }
 
@@ -1358,6 +1367,16 @@ function openStatsModal(): void {
   // by Ctrl+/ — see the global keydown listener above.
   mountShortcutsModal();
 
+  // v0.2-alpha-32.5: mount the per-session project override picker
+  // in the header. Replaces the static #header-project-chip span.
+  mountProjectPicker({
+    onPick: handleProjectPick,
+    onClear: handleProjectClear,
+    onBrowse: handleProjectBrowse,
+  });
+  // Load MRU paths for the dropdown.
+  projectPickerStore.setRecentPaths(await loadRecentProjectPaths());
+
   // v0.2-alpha-22: optional Playwright test hook. Only attaches
   // when the harness set `window.__HERMES_TEST__ = {}` before the
   // bundle loaded. No-op in real Tauri runs — see
@@ -1591,38 +1610,85 @@ function populateModelSelector(models: Array<{ id: string }>): void {
   wrapper.hidden = false;
 }
 
-/**
- * v0.2-alpha-27 — design 01: header shows the active session's
- * project name as a chip next to "Hermes Chat". Parses the
- * project_context JSON (which contains `name` and `project_dir`)
- * the same way the sidebar subtitle does, but the chip shows just
- * the friendly project name. Hidden when there's no active session
- * or no project_dir on it.
- */
-function updateHeaderProjectChip(): void {
-  const chip = document.getElementById('header-project-chip');
-  const name = document.getElementById('header-project-name');
-  if (!chip || !name) return;
+// ── Per-session project override picker (alpha-32.5) ─────────────────────
+//
+// Replaces the old imperative updateHeaderProjectChip() DOM patching.
+// The Preact <ProjectPicker /> subscribes to projectPickerStore and
+// renders the chip + dropdown. main.ts pushes state via the store and
+// handles the Tauri side-effects (scanProject, session_update, dialog).
+
+/** Sync the picker store from the current session's project_context. */
+function syncProjectPickerStore(): void {
   const proj = currentSession?.project_context
-    ? parseProjectContextSafe(currentSession.project_context)
+    ? parseProjectContext(currentSession.project_context)
     : null;
-  if (!proj) {
-    chip.hidden = true;
-    name.hidden = true;
-    return;
-  }
-  name.textContent = proj.name;
-  chip.hidden = false;
-  name.hidden = false;
+  projectPickerStore.setSession(
+    currentSessionId,
+    proj ? { name: proj.name, project_dir: proj.project_dir } : null,
+  );
 }
 
-function parseProjectContextSafe(json: string): { name: string } | null {
+/** User picked a path from MRU or folder dialog. */
+async function handleProjectPick(path: string): Promise<void> {
+  if (!currentSessionId) return;
+  projectPickerStore.setLoading(true);
   try {
-    const obj = JSON.parse(json) as { name?: string };
-    if (!obj?.name) return null;
-    return { name: obj.name };
-  } catch {
-    return null;
+    const ctx = await scanProject(path);
+    const projectContextJson = ctx ? JSON.stringify(ctx) : null;
+    const updated = await invoke<Session>('session_update', {
+      id: currentSessionId,
+      patch: {
+        project_dir: path,
+        project_context: projectContextJson,
+      },
+    });
+    currentSession = updated;
+    sessionListStore.patchSession(currentSessionId, updated);
+    // Update MRU list.
+    const mru = await pushRecentProjectPath(path);
+    projectPickerStore.setRecentPaths(mru);
+    // Apply to store (closes dropdown).
+    projectPickerStore.applyProject(
+      ctx ? { name: ctx.name, project_dir: ctx.project_dir } : { name: path, project_dir: path },
+    );
+    showToast('项目已关联', ctx ? `${ctx.name} (${path})` : path, 'success');
+  } catch (e) {
+    projectPickerStore.setLoading(false);
+    showToast('项目关联失败', String(e), 'error');
+  }
+}
+
+/** User clicked "清除项目关联". */
+async function handleProjectClear(): Promise<void> {
+  if (!currentSessionId) return;
+  projectPickerStore.setLoading(true);
+  try {
+    const updated = await invoke<Session>('session_update', {
+      id: currentSessionId,
+      patch: {
+        project_dir: null,
+        project_context: null,
+      },
+    });
+    currentSession = updated;
+    sessionListStore.patchSession(currentSessionId, updated);
+    projectPickerStore.applyProject(null);
+    showToast('已清除项目关联', '', 'success');
+  } catch (e) {
+    projectPickerStore.setLoading(false);
+    showToast('清除失败', String(e), 'error');
+  }
+}
+
+/** User clicked "浏览..." — open native folder dialog. */
+async function handleProjectBrowse(): Promise<void> {
+  const selected = await openFolderDialog({
+    directory: true,
+    multiple: false,
+    title: '选择项目目录',
+  });
+  if (selected) {
+    await handleProjectPick(selected);
   }
 }
 
