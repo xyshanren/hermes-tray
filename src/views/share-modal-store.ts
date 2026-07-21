@@ -16,11 +16,15 @@ interface ShareModalState {
   pending: ShareDoc | null;
   /** True while executeShareImport is in flight — disables the import button. */
   isImporting: boolean;
+  /** v0.3: paste-import mode — modal shows a textarea to paste a share
+   *  link instead of a decoded preview. Desktop apps can't receive a
+   *  #share= URL via the browser, so the recipient pastes the link here. */
+  pasteOpen: boolean;
 }
 
 type Listener = (s: ShareModalState) => void;
 
-let state: ShareModalState = { pending: null, isImporting: false };
+let state: ShareModalState = { pending: null, isImporting: false, pasteOpen: false };
 const listeners = new Set<Listener>();
 
 function notify(): void {
@@ -33,7 +37,14 @@ export const shareStore = {
   },
   /** Set the pending ShareDoc for import. Pass null to close the modal. */
   setPending(doc: ShareDoc | null): void {
-    state = { ...state, pending: doc, isImporting: false };
+    // Entering preview mode always leaves paste mode.
+    state = { ...state, pending: doc, isImporting: false, pasteOpen: false };
+    notify();
+  },
+  /** v0.3: open/close the paste-import mode (textarea for a share link). */
+  setPasteOpen(open: boolean): void {
+    if (state.pasteOpen === open) return;
+    state = { ...state, pasteOpen: open };
     notify();
   },
   /** Mark the import as in-flight (UI should disable the Import button). */

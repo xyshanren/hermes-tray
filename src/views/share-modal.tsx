@@ -13,11 +13,18 @@ import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { showToast } from "../lib/toast";
 import { shareStore } from "./share-modal-store";
-import { executeShareImport, clearShareHash } from "./share-flow";
+import { executeShareImport, clearShareHash, validateShareHash } from "./share-flow";
 
 export function ShareImportModal() {
   const [state, setState] = useState(shareStore.get());
   useEffect(() => shareStore.subscribe(setState), []);
+
+  // v0.3: paste-import mode — desktop recipients can't open a #share=
+  // URL directly, so they paste the link here. Validate → preview.
+  if (state.pasteOpen && !state.pending) {
+    return <PasteImportView />;
+  }
+
   if (!state.pending) return null;
 
   const doc = state.pending;
@@ -106,6 +113,96 @@ export function ShareImportModal() {
           onClick={() => void handleImport()}
         >
           {state.isImporting ? "导入中…" : `📥 导入 ${msgCount} 条消息`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Paste-import view (v0.3) ──────────────────────────────────────────────
+//
+// Desktop apps can't receive a `#share=...` URL via the browser, so the
+// recipient pastes the share link (copied from any channel — IM, email,
+// doc) into this textarea. We accept a full URL, a bare `#share=...`
+// fragment, or the raw base64url payload, validate it, and hand the
+// decoded doc to the preview view above.
+
+function PasteImportView() {
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function handleParse(): void {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      setError("请先粘贴分享链接");
+      return;
+    }
+    // Normalise the input to a `#share=...` hash so validateShareHash
+    // (which expects a URL fragment) can handle all three shapes.
+    let hash: string;
+    if (trimmed.startsWith("#share=")) {
+      hash = trimmed;
+    } else if (trimmed.includes("#share=")) {
+      hash = "#" + trimmed.slice(trimmed.indexOf("#share="));
+    } else {
+      // Assume a raw base64url payload.
+      hash = `#share=${trimmed}`;
+    }
+    const result = validateShareHash(hash);
+    if (result.ok) {
+      setError(null);
+      shareStore.setPending(result.doc); // switches to preview mode
+    } else if (result.reason === "unsupported-version") {
+      setError(`链接版本不支持 (version=${result.version ?? "?"})`);
+    } else {
+      setError("无法解析分享链接 — 请确认复制完整");
+    }
+  }
+
+  return (
+    <div class="modal modal-share-import" role="dialog" aria-modal="true" aria-label="粘贴导入分享">
+      <div class="modal-header">
+        <h2>📥 导入分享的会话</h2>
+        <button
+          class="modal-close-btn"
+          aria-label="关闭导入"
+          onClick={() => shareStore.setPasteOpen(false)}
+        >
+          ×
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="share-paste-hint">
+          粘贴好友发来的分享链接（含 <code>#share=</code> 的完整地址，
+          或直接粘贴链接主体）。解析后会预览会话内容，确认后再导入。
+        </p>
+        <textarea
+          class="share-paste-input"
+          rows={6}
+          placeholder="http://…/#share=eyJ2ZXJzaW9uIjo…  或直接粘贴 #share= 后的内容"
+          value={text}
+          onInput={(e) => {
+            setText((e.currentTarget as HTMLTextAreaElement).value);
+            setError(null);
+          }}
+        />
+        {error ? <div class="share-paste-error">{error}</div> : null}
+      </div>
+      <div class="modal-footer">
+        <button
+          type="button"
+          class="btn btn-secondary"
+          onClick={() => shareStore.setPasteOpen(false)}
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          disabled={!text.trim()}
+          onClick={handleParse}
+        >
+          🔍 解析链接
         </button>
       </div>
     </div>

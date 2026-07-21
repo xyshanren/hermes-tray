@@ -39,6 +39,13 @@ export function initShareUI(deps: ShareUIDeps): void {
     }
   });
 
+  // v0.3: paste-import entry point — the recipient side of sharing.
+  // Opens the share modal in paste mode so a desktop user can feed a
+  // share link (received via IM / email / doc) into the app.
+  document.getElementById("share-import-btn")?.addEventListener("click", () => {
+    shareStore.setPasteOpen(true);
+  });
+
   // Check URL hash on startup for a pending share import. The
   // validateShareHash helper returns a tagged union — we dispatch on
   // the reason field per alpha-13's stale-hash fix.

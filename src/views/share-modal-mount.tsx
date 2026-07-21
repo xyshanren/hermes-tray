@@ -17,11 +17,11 @@ export function mountShareImportModal(): void {
   }
 
   // Sync the overlay's hidden class with the store. The overlay is
-  // visible iff `pending != null` (no modal when there's nothing to
-  // import — the URL hash check happens at boot time, so most of the
-  // time the overlay is hidden).
-  const syncHidden = (s: { pending: unknown }) => {
-    root.classList.toggle("hidden", s.pending === null);
+  // visible iff there's a pending import OR paste mode is open
+  // (v0.3: paste-import gives desktop users a way to feed a share
+  //  link into the app, since they can't open a #share= URL directly).
+  const syncHidden = (s: { pending: unknown; pasteOpen: boolean }) => {
+    root.classList.toggle("hidden", s.pending === null && !s.pasteOpen);
   };
   syncHidden(shareStore.get());
   shareStore.subscribe(syncHidden);

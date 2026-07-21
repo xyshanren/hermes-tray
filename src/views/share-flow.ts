@@ -52,7 +52,11 @@ export async function copySessionShareLink(
     const encoded = encodeShareDoc(json);
     const url = buildShareUrl(encoded, window.location.origin, window.location.pathname);
     await navigator.clipboard.writeText(url);
-    showToast("分享链接已复制", `${url.length} 字符 — 接收方打开即可导入`, "success");
+    showToast(
+      "分享链接已复制",
+      `${url.length} 字符 — 发给好友，对方点顶部“导入”按钮粘贴即可`,
+      "success",
+    );
   } catch (e) {
     showToast("生成链接失败", String(e), "error");
   }
