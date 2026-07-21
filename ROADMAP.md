@@ -1,27 +1,32 @@
-# Hermes Tray — Roadmap (v0.2-beta → v0.3.0)
+# Hermes Tray — Roadmap (v0.2.0 STABLE + v0.2.1 → v0.3.0)
 
-> v0.2-beta on alpha-32.4 (Windows-only msi, 5/5 manual verification
-> passed). This document plans the remaining modal-by-modal design
-> passes against the 20 reference SVGs in
-> `D:\work\workspace\Qoder\hermes-tray设计\assets\svg-pages\`,
-> plus the v0.3 candidate list and the **2026-07-21 UI design audit**.
->
-> Each P3 modal ships in its own `alpha-N` commit, behind a
-> force-pushed `v0.2-beta` tag, with a manual MSI verification
-> checklist the user runs end-to-end before the next P3 item starts.
+> **v0.2.0 STABLE** shipped (commit `d7ee96f`, 8/8 manual MSI
+> verification). **v0.2.1 patch** in flight (commit `2790386`,
+> CI run `29835017855` in progress, tag pushed, cron self-checking).
+> This document plans the v0.3.0 cycle per the 2026-07-21 UI design
+> audit: 4 phases over ~6.5 days, against the 20 reference SVGs in
+> `D:\work\workspace\Qoder\hermes-tray设计\assets\svg-pages\`.
 
 ---
 
-## Current state (2026-07-21)
+## Current state (2026-07-21 21:35)
 
-- v0.2-beta on alpha-32.4 (commit `16f02fc`). Windows msi + portable + nsis.
-- 451 frontend tests + 133 Rust lib tests passing. Bundle 1.19 MB JS /
-  39.27 kB CSS.
+- v0.2.0 STABLE shipped (tag `v0.2.0`, commit `d7ee96f`).
+- v0.2.1 patch in flight (tag `v0.2.1`, commit `2790386`,
+  CI in progress). 5 post-release fixes on top of v0.2.0:
+  voice transcription snake_case + closeable error toasts,
+  routed model display in footer, persona library single-column,
+  paste-import share link entry, build fix (drop
+  pauseWhenPageIsHidden).
+- 464 frontend tests + 133 Rust lib tests passing. Bundle 1.23 MB JS /
+  55.41 kB CSS.
 - P3.2 备份/恢复 modal **SHIPPED** (alpha-32 + 32.2 hotfixes).
 - **2026-07-21 UI design audit** completed against
   `D:\work\workspace\Qoder\hermes-tray设计\` (交互说明文档 + 交付物清单
   + 20 张 PNG/SVG 设计稿). See § UI Design Audit below.
-- **Next**: alpha-32.5 per-session override picker → v0.3.0 big release.
+- **Next**: v0.3.0 — Phase 1 (CSS catch-up + design token fix) →
+  Phase 2 (Toast + Persona redesign) → Phase 3 (Search keyboard nav +
+  Stats grid + 细节) → Phase 4 (3 long-tail + mavis-team audit).
 
 ## What this round covers (P3 modal-by-modal, ordered)
 

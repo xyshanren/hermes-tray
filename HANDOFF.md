@@ -1,36 +1,44 @@
 # Hermes Chat (hermes-tray) — Session Handoff
 
-> Updated 2026-07-09 17:00 — **v0.2-beta on alpha-32.4 verified ✅
-> (5/5 items passed manual MSI verification)**. User has paused
-> Mavis session; subsequent development (alpha-32.5 per-session
-> override picker + v0.3.0) will be done by other developers, then
-> Mavis will be re-summoned for verification + the v0.3.0 release.
-> 5 alpha-3x drops landed in one afternoon (32, 32.1, 32.2, 32.3,
-> 32.4) after the alpha-32 backup modal exposed 3 real bugs
-> (native password reveal, premature mismatch validation, settings
-> close-on-open UX) + a long-standing mental-model gap (project
-> path is metadata, not storage) + 2 dead settings switches. Read
-> this + `AGENTS.md` + `ROADMAP.md` to resume work.
+> Updated 2026-07-21 21:35 — **v0.2.0 STABLE shipped ✅**
+> (commit `d7ee96f`, tag `v0.2.0`, 8/8 manual MSI verification
+> passed: eyes/mismatch/modal-close/Switch UI/auto_connect OFF/
+> auto_rename OFF/`\\?\` migration/storage-info polish/per-session
+> picker/CJK hljs/bubble alignment/status badge/click-outside-close).
+> **v0.2.1 patch release in flight** (commit `2790386`, tag
+> pushed, CI run `29835017855` in progress, cron self-checking
+> every 2 min). 5 new commits on top of v0.2.0: voice transcription
+> snake_case fix + closeable error toasts (closeButton on Sonner),
+> routed model display in footer, persona library single-column
+> layout, paste-import share link entry, build fix
+> (drop pauseWhenPageIsHidden — sonner 2.0.7 ToasterProps doesn't
+> declare it; the same prop was already removed in b911ee2 but
+> re-introduced by `--theirs` conflict resolution during cherry-pick
+> of 2c0f4a8).
+>
+> **Next**: v0.3.0 cycle per `ROADMAP.md` § v0.3.0 (Phase 1 CSS
+> catch-up + Phase 2 Toast/Persona + Phase 3 Search/Stats/细节 +
+> Phase 4 long-tail + audit). 6.5 days planned.
 
 ### Handoff state (for the next dev)
 
-- **Verified**: alpha-32.4 (commit `16f02fc`, tag `v0.2-beta`).
-  All 5 manual verification items passed (Switch UI, auto_connect
-  OFF, auto_rename OFF, `\\?\` prefix migration, storage-info
-  style polish).
-- **Next release**: alpha-32.5 — per-session project override
-  picker. Spec in `ROADMAP.md` § 3.7. Backend `session_update`
-  already accepts `project_dir` + `project_context` patches
-  (alpha-23) — frontend-only feature.
-- **After alpha-32.5**: v0.3.0 big release bundling 32.3 + 32.4 +
-  32.5 + 3 long-tail (CJK / model selector / user bubble) +
-  P3.1 token usage modal. mavis-team audit candidates listed in
-  `ROADMAP.md` "Cross-cutting audit" section.
+- **Latest shipped**: v0.2.1 patch (commit `2790386`, CI in flight).
+  v0.2.0 STABLE remains tagged at `d7ee96f` for reproducibility of
+  the 8/8-verified baseline. v0.2.1 supersedes it for users who
+  want the post-release fixes.
+- **Tests**: 464 frontend (was 451 at v0.2.0; +13 from the v0.3
+  work) + 133 Rust lib (unchanged). All passing.
 - **CI**: Windows-only matrix (alpha-32.1 dropped Linux + macOS
-  to dodge xdg-desktop-portal build failure). All 451 frontend
-  tests + 133 Rust lib tests passing at alpha-32.4. Pre-existing
+  to dodge xdg-desktop-portal build failure). Tauri release
+  workflow runs on tag push. Pre-existing
   `tests/db_session_message_test.rs` has compile errors unrelated
-  to alpha-32.4 (DAO signature drift) — file for v0.3.0 cleanup.
+  to v0.2.x (DAO signature drift from alpha-23) — file for v0.3.0
+  cleanup.
+- **Next release**: v0.3.0 — Phase 1 (CSS catch-up + design token
+  fix + modal animations) → Phase 2 (Toast + Persona redesign) →
+  Phase 3 (Search keyboard nav + Stats 6-card grid + 细节) → Phase 4
+  (3 long-tail + mavis-team audit). Detail in `ROADMAP.md` §
+  v0.3.0 开发计划.
 
 ---
 

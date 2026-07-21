@@ -1,10 +1,17 @@
 # Hermes Chat (hermes-tray) — Agent Memory
 
 > Project memory for hermes-tray. Read this first before touching any file.
-> Updated 2026-07-09 16:54 — v0.2-beta on alpha-32.4, 5 alpha drops in one
-> afternoon (30/31/31.1/31.2/32/32.1/32.2/32.3/32.4). See HANDOFF.md
-> "v0.2-alpha-3x chronology" for the per-release breakdown + lessons
-> learned. Next: alpha-32.5 per-session override picker → v0.3.0.
+> Updated 2026-07-21 21:35 — v0.2.0 STABLE shipped (commit `d7ee96f`,
+> tag `v0.2.0`, 8/8 manual MSI verification). v0.2.1 patch in flight
+> (commit `2790386`, tag pushed, CI in progress). 5 post-release fixes
+> layered on top: voice transcription snake_case + closeable error
+> toasts, routed model display in footer, persona library single-column
+> layout, paste-import share link entry, build fix (drop
+> pauseWhenPageIsHidden — sonner 2.0.7 ToasterProps doesn't declare
+> it; same prop already removed in b911ee2 but re-introduced by `--theirs`
+> conflict resolution during cherry-pick of 2c0f4a8).
+> **Next**: v0.3.0 cycle (4 phases, ~6.5 days planned). Detail in
+> `ROADMAP.md` § v0.3.0 开发计划.
 
 ---
 
@@ -13,9 +20,9 @@
 | 项 | 值 |
 |---|---|
 | 产品形态 | Tauri 2 桌面应用（Rust 后端 + WebView 前端） |
-| 当前版本 | **v0.2-beta on alpha-32.4** (commit `16f02fc`, Windows-only msi) |
+| 当前版本 | **v0.2.0 STABLE** (commit `d7ee96f`, tag `v0.2.0`). **v0.2.1 patch** in flight (commit `2790386`, CI in progress) |
 | 上一版本 | v0.1.5（功能完整，UI 待重做） |
-| 下一版本 | alpha-32.5 per-session override picker → v0.3.0 big release |
+| 下一版本 | v0.3.0 — Phase 1 CSS catch-up → Phase 2 Toast/Persona → Phase 3 Search/Stats/细节 → Phase 4 long-tail + audit |
 | 项目根 | `D:\work\workspace\Qoder\hermes-tray` |
 | 前端 | Preact 10 + Vite + Tailwind v3 + shadcn/ui via preact/compat |
 | 后端 | Rust + rusqlite + tokio + aes-gcm + argon2 |
