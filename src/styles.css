@@ -995,6 +995,11 @@ html, body {
    * edge of the messages column. avatar is intentionally omitted on
    * the user row. */
   align-self: flex-end;
+  /* v0.3 Phase 4 hardening: margin-left:auto is a second mechanism
+   * that keeps the row right-aligned even if a future refactor
+   * changes .messages from flex-column to block/flow layout.
+   * (alpha-25 regression took 4 rounds to fix — belt & suspenders.) */
+  margin-left: auto;
 }
 
 .message-avatar {
@@ -1166,6 +1171,49 @@ html, body {
   background: var(--bg-tertiary);
   padding: 2px 6px;
   border-radius: 4px;
+}
+
+/* v0.3 Phase 4 — hljs token color overrides for CJK legibility.
+ * github-dark.css ships colors tuned for GitHub's #0d1117 surface.
+ * Our --code-bg is #0F172A (light) / #020617 (dark) — darker — so
+ * low-contrast tokens (comments, punctuation) become near-invisible
+ * especially for CJK glyphs which render thinner at small sizes.
+ * Override the worst offenders with brighter alternatives. */
+.message-content pre .hljs-comment,
+.message-content pre .hljs-quote {
+  color: #9CA3AF;  /* was #8b949e — +12% luminance */
+  font-style: italic;
+}
+.message-content pre .hljs-punctuation {
+  color: #94A3B8;  /* was #c9d1d9 dimmed — ensure visible */
+}
+.message-content pre .hljs-string,
+.message-content pre .hljs-regexp,
+.message-content pre .hljs-addition {
+  color: #7EE787;  /* green — high contrast on both bgs */
+}
+.message-content pre .hljs-keyword,
+.message-content pre .hljs-selector-tag,
+.message-content pre .hljs-built_in {
+  color: #FF7B72;  /* warm red — distinct from bg */
+}
+.message-content pre .hljs-title,
+.message-content pre .hljs-section,
+.message-content pre .hljs-attr {
+  color: #D2A8FF;  /* purple — function/class names */
+}
+.message-content pre .hljs-number,
+.message-content pre .hljs-literal {
+  color: #79C0FF;  /* blue — numbers/literals */
+}
+.message-content pre .hljs-variable,
+.message-content pre .hljs-template-variable,
+.message-content pre .hljs-type {
+  color: #FFA657;  /* orange — variables/types */
+}
+/* Ensure plain text (un-tokenized CJK) inherits readable color */
+.message-content pre .hljs {
+  color: var(--code-text);
 }
 
 /* Input Area */
