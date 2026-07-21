@@ -1,23 +1,33 @@
 # Hermes Tray — Roadmap (v0.2-beta → v0.3.0)
 
-> v0.2-beta is shipped (alpha-29). This document plans the remaining
-> modal-by-modal design passes against the 20 reference SVGs in
+> v0.2-beta is shipped on alpha-32.4 (Windows-only msi). This
+> document plans the remaining modal-by-modal design passes
+> against the 20 reference SVGs in
 > `D:\work\workspace\MiniMax\projects\hermes-tray-notes\assets\svg-pages\`,
 > plus the v0.3 candidate list explicitly deferred during v0.2 rounds.
 >
-> Each P3 modal ships in its own `alpha-N` commit, behind a separate
-> v0.2.X release tag, with a manual MSI verification checklist the
-> user runs end-to-end before the next P3 item starts.
+> Each P3 modal ships in its own `alpha-N` commit, behind a
+> force-pushed `v0.2-beta` tag, with a manual MSI verification
+> checklist the user runs end-to-end before the next P3 item
+> starts. The 2026-07-09 afternoon compressed 5 alpha drops
+> (32, 32.1, 32.2, 32.3, 32.4) in ~6 hours after alpha-32 msi
+> surfaced 3 real bugs + 1 mental-model gap + 2 dead switches.
 
 ---
 
-## Current state (2026-07-08)
+## Current state (2026-07-09 16:54)
 
-- v0.2-beta released with assets `hermes-tray-tauri_0.2.0_*`
-  (Windows / macOS / Linux bundles for 3 OSes).
-- `master` ahead of `origin/master` by 30+ commits (alpha-23~29).
-- P1 (10-item UI pass against design 01 + 02) shipped in alpha-27.
-- All 430 tests passing; build green on master.
+- v0.2-beta on alpha-32.4 (commit `16f02fc`). Windows msi + portable + nsis.
+- 5 alpha drops in one afternoon (alpha-32 / 32.1 / 32.2 / 32.3 / 32.4).
+- **P3.2 备份/恢复 modal 完成** (alpha-32) + 3 hotfixes (alpha-32.2).
+- **Issue 4 三件套完成** (alpha-32.3): label rename + 数据存储位置 + 📁 chip.
+- **5 修复 from review** (alpha-32.4): Switch CSS + auto_connect + auto_rename
+  + DB migration 0005 (strip `\\?\` prefix) + storage info style polish.
+- All 451 frontend tests + 133 Rust lib tests passing. Bundle 1.19 MB JS /
+  39.27 kB CSS.
+- Linux + macOS matrix dropped (alpha-32.1) — user only ships Windows msi.
+- **Next**: alpha-32.5 per-session override picker → v0.3.0 big release
+  (32.3 + 32.4 + 32.5 + 3 long-tail + P3.1 token usage modal).
 
 ## What this round covers (P3 modal-by-modal, ordered)
 
@@ -64,43 +74,32 @@ need:
 | B | **Markdown highlight colour chain** — long-tail #1 (CJK invisible in dark code bubbles for one session). Needs: (a) one agent to capture an HTML repro, (b) one to audit marked.js + highlight.js config, (c) one to fix `.message-content pre span` colour overrides in styles.css. | Highlighting layer + design tokens + specific CJK characters behave differently. |
 | C | **fetchModelInfo lifecycle + connection-event-driven refresh** — long-tail #2. Needs (a) audit of where `state.connectionStatus` is set in main.ts, (b) decide re-fetch trigger (per-state-change vs explicit button), (c) implement + test. | Lifecycle + 3 OS bundle paths. |
 
-### 3.2 · Backup / Restore modal (next up)
+### 3.2 · Backup / Restore modal ✅ SHIPPED (alpha-32 + 32.2)
 
 **Design refs**: `03-create-backup-light.svg`, `04-restore-backup-light.svg`,
 `09-create-backup-dark.svg`, `10-restore-backup-dark.svg`.
-v0.1.5 had a CSS bug where the two forms (create / restore) rendered
-simultaneously under one tab nav, confusing users about flow. The new
-design uses **separated card entries** — click "创建加密备份" opens
-the create-only modal, click "恢复备份" opens the restore-only modal,
-no shared tab state.
 
-**Hard requirements (AGENTS.md §4)**:
-- Restore flow must require TWO confirmations: (a) checkbox "我了解这
-  会覆盖当前所有会话/Persona/统计" tick AND (b) a 5-second countdown
-  button that flips from "请等待 5s..." to "确认恢复" only after elapsed.
-- Password input must have an eye-icon visibility toggle.
-- Password input must show a strength bar (weak / fair / strong — score
-  by length + character class diversity).
-- "数据" group buttons in settings must use `var(--danger)` outline
-  (NOT solid red — to avoid impulse-click mistakes).
+**Shipped in alpha-32**:
+- Single backup modal with 2 stacked cards (not tab nav) per AGENTS.md §4.
+- Rust `tauri-plugin-dialog = "2"` + `dialog:default/allow-save/allow-open`.
+- 14+ missing CSS rules (`.backup-card / -danger / -verified-badge /
+  -confirm-row / -path-row / -path-browse / -password-strength-bar /
+  -countdown-confirm`); modal 520 → 560px.
+- Tests: 430 → 433 (+3 file-picker tests).
 
-**P1 scope (this round)**:
-1. Split into 2 separate Preact modal components:
-   `create-backup-modal.tsx` (file picker for save location, password
-   with strength + eye, confirm → calls `backup_create` Rust command).
-   `restore-backup-modal.tsx` (file picker for `.htbk` upload, password
-   with eye, danger confirmation flow).
-2. Settings modal "数据" group wires: button opens the relevant modal.
-3. Modal mount pattern uses `mountOverlay(store, root, view)` helper if
-   we can land the abstractions cleanly this round. Otherwise the
-   alpha-22/24 hidden-class sync pattern (each mount subscribes + toggles
-   root classList).
-4. Tests:
-   - create-backup test: form validation (empty password disables submit)
-   - restore-backup test: 5s countdown + checkbox disabled-state mgmt
-5. alpha-30 commit + tag `v0.2.0` (no longer beta — version is now stable).
+**Hotfixed in alpha-32.2** (3 bugs from manual verification):
+- Hide WebView2 native password reveal pseudos (double-eye bug).
+- `mismatch` validation now requires BOTH sides `length >= 8` before
+  comparing (premature "两次密码不一致" alert).
+- Settings modal stays open when backup modal opens (z-index 150 vs 100).
 
-**Out of scope (deferred to v0.3)**:
+**Hard requirements (AGENTS.md §4) all met**:
+- ✅ Restore flow: checkbox + 5 s countdown button.
+- ✅ Password input: eye-icon toggle + strength bar.
+- ✅ Settings danger-zone uses `var(--danger)` outline (NOT solid red).
+- ✅ Modal 560px + max-height 90vh + danger card outline.
+
+**Out of scope (deferred)**:
 - Auto-backup schedule (set up daily / weekly auto-backup from settings)
 - Backup encryption strength upgrade (Argon2id memory cost tuning)
 
@@ -150,6 +149,58 @@ no shared tab state.
 - Thumbnail strip below input box (alpha-21 has partial).
 - Click → full preview in modal (image / PDF / text).
 - Per-attachment ✕ delete button.
+
+### 3.7 · Per-session project override picker (alpha-32.5) 🆕
+
+**Why this exists**: Manual verification of alpha-32.3 surfaced
+that users can only set a *default* project path in settings.
+Switching projects requires: open settings → change path → new
+session → switch back. Backend already supports per-session
+override (`session_update` accepts `project_dir` +
+`project_context` patches since alpha-23); the frontend just
+never exposed it.
+
+**Design**: A clickable dropdown on the chat-view header project
+chip (where alpha-32.3 added the 📁 pill). Click → dropdown:
+- **Current** ● — current project (or "未关联项目")
+- **Recent** — last 5 unique project paths (MRU list, persisted
+  in db_config or session_meta)
+- **📂 浏览...** — native folder picker, calls `scanProject` +
+  `session_update`
+- **🚫 清除项目关联** — sets `project_dir = null`
+
+Backend already supports the patch; this is frontend-only.
+
+**Why this overlaps with Picker (option B)**: We don't need a
+separate "new session picker" because the chip dropdown
+effectively serves both: "新会话" creates a session with the
+default, then the user clicks the chip to pick a different one
+(2 clicks, same as a dedicated picker that adds a modal layer).
+
+**Hard requirements (AGENTS.md §4)**:
+- Picker re-runs `scanProject` so `project_context` JSON gets
+  refreshed (name, version, languages, git remote).
+- If the new path fails to scan, show a toast + keep the old
+  project_dir (don't blank it out).
+- `verified` / `understanding` workflow not affected (this is
+  for chat, not for backup/restore).
+- Per-session override does NOT change the default project path
+  in settings (those are independent).
+
+**P1 scope (this round)**:
+1. Click handler on `.session-project-chip` → open dropdown.
+2. MRU list (last 5 paths) read from a new db_config key
+   `recent_project_paths` (JSON array, LRU).
+3. Browse button → `@tauri-apps/plugin-dialog.open({ directory:
+   true })` → call `scanProject` + `session_update` +
+   `updateHeaderProjectChip()`.
+4. Clear option → `session_update({ project_dir: null,
+   project_context: null })`.
+5. Tests:
+   - picker click opens dropdown with current + MRU + browse + clear
+   - browse path re-runs scan + updates chip
+   - clear sets project_dir to null
+6. alpha-32.5 commit + tag `v0.2-beta` (force-push).
 
 ---
 

@@ -1,11 +1,16 @@
 # Hermes Chat (hermes-tray) — Session Handoff
 
-> Updated 2026-07-08 10:00 — **v0.2-beta shipped (alpha-29, tag `v0.2-beta`)**;
-> next: P3 modal-by-modal pass per [`ROADMAP.md`](./ROADMAP.md).
-> Current focus: 3.2 Backup/Restore (alpha-30).
-> migrated to Preact JSX, 4 missing SVG designs shipped, Step 9
-> pixel verification complete (6 of 20 states captured + 1 bug
-> fixed). Read this + `AGENTS.md` to resume work.
+> Updated 2026-07-09 16:54 — **v0.2-beta on alpha-32.4 (tag `v0.2-beta`)**;
+> next: alpha-32.5 per-session override picker → v0.3.0 big release
+> (32.3 + 32.4 + 32.5 + 3 long-tail + P3.1 token usage).
+> Current focus: alpha-32.4 just shipped, awaiting user manual
+> verification of 5 items.
+> 5 alpha-3x drops landed in one afternoon (32, 32.1, 32.2, 32.3,
+> 32.4) after the alpha-32 backup modal exposed 3 real bugs
+> (native password reveal, premature mismatch validation, settings
+> close-on-open UX) + a long-standing mental-model gap (project
+> path is metadata, not storage) + 2 dead settings switches. Read
+> this + `AGENTS.md` + `ROADMAP.md` to resume work.
 
 ---
 
@@ -13,25 +18,197 @@
 
 **Last commits**:
 ```
-f63a77f (HEAD) v0.2-alpha-22 — Phase C: Step 9 pixel verification + modal mount fix
-41295ce        v0.2-alpha-22 — Phase B4: error state variants (design 18)
-5dbfb73        v0.2-alpha-21 — Phase B3: empty-state cards (designs 06 / 07 / 08)
-e750522        v0.2-alpha-20 — Phase B: shortcuts modal + splash screen
-2e27366 (tag: v0.2-alpha-19) feat(tray): v0.2-alpha-19 — main.ts cleanup, lib helpers extracted
-371ecbb (tag: v0.2-alpha-18) feat(tray): v0.2-alpha-18 — chat input form Preact split
-0828a56 (tag: v0.2-alpha-17) feat(tray): v0.2-alpha-17 — sessions list + sidebar Preact split
-fdd7199 (tag: v0.2-alpha-16) feat(tray): v0.2-alpha-16 — chat view Preact split
-687a42f (tag: v0.2-alpha-15) feat(tray): v0.2-alpha-15 — share import flow as Preact modal
-dad0422 (tag: v0.2-alpha-14) feat(tray): v0.2-alpha-14 — settings danger zone wired to Rust bulk-clear commands
-53e458a (tag: v0.2-alpha-13) feat(tray): v0.2-alpha-13 — settings modal SVG 11 redesign
-a936577 (tag: v0.2-alpha-12) fix(tray): v0.2-alpha-12 — unify Gateway group with auto/remote radio toggle
-be75312 (tag: v0.2-alpha-11) feat(tray): v0.2-alpha-11 — split settings modal + add remote-hermes Gateway 连接
-811f35b (tag: v0.2-alpha-10) feat(tray): v0.2-alpha-10 — split stats modal into Preact view + store
+16f02fc (HEAD, tag: v0.2-beta) v0.2-alpha-32.4 — 5 fixes from alpha-32.3 review
+fd510b8        v0.2-alpha-32.3 — Issue 4 UX polish (project path is metadata, not storage)
+4a2d935        v0.2-alpha-32.2 — 3 backup-modal hotfixes from manual verification
+582d19e        v0.2-alpha-32.1 — skip Linux/macOS build in CI
+a2ca11d        v0.2-alpha-32 — backup modal native file picker + missing CSS
+6840598        v0.2-alpha-31.2 — ROADMAP v0.3 long-tail + agent-team audit candidates
+2c4eca9        v0.2-alpha-31.1 — code-block contrast hotfix
+368876e        v0.2-alpha-31 — Rust strip_windows_verbatim_prefix (path display)
+6bb72fd        v0.2-alpha-30 — sidebar active border + indigo-700 theme
+3ba0af8 (tag: v0.2-alpha-29) feat(tray): v0.2-alpha-29 — MSI v0.2.0 (no hyphen) fix
+6d77b65 (tag: v0.2-alpha-27) feat(tray): v0.2-alpha-27 — design 01 layout
+e44b444 (tag: v0.2-alpha-25) feat(tray): v0.2-alpha-25 — alpha-24 follow-up
+f63a77f (tag: v0.2-alpha-22) feat(tray): v0.2-alpha-22 — Phase C Step 9 pixel verification
 ```
 
 **Branch**: `master`
-**Version**: 0.1.5 (released) → **v0.2-beta ready to tag**
-**Status**: **Phase 0 + Phase 1 + Phase B + Phase C all closed.** All 11 views migrated to Preact JSX. Native window.confirm() / alert() fully eliminated. 4 missing SVG designs (06/16/17/18) shipped plus 07/08 empty states. Step 9 pixel verification: 6 of 20 states captured + 1 bug caught + fixed.
+**Version**: 0.1.5 (released) → **v0.2-beta on alpha-32.4**
+**Status**: **Phase 0 + Phase 1 + Phase B + Phase C all closed.** All 11 views migrated to Preact JSX. Native window.confirm() / alert() fully eliminated. 4 missing SVG designs (06/16/17/18) shipped plus 07/08 empty states. Step 9 pixel verification: 6 of 20 states captured + 1 bug caught + fixed. **P3 备份/恢复 modal 完成 (alpha-32)**; **Issue 4 三件套完成 (alpha-32.3)**; **5 修复 dead switches + DB migration 完成 (alpha-32.4)**; **3 long-tail issue 留待 v0.3.0**; **per-session project override picker 留待 alpha-32.5**。
+
+---
+
+## v0.2-alpha-3x chronology (one afternoon, 5 drops)
+
+The 2026-07-09 afternoon compressed 5 alpha releases into ~6 hours
+after the user installed alpha-32 msi and immediately found issues.
+Pattern: every `alpha-3x.x` is a tight drop of 1-2 commits with
+manual verification at every step. The release CI is Windows-only
+(alpha-32.1 dropped Linux + macOS matrix entries; user only ships
+Windows MSI). 5 alpha cycles = 5 reinstall + manual verify cycles
+= tedious but each cycle caught a real bug.
+
+### alpha-30 (6bb72fd) — sidebar active border + indigo-700 theme
+- Sidebar `.active` border 3px → 4px, `--primary` `#5B6CFF` →
+  `#4338CA` (indigo-700), sidebar alpha bg 0.10 → 0.12.
+- Pure CSS, no backend touch.
+
+### alpha-31 (368876e) — Rust strip Windows verbatim prefix
+- `Path::canonicalize` always returns `\\?\D:\…` on Windows;
+  leaked into `project_context` JSON and rendered as "乱码"
+  (`\\?\` looked like two backslashes + question mark + `D:\…`).
+- Rust helper `strip_windows_verbatim_prefix` in `src/db/project.rs`.
+- 4 new Rust unit tests + fixed pre-existing test 4-arg → 5-arg
+  signature drift.
+
+### alpha-31.1 (2c4eca9) — code-block contrast hotfix
+- `message-content pre a/strong/em` was getting `color: var(--primary)`
+  applied (indigo on near-black = bad contrast). Set `color: inherit`
+  + `pre { background: var(--code-bg) }` to use the design token.
+
+### alpha-31.2 (6840598) — ROADMAP v0.3 + agent-team audit
+- `ROADMAP.md` created with P3 modal-by-modal plan + 3 long-tail
+  candidates + 3 mavis-team audit candidates.
+- `Cargo.lock` regenerated (0.1.5 → 0.2.0).
+
+### alpha-32 (a2ca11d) — backup modal native file picker + missing CSS
+- Cargo.toml: `tauri-plugin-dialog = "2"`. `lib.rs`:
+  `.plugin(tauri_plugin_dialog::init())`. `capabilities/default.json`:
+  `dialog:default/allow-save/allow-open`.
+- `package.json`: `@tauri-apps/plugin-dialog 2.4.0`. `backup-modal.tsx`:
+  `<button class="backup-path-browse">` using `saveDialog()` /
+  `openDialog()` with `.htbk` extension filter.
+- CSS: 14+ missing rules (`.backup-card / -danger / -verified-badge
+  / -confirm-row / -path-row / -path-browse / -password-strength-bar
+  / -countdown-confirm`); deleted dead `.backup-tabs/.backup-tab`
+  (alpha-9-era tab nav); modal 520 → 560px + max-height 90vh.
+- Tests: 430 → 433 (+3 file-picker).
+
+### alpha-32.1 (582d19e) — skip Linux/macOS in CI
+- Linux (deb) build failed at alpha-32 (tauri-plugin-dialog needs
+  `xdg-desktop-portal` not installed in GHA Ubuntu image).
+- Dropped matrix to `windows-latest` only; re-tagged v0.2-beta.
+- 5 stale assets (dmg + deb) from alpha-32 still attached; softprops
+  action doesn't auto-delete.
+
+### alpha-32.2 (4a2d935) — 3 backup-modal hotfixes
+**3 bugs surfaced by manual verification of alpha-32 msi**:
+
+1. **Double eye icon on every password input.** WebView2/Edge
+   has a built-in password reveal button (`::-ms-reveal`,
+   `::-webkit-credentials-auto-fill-button`) inside every
+   `<input type="password">` — it appeared to the RIGHT of our
+   custom `.password-eye` button. CSS fix: hide all 4 native
+   reveal/auto-fill pseudos inside `.password-input-row`.
+2. **"两次密码不一致" fired on first input alone.** PasswordInput
+   `mismatch = confirmValue !== undefined && value !== "" && value !== confirmValue`
+   — only checked `value !== ""` (not `confirmValue !== ""`).
+   Fixed to require BOTH sides `length >= 8` before comparing.
+3. **Closing backup modal dropped user on chat, not settings.**
+   `handleBackupCreate/Restore` called `settingsStore.setOpen(false)`
+   first ("only one overlay visible"). Fix: don't close settings;
+   layer backup modal on top (z-index 150 vs 100); user dismisses
+   settings separately.
+
+2 existing settings-modal tests updated for the new layered flow.
+Tests: 433 → 437 (+4 new).
+
+### alpha-32.3 (fd510b8) — Issue 4 UX polish
+**3 fixes for "默认项目路径感觉是个摆设" (project path is
+metadata, not storage)**:
+
+1. **Label rename** "默认项目路径 (T-Q-S8)" → "默认项目上下文" +
+   emphasis-styled hint (background tint + left border + ℹ️ icon)
+   explaining that the path is for AI context injection (scans
+   README / package.json / Cargo.toml / pyproject.toml / go.mod /
+   .git/config → 4 KB summary in system prompt), not file storage.
+2. **📂 数据存储位置 collapsible details** between 偏好 and
+   危险操作区 — collapsed by default, expand to see Windows /
+   macOS / Linux paths for `sessions.db` + `config.json` + `media/`.
+3. **📁 project chip on each session row** — replaces the
+   `~/<last-2-segments> · time` muted string with a pill chip
+   (📁 + indigo border) carrying the shortened path in text +
+   the full path in the `title` attribute (hover tooltip).
+   `未关联项目` becomes a dashed-border italic placeholder.
+
+Tests: 437 → 444 (+7 new — 4 settings-modal + 3 sessions-list).
+4-group test → 5-group test.
+
+### alpha-32.4 (16f02fc) — 5 fixes from alpha-32.3 review
+**5 fixes for bugs the user found reviewing the alpha-32.3 msi**:
+
+1. **Switch component had no CSS.** The `src/components/ui/switch.tsx`
+   was added in alpha-13 but nobody wrote CSS for it — the
+   `<button role="switch">` rendered with no visible affordance.
+   The two "启动时自动连接" / "自动生成会话名" toggles in
+   settings looked like plain text labels. New `.switch` /
+   `.switch-thumb` styles: 36×20 pill, 16×16 thumb that slides
+   14 px on check, primary colour when checked, muted when off,
+   hover/focus/disabled states. Also `.settings-toggle-row` for
+   the label-on-left / switch-on-right layout.
+2. **auto_connect was a dead switch.** Saved to db_config from
+   alpha-13 but `main.ts:1355` always called `checkConnection()`
+   unconditionally. Now wired through to gate the initial
+   connect probe + the 30 s periodic health check. Slack/Discord
+   pattern: OFF = don't auto-connect, show "未连接" + manual
+   重试 button (always available).
+3. **auto_rename was a dead switch.** main.ts:1430 unconditionally
+   renamed sessions on the first user message. Now gated by
+   `loadAutoRename()`. OFF = sessions keep their default "新会话"
+   title until manually renamed.
+4. **DB migration 0005: strip Windows verbatim prefix from old
+   `sessions.project_context` rows.** The Rust scanner learned
+   to strip `\\?\` in alpha-31, but rows written by alpha-13..30
+   still have the prefix baked in. Manual verification of
+   alpha-32.3 surfaced it leaking into the sidebar chip tooltip.
+   New migration uses SQLite JSON1 (bundled with rusqlite) to
+   `json_extract` + `substr` check + `json_replace`. Schema
+   version bumped 4 → 5. Migration runs automatically on next
+   launch — no user action required.
+5. **Storage info style polish (option 2 from review).** The
+   alpha-32.3 version had a tinted blue background + bordered
+   card that visually popped out. Switched to "no border, no
+   background" treatment: summary flows with other group
+   headers, chevron is the only visual cue, body has 14 px left
+   padding so the table feels like part of the same row.
+
+Tests: 444 → 451 (+7 frontend) + 128 → 133 Rust lib (+3 new
+migration tests). The pre-existing `tests/db_session_message_test.rs`
+has compile errors unrelated to this commit (DAO method signature
+drift in a later alpha) — filed for v0.3.0 cleanup.
+
+### Lessons from the 5-drop afternoon (5 项教训)
+
+1. **Manual Tauri verification catches CSS bugs vitest can't.** The
+   "double eye" + "switch has no styling" + "mismatch too eager"
+   all required real WebView2 (happy-dom has no native chrome).
+   Tauri WebView CSS cache ALSO requires uninstall + reinstall
+   between releases — Vite HMR doesn't refresh it.
+2. **Backing up settings with dead switches is a 6-month trap.**
+   The two switches (auto_connect, auto_rename) shipped as visual
+   decorations from alpha-13 to alpha-32.3 because nobody wired
+   them to main.ts. Lesson: every "no-op" toggle needs an
+   integration test that asserts the toggle *changes observable
+   behaviour*, not just persists to db_config.
+3. **Backend has the helper; frontend just needs the call.**
+   `session_update` already accepted `project_dir` and
+   `project_context` patches since alpha-23; the per-session
+   override picker (alpha-32.5) is a frontend-only feature
+   that just had no UI exposed. Lesson: when adding a UI for a
+   backend capability, the backend is rarely the blocker.
+4. **DB migration JSON-blob field is more reliable than expected.**
+   SQLite JSON1 handles `json_extract + json_replace + substr`
+   cleanly for one-off data cleanup. The migration is idempotent
+   (WHERE clause filters all rows that don't match). Future
+   schema-version bumps should follow the same pattern.
+5. **CI staleness is real.** The matrix entries for Linux + macOS
+   were hidden costs: stale assets attached to every release,
+   broken builds in alpha-32 hiding the actual Windows success.
+   For a Windows-only project, the matrix should be 1 entry —
+   drop the rest, document why.
+
+## What's Done (cumulative Phase 0)
 
 ## What's Done (cumulative Phase 0)
 
