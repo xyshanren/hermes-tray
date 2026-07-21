@@ -48,7 +48,6 @@ export function Toaster() {
       position="top-right"
       offset="24px"
       duration={4000}
-      pauseWhenPageIsHidden
       closeButton
       className="toaster group"
       icons={{
