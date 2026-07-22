@@ -9,15 +9,23 @@
 
 ---
 
-## Current state (2026-07-21 21:35)
+## Current state (2026-07-22 14:30)
 
 - v0.2.0 STABLE shipped (tag `v0.2.0`, commit `d7ee96f`).
-- v0.2.1 patch in flight (tag `v0.2.1`, commit `2790386`,
-  CI in progress). 5 post-release fixes on top of v0.2.0:
-  voice transcription snake_case + closeable error toasts,
+- v0.2.1 patch shipped (tag `v0.2.1`, commit `2790386`,
+  Release run `29835017855` ✅). 5 post-release fixes on top of
+  v0.2.0: voice transcription snake_case + closeable error toasts,
   routed model display in footer, persona library single-column,
   paste-import share link entry, build fix (drop
   pauseWhenPageIsHidden).
+- **v0.2.1.1 post-release rebrand** (commit `e040736` on master,
+  **no hotfix tag** — 走 D 方案,v0.3.0 第一个 release 才显形):
+  - `productName`: `hermes-tray-tauri` → `Hermes 助手`
+  - `version` bump: `0.2.0` → `0.2.1`(v0.2.1 release 时漏补的修)
+  - `bundle.windows.wix.language: ["zh-CN"]` — MSI 内部 string table
+    走中文("添加/删除程序" 面板里的 Publisher / Install location)
+  - 托盘 tooltip: `Hermes Tray - Hermes 助手` → `Hermes 助手`(去尾巴)
+  - 接下来的 msi 出来会是 `Hermes 助手_0.2.1_x64_zh-CN.msi`
 - 464 frontend tests + 133 Rust lib tests passing. Bundle 1.23 MB JS /
   55.41 kB CSS.
 - P3.2 备份/恢复 modal **SHIPPED** (alpha-32 + 32.2 hotfixes).
@@ -27,6 +35,9 @@
 - **Next**: v0.3.0 — Phase 1 (CSS catch-up + design token fix) →
   Phase 2 (Toast + Persona redesign) → Phase 3 (Search keyboard nav +
   Stats grid + 细节) → Phase 4 (3 long-tail + mavis-team audit).
+- **Cross-project**: aimc(`D:\work\workspace\Qoder\aimc`) 是新的中介
+  gateway,hermes-tray 这边 v0.2.1 的 `routing_decision` SSE chunk 设计
+  是为它准备的,但 aimc 还没实现 SSE 注入。Phase 1 一并做。
 
 ## What this round covers (P3 modal-by-modal, ordered)
 
@@ -296,6 +307,17 @@ v0.3.0 大发版:
   │   - 设置窗口 12 + 快捷键 10 + 分享导入 8         │
   │   - 聊天视图 9 + 输入 3 + 列表 2 + 确认 2 + 统计 2│
   │ · Settings 640px / Shortcuts 480px / Stats 640px │
+  │ · **aimc SSE 注入 + tray 端 consumed**  ←  cross-project│
+  │   - aimc 侧: gateway/proxy.py _forward_stream 在 first │
+  │     chunk 后注入 `event: routing_decision` SSE event,  │
+  │     payload: {chosen_channel, model, cost_estimate_usd}│
+  │     (~0.5d aimc 侧)                               │
+  │   - tray 侧: chat-stream.ts 解析新字段 → 写到      │
+  │     state.routingDecision;footer pill 读 chosen_channel│
+  │     + model;stats page by_model 表加 "渠道" 列     │
+  │     (key 改 model+channel 二元组);~0.3d tray 侧     │
+  │   - 详见 § aimc SSE 注入 (v0.3.0 kickoff 后再开 sub- │
+  │     section 列全 spec)                            │
   └──────────────────────────────────────────────────┘
   ┌─ Phase 2: Toast + Persona 重做            1.5d ──┐
   │ · Toast → 右上角 + 4px 竖条 + error 手动关闭    │
