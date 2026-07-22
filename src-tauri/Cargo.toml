@@ -1,7 +1,7 @@
 [package]
-name = "hermes-tray-tauri"
-version = "0.2.0"
-description = "A Tauri Chat desktop client — multi-session AI chat with token-cost accounting, encrypted backup, persona library."
+name = "hermes-tray"
+version = "0.2.1"
+description = "Hermes 助手 — Tauri 桌面客户端,多会话 AI chat + token 成本统计 + 加密本地备份 + persona 库。"
 authors = ["you"]
 edition = "2021"
 

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "hermes-tray-tauri",
-  "version": "0.2.0",
-  "identifier": "com.admin.hermes-tray-tauri",
+  "productName": "Hermes 助手",
+  "version": "0.2.1",
+  "identifier": "com.admin.hermes-tray",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Hermes Chat",
+        "title": "Hermes 助手",
         "width": 900,
         "height": 700
       }
@@ -29,6 +29,11 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "wix": {
+        "language": ["zh-CN"]
+      }
+    }
   }
 }

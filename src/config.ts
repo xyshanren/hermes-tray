@@ -34,8 +34,8 @@ export const CONFIG = {
   defaultModel: 'hermes-agent',
   /** Fallback when no persona is pinned and gateway hasn't reported a model. */
   legacyDefault: 'hermes-agent',
-  /** Hero tray icon title (top bar brand) */
-  productName: 'Hermes Chat',
+  /** Hero tray icon title (top bar brand) — mirrors tauri.conf.json productName */
+  productName: 'Hermes 助手',
   /** DB config keys (T-Q-S7 / S12-light / Phase 7) */
   configKeys: {
     defaultPersonaId: 'default_persona_id',
