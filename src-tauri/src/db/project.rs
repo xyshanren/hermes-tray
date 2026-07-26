@@ -499,11 +499,7 @@ fn unix_ms_now() -> i64 {
 ///
 /// Reference: <https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file>
 fn strip_windows_verbatim_prefix(s: &str) -> String {
-    // Use byte slicing instead of `starts_with("\\?\")` because Rust
-    // string escape \\\\ in source = `\\` (4 source chars → 2 actual
-    // backslashes) on the input side; both `\` are real chars.
-    if s.starts_with(r"\\?\") {
-        let rest = &s[4..];
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
         // Preserve UNC marker (Windows network paths look like
         // `\\?\UNC\server\share\…` — converting to `\\server\share\…`
         // is the canonical Win32 "DOS path" form).

@@ -137,7 +137,7 @@ fn feedback_count_thumbs_separates_up_and_down() {
     // Need a real session for FK.
     let session = dao
         .session()
-        .create("for-feedback", None, None, None)
+        .create("for-feedback", None, None, None, None)
         .unwrap();
 
     // Submit 2 up + 3 down.
@@ -172,7 +172,7 @@ fn feedback_count_thumbs_separates_up_and_down() {
     // Session with no feedback returns (0, 0).
     let empty_session = dao
         .session()
-        .create("no-feedback", None, None, None)
+        .create("no-feedback", None, None, None, None)
         .unwrap();
     let (up_e, down_e) = dao
         .feedback()

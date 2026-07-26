@@ -272,7 +272,6 @@ impl<'a> SessionDAO for SessionDao<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::db::dao::{MessageDAO, SessionDAO};
     use crate::db::pool::{open_pool, Db};
 
