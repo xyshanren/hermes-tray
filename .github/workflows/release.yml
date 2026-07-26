@@ -111,5 +111,5 @@ jobs:
             **/*.dmg
             **/*.msi
             **/*setup.exe
-            **/hermes-tray-tauri.exe
+            **/hermes-tray.exe
           fail_on_unmatched_files: false
