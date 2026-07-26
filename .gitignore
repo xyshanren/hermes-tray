@@ -45,6 +45,8 @@ src-tauri/target/release/bundle/
 .agent-teams/
 .atomcode/
 .mavis/
+# Qoder IDE repowiki cache (auto-generated, not project source)
+.qoder/
 
 # Python integration test artifacts
 tests/integration/__pycache__/
