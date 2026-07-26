@@ -6,6 +6,31 @@
 
 ---
 
+## v0.2.2 (2026-07-27)
+
+**v0.2.1 上的 patch** — rebrand 真正走到 binary (产品名/zh-CN installer/tray tooltip 都跟),外加 master CI 红了一段的 alpha-23/31 drift 全清。装 v0.2.1 的用户**不用强升**(业务代码 0 改动);想要中文产品名 / zh-CN MSI / 装/卸一致中文界面的装这版。
+
+- **rebrand + zh-CN MSI 落地** (`e040736`) — 4 个文件:
+  - `src-tauri/tauri.conf.json`: productName `hermes-tray-tauri` → `Hermes 助手`;version `0.2.0` → `0.2.1`(v0.2.1 release 时漏补的修);identifier → `com.admin.hermes-tray`;window title `Hermes 助手`;`bundle.windows.wix.language: ["zh-CN"]`
+  - `src-tauri/Cargo.toml`: name `hermes-tray-tauri` → `hermes-tray`;version `0.2.0` → `0.2.1`;description 重写
+  - `src-tauri/src/lib.rs:1544`: tray tooltip `"Hermes Tray - Hermes 助手"` → `"Hermes 助手"`(去掉 hardcoded 重复)
+  - `src/config.ts`: `productName: 'Hermes Chat'` → `'Hermes 助手'`
+  - 中途 `bundle.wix` 错位置被 Tauri 2 schema 拒,改 `bundle.windows.wix`
+- **docs sync** (`374056a`) — HANDOFF.md / ROADMAP.md / AGENTS.md headers 同步 "v0.2.0 STABLE + v0.2.1 patch shipped + next v0.3.0 cycle"
+- **CHANGELOG.md + release.yml 修相对路径坑** (`198490b`) — release.yml 改绝对 URL 模板(`softprops/action-gh-release` 在 release page 上 relative link 会 404);CHANGELOG 加 v0.2.0 STABLE + v0.2.1 entries;v0.1.4/v0.1.5 "Full notes" 链接改绝对 URL;`gh release edit --notes-file` 重传 4 个 release body;CHANGELOG.md 顺序 v0.2.x 移到 top
+- **ROADMAP.md anchor** (`be63d3d`) — Phase 1 加 "aimc SSE 注入 + tray 端 consumed" (~0.8d cross-project);记录 v0.2.1.1 post-release rebrand 不打 hotfix tag(走 D 方案)
+- **gitignore** (`626d4dd`) — `.qoder/` (Qoder IDE repowiki cache) 加进既有 `.mavis/ .atomcode/ .agent-teams/` 同段
+- **master CI 修复 (alpha-23/31 drift sweep)** (`e283d61`) — 4 文件清 23 errors:
+  - `src-tauri/src/db/project.rs:506` `clippy::manual_strip` 1 line(用 `strip_prefix` 替 `starts_with + &s[4..]`)
+  - `src-tauri/src/db/session.rs:275` `unused_imports`(删 `use super::*;`,inline tests 早就不用 super 任何东西)
+  - 20 E0061 sites: 18 in `tests/db_session_message_test.rs` + 2 in `tests/db_persona_config_feedback_test.rs`(alpha-23 加了 `model: Option<&str>` 第 5 参数,只改了 src/db/session.rs::tests inline,integration test 漏 sweep)
+  - 1 E0063 site: `tests/db_session_message_test.rs:719` 的 TokenStats 字面量缺 `unknown_model_buckets` 字段
+- **version bump** — 这次 release bump 0.2.1 → 0.2.2 (`tauri.conf.json` + `Cargo.toml`)。`package.json` 0.2.0-beta 保留(internal alpha-style 编号,e040736 rebrand 当时也没动)
+
+**Stats**: 464/464 frontend + 133/133 Rust lib 测试 pass;`cargo clippy --all-targets -- -D warnings` **0 errors**;`cargo test --no-run` 4 个 test executable 编译通过(lost `pauseWhenPageIsHidden` 历史 build fix + tech debt)。Bundle 1.23 MB JS / 55.41 kB CSS(跟 v0.2.1 一致,业务代码 0 改动,纯 housekeeping)。
+
+---
+
 ## v0.2.1 (2026-07-21)
 
 **v0.2.0 STABLE 上的 patch** — 用户在 v0.2.0 发布后手动验证时发现的 5 个 post-release fix,加 1 个 cherry-pick 冲突解决附带的 build fix。
