@@ -349,6 +349,31 @@ v0.3.0 大发版:
   │   - 涉及: 1 npm 包 (`@tauri-apps/plugin-shell`) + chat-view.tsx ~20 行    │
   │     + chat-view.test.tsx (mock plugin-shell, 验 open 被 call + prevent).   │
   │     估时: ~0.2d                                                          │
+  │ · **Image attachment: DB 持久化丢 dataUrl, reload 后看不到图**  ← 试用    │
+  │   - 现象: 上传图片发送后**当前 session** user 消息气泡能正常显示缩略图    │
+  │     (chat-input-store attachment thumb + chat view AttachmentStrip 都对).  │
+  │     但**切到别的 session 再切回来** / **关 app 重开**, user 消息里的图     │
+  │     全消失. 时点 B + C 确认. 截图证据: 用户 7-27 试发 2 张图, 当前 session  │
+  │     显示正常, 切 session / 重启后图空.                                     │
+  │   - 根因 (DB 持久化路径): `main.ts:1466-1470` 把 attachment metadata 存   │
+  │     `messages.metadata` JSON blob 时**只写 {name, type, size}, 丢 dataUrl │
+  │     + id**. 加载 session 时从 metadata 读回 attachment 对象没 dataUrl,     │
+  │     `<img src={undefined}>` 不显示. 省 DB 空间初衷 OK, 但没设计 re-fetch   │
+  │   - 修法 sketch (~0.5-0.8d):                                              │
+  │     1. 新表 `message_attachments` (id, message_id, name, mime, size, data  │
+  │        BLOB, sort_idx) — 把 attachment bytes 跟 metadata 分离, 不挤 JSON   │
+  │     2. schema migration 0006 (跟 v0.2-alpha-23 unknown_model_buckets 一类  │
+  │        idempotent 加表, `IF NOT EXISTS` + index on `message_id`)          │
+  │     3. 新 Tauri command `hermes_message_attach(message_id, attachment)`  │
+  │        + `hermes_message_attachments(message_id)` (返回完整 list 含       │
+  │        dataUrl, 转成 data: URL 给前端)                                    │
+  │     4. chat-view.tsx loadSession: 拉 attachments 注入到 chatStore 内存    │
+  │        message, 渲染层 0 改动 (AttachmentStrip 仍读 a.dataUrl)            │
+  │   - 备选更轻方案: 直接把 dataUrl 塞 `messages.metadata` JSON blob (0       │
+  │     schema 改动), 但 4 张图 × 10MB base64 ≈ 53MB/msg, SQLite JSON blob     │
+  │     单条会卡 — 不推荐                                                      │
+  │   - 不阻塞 v0.2.2 (用户截图显示当前 session OK). 严重度: 高 (multi-modal   │
+  │     体验折半, 但不是 critical 卡死 — 切 session 还能聊). alpha-33 必修   │
   └──────────────────────────────────────────────────┘
   ┌─ Phase 2: Toast + Persona 重做            1.5d ──┐
   │ · Toast → 右上角 + 4px 竖条 + error 手动关闭    │
