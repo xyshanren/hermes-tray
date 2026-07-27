@@ -318,6 +318,20 @@ v0.3.0 大发版:
   │     (key 改 model+channel 二元组);~0.3d tray 侧     │
   │   - 详见 § aimc SSE 注入 (v0.3.0 kickoff 后再开 sub- │
   │     section 列全 spec)                            │
+  │ · **FirstRunWelcome: persona chip = set, not create**  ← 2026-07-27 试用发现│
+  │   - bug: 在"新会话"空页点推荐 Persona 卡片会**再创 1 个新 session** (跟点 │
+  │     "创建第一个会话" 按钮完全等价). 截图证据: sidebar 立刻多 1 个"新会话/刚│
+  │     刚". alpha-20 留的 known shortcut: code 注释 `cosmetic for now`         │
+  │     (chat-view.tsx:87-89) + test `Persona chip click should also call      │
+  │     onCreateSession` (chat-view.test.tsx:357) 都 mirror 了同一行为,        │
+  │     chip 还没把 persona 名字传给 createSession()                          │
+  │   - 修: chip onClick = set state.selectedWelcomePersona(name) + 视觉高亮   │
+  │     (`persona-chip.selected` + `aria-pressed`); CTA 按钮文案随选中变      │
+  │     "用 {name} 开始 →"; CTA 才真创建,把 persona 传给 createSession(),    │
+  │     创建完 state 清空 (一次性). 下游 `sessions.persona_id` schema 已就绪   │
+  │     (alpha-23 加 model 字段时一并预留)                                     │
+  │   - 涉及: views/chat-view.tsx (~20 行) + chat-view-store.ts (新 state 1 行)│
+  │     + chat-view.test.tsx (改 1 个 expectation). 估时: ~0.3d               │
   └──────────────────────────────────────────────────┘
   ┌─ Phase 2: Toast + Persona 重做            1.5d ──┐
   │ · Toast → 右上角 + 4px 竖条 + error 手动关闭    │
