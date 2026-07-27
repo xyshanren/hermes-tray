@@ -391,6 +391,24 @@ v0.3.0 大发版:
   │     上限已就绪); drop 跟 paste 共用 addAttachments, MIME / 体积检查复用.  │
   │   - 涉及: main.ts ~15 行, 0 新依赖, 0 新 Tauri command, 0 新 state.    │
   │     估时: ~0.05d                                                          │
+  │ · **Attachment strip: 跟 text bubble 并排, 把 user 气泡撑宽**  ← 试用     │
+  │   - 现象: user 消息里有 12 字短文本 + 2 张缩略图, 整个 user 气泡宽度 ~340px │
+  │     (text bubble + 12px gap + 168px 缩略图 strip), 视觉上"短文本 + 图"应该│
+  │     紧贴 ~140px 而不是 ~340px. user 觉得"把对话框撑大了, 不太美观".     │
+  │   - 根因 (styles.css): `.message.user` row `max-width: 100%` 满 chat 宽, │
+  │     但 row 内的两个 flex child — `.message-content` (fit-content, max 80%)│
+  │     + `.message-attachments` (display:flex, 2 张 80x80 thumb + 8px gap)   │
+  │     — 默认横向并排. `flex-wrap: wrap` 写在 .message-attachments 内部, 但   │
+  │     只 wrap 缩略图之间的行, 不 wrap .message-attachments 跟 .message-content│
+  │     之间. 2 张缩略图 + 168px < 80% chat width, flex 算法判断"一行够" →  │
+  │     不 wrap → text + 2 thumbs 横排, 撑宽 user 气泡.                     │
+  │   - 修法 sketch (~5-10 min): `.message-attachments` 加 `flex-basis: 100%`│
+  │     (或 `width: 100%`), 强制换到 text bubble 下面另起一行. 缩略图 80x80   │
+  │     保留 OK; 若 2 张图想保持并排 (168px < 140px user bubble 时会 wrap),  │
+  │     可降 64x60 → 128px ≈ user bubble 140px.                              │
+  │   - 备选: 给 user 气泡加 max-width 兜底, 但会盖过现有 80% cap, 不推荐.  │
+  │   - 涉及: styles.css 1-2 行, 0 新逻辑. 估时: ~0.02d. 跟 CSS catch-up      │
+  │     (alpha-33a) 天然合拍, 一并收.                                       │
   └──────────────────────────────────────────────────┘
   ┌─ Phase 2: Toast + Persona 重做            1.5d ──┐
   │ · Toast → 右上角 + 4px 竖条 + error 手动关闭    │
