@@ -374,6 +374,23 @@ v0.3.0 大发版:
   │     单条会卡 — 不推荐                                                      │
   │   - 不阻塞 v0.2.2 (用户截图显示当前 session OK). 严重度: 高 (multi-modal   │
   │     体验折半, 但不是 critical 卡死 — 切 session 还能聊). alpha-33 必修   │
+  │ · **Chat input: paste 截图/剪贴板图变 attachment**  ← 2026-07-27 试用     │
+  │   - 现象: 在 chat input textarea 里 Ctrl+V 粘贴截图工具/剪贴板里的图,  完  │
+  │     全没反应 (浏览器默认把图片当 text 塞进 textarea, 出现一坨 base64 字符  │
+  │     看着像卡住, 实际 fileToAttachment 没被调, attachment 流程完全没走).  跟│
+  │     drop / 点 📎 按钮走的不是同条路径, 只是 1 个 listener 缺失.          │
+  │   - 根因: `main.ts:1097` 有 `drop` listener 调 `addAttachments`, 但**没有  │
+  │     对应的 `paste` listener**; chat-input-view.tsx 的 form / textarea 也  │
+  │     没 onPaste. 全局 `addEventListener("paste", ...)` 0 命中. 唯一 paste  │
+  │     handler 在 share-modal (paste-import 分享链接), 跟 chat input 无关.  │
+  │   - 修法 sketch (~15 min): main.ts drop listener 旁边加 paste 同款,     │
+  │     `e.clipboardData.items` 里 `kind === "file"` → `getAsFile()` 收集     │
+  │     File[] → `addAttachments(files)` (复用现有路径). `files.length === 0`│
+  │     时不 preventDefault, 浏览器纯文本 paste 行为正常.                    │
+  │   - 边界: 纯文本 paste → 不拦; 多图 paste → 走 attachment (10MB / 4 张  │
+  │     上限已就绪); drop 跟 paste 共用 addAttachments, MIME / 体积检查复用.  │
+  │   - 涉及: main.ts ~15 行, 0 新依赖, 0 新 Tauri command, 0 新 state.    │
+  │     估时: ~0.05d                                                          │
   └──────────────────────────────────────────────────┘
   ┌─ Phase 2: Toast + Persona 重做            1.5d ──┐
   │ · Toast → 右上角 + 4px 竖条 + error 手动关闭    │
