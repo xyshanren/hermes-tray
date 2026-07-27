@@ -332,6 +332,23 @@ v0.3.0 大发版:
   │     (alpha-23 加 model 字段时一并预留)                                     │
   │   - 涉及: views/chat-view.tsx (~20 行) + chat-view-store.ts (新 state 1 行)│
   │     + chat-view.test.tsx (改 1 个 expectation). 估时: ~0.3d               │
+  │ · **External link: 走系统默认浏览器, 不要再替换 WebView**  ← 2026-07-27 试用 │
+  │   - bug: 在 assistant 消息里点 `<a href>` (例如 AI 给的 aliyun 链接), 整个   │
+  │     WebView 被替换成外网页面 (用户看到 aliyun 登录页占满整个 app 窗口), 无  │
+  │     返回按钮, **卡死**. 比 first-run-welcome 严重 — 那个能继续用, 这个直接  │
+  │     困在外网.                                                          │
+  │   - 根因: `chat-view.tsx:228` `dangerouslySetInnerHTML={{__html:           │
+  │     formatMessage(msg.content)}}` 把 marked.parse 的 HTML 直接渲染, 没拦  │
+  │     截 click. `tauri-plugin-shell` (Cargo.toml:26) 装了但前端 0 import;   │
+  │     `grep @tauri-apps/plugin-shell` 0 命中. CSP `security: {}` 也是空,   │
+  │     整个 WebView 默认 in-app navigation.                                  │
+  │   - 修: chat-view 顶层 useEffect 挂 `document.addEventListener("click",   │
+  │     ...)` 拦截 `tagName === "A"` → `e.preventDefault()` →                 │
+  │     `@tauri-apps/plugin-shell` 的 `open(href)`. 跟 Slack / VS Code /      │
+  │     Notion 一致: 点外链 → 系统默认浏览器打开, app 不动, alt-tab 切回.       │
+  │   - 涉及: 1 npm 包 (`@tauri-apps/plugin-shell`) + chat-view.tsx ~20 行    │
+  │     + chat-view.test.tsx (mock plugin-shell, 验 open 被 call + prevent).   │
+  │     估时: ~0.2d                                                          │
   └──────────────────────────────────────────────────┘
   ┌─ Phase 2: Toast + Persona 重做            1.5d ──┐
   │ · Toast → 右上角 + 4px 竖条 + error 手动关闭    │
