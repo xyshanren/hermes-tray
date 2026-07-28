@@ -409,6 +409,27 @@ v0.3.0 大发版:
   │   - 备选: 给 user 气泡加 max-width 兜底, 但会盖过现有 80% cap, 不推荐.  │
   │   - 涉及: styles.css 1-2 行, 0 新逻辑. 估时: ~0.02d. 跟 CSS catch-up      │
   │     (alpha-33a) 天然合拍, 一并收.                                       │
+  │ · **30s health check 推 chatStore, ChatView 全树 re-render, 选中文丢失** │
+  │   - 现象: 对话框每 ~30s "快速刷新一下" (限 chat 容器内). 用户选中 chat 内│
+  │     文字后, 30s 内被清掉. 视觉上跟 alpha-32.4 那个 health check 加的 30s  │
+  │     interval 同时段出现.                                                │
+  │   - 根因链路: main.ts:1414 `setInterval(checkConnection, 30000)` →        │
+  │     line 1553 `checkConnection` 进入时 `updateConnectionStatus('connecting')`│
+  │     → line 1726 `chatStore.setConnectionStatus(offline)` → chat-view-store.ts│
+  │     284-287 `state.connectionStatus = status; notify()` → ChatView line 424│
+  │     `useState(state)` 整引用变 → line 434 `useEffect(()=>scrollTop=…, [state])`│
+  │     auto-scroll 到底 + 整树 re-render → 浏览器在 reflow 时清掉 text   │
+  │     selection. 30s 周期: connected→connecting(2 次不同值)→connected  →  │
+  │     early return (`chat-view-store.ts:285`) 挡不住, 至少 notify 2 次.   │
+  │   - 修法 sketch (~3 行 fix, ~0.05d): `main.ts:1552-1557` 把 'connecting' │
+  │     中间态**不**走 chatStore 路径, 只改 DOM (statusText / className 已经 │
+  │     在 line 1727-1729 直接改). terminal 态 ('connected' / 'disconnected')│
+  │     仍走 store, 但稳定时 next tick 早 return → 0 notify. 30s 健康时 0   │
+  │     re-render, 断网时 1 次 re-render (之前是 2 次).                  │
+  │   - 附: ChatView line 434 `useEffect [state]` 是 over-eager — 改成     │
+  │     `[state.messages, state.streaming, state.fatal]` 也行, 但更彻底的   │
+  │     是修源头 (不让 store 抖), 推荐前者.                                │
+  │   - 涉及: main.ts ~3 行, 0 新依赖, 0 新 store. 估时: ~0.05d.            │
   └──────────────────────────────────────────────────┘
   ┌─ Phase 2: Toast + Persona 重做            1.5d ──┐
   │ · Toast → 右上角 + 4px 竖条 + error 手动关闭    │
