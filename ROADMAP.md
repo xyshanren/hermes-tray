@@ -500,6 +500,40 @@ v0.3.0 大发版:
   │   - 分享 (~0.05d): share-modal.tsx 已有, 直接调.                       │
   │   - 状态: 等用户跟 hermes-agent-cn 确认 feedback 用途后再定.            │
   │   - 估时: ~0.05d (分享) / ~0.3d (重答) / ~0.3d tray + ~0.5d agent (反馈)│
+  │ · **Agent reply 后 tray 不会通知用户 (没装 tauri-plugin-notification)**   │
+  │   - 现象: agent 回复 final chunk 后, ChatView 渲染消息, 但**窗口不在前台时│
+  │     完全无信号** — user 切到别的 app / 屏幕锁定后, 不知道 agent 已经回.  │
+  │     Slack / 飞书 / ChatGPT desktop / Discord 全部有系统 toast + 任务栏闪烁 │
+  │     + (部分)声音, hermes-tray 这块整个缺失. 8-3 试用时 user 切走几次回来  │
+  │     都"不知道 agent 啥时候回的".                                       │
+  │   - 根因 (4 个独立 factor 都缺):                                       │
+  │     1. `Cargo.toml:25-33` 列了 5 个 tauri-plugin (window-state / shell /   │
+  │        fs / global-shortcut / dialog), **唯独没装 `tauri-plugin-notification`**
+  │     2. JS 端 `@tauri-apps/plugin-notification` import 0 hit                │
+  │     3. in-app toast (`lib/toast.ts` sonner wrapper) 存在, 但 Toaster mount│
+  │        在 app 顶部, **只在 chat view 内部可见**; 而且 `lib/chat-stream.ts`│
+  │        finishStream() 收 final chunk 时**根本没调 showToast** (grep 0 hit)│
+  │        — secondary issue, 即使窗口在前台, 也没 toast 反馈                 │
+  │     4. **没窗口 focus/blur 监听** — 即使装上 plugin, 也不知道"窗口不在前台"│
+  │        何时触发通知, 容易 spam                                         │
+  │   - 修法 sketch (~0.5-0.8d):                                            │
+  │     1. 装 `tauri-plugin-notification` (Cargo.toml + JS npm), 配            │
+  │        `capabilities`: `notification:default`                            │
+  │     2. `lib/chat-stream.ts:finishStream()` final chunk 后:                │
+  │        - 窗口在前台 → 跳过系统通知 (甚至跳过 in-app toast, user 看到了)   │
+  │        - 窗口不在前台 → `sendNotification({ title: "Hermes Chat", body:  │
+  │          user 消息前 30 字符 + "已回复" })` 触发 Windows toast            │
+  │     3. Rust 端 `on_notification_action` handler: 点击通知 →              │
+  │        `window.show()` + `window.set_focus()` + 滚到底 (现有 chat view  │
+  │        已有 auto-scroll, focus 后 user 看到完整 reply)                  │
+  │     4. 通知内容: **不**用 agent 回复文本 (太长), 改用 "user 问什么" +     │
+  │        "已回复, 点击查看" — baseline 跟 Slack / 飞书 一致                │
+  │   - per-app 静音开关: 暂不做 (alpha-34+ 评估), user 想静音走 Windows 系统 │
+  │     级"专注助手"设置                                                    │
+  │   - 编号: Phase 1 段第 12 个, 跟 alpha-34 section 的 entry 12-14 不同段   │
+  │     独立编号 (用 P1-12 前缀避免歧义)                                    │
+  │   - 估时: ~0.5-0.8d. 严重度: **高** (desktop app baseline, 缺这个等于     │
+  │     app "默默干活", user 体验降一档)                                    │
   └──────────────────────────────────────────────────┘
   ┌─ Phase 2: Toast + Persona 重做            1.5d ──┐
   │ · Toast → 右上角 + 4px 竖条 + error 手动关闭    │
