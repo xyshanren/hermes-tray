@@ -430,6 +430,76 @@ v0.3.0 大发版:
   │     `[state.messages, state.streaming, state.fatal]` 也行, 但更彻底的   │
   │     是修源头 (不让 store 抖), 推荐前者.                                │
   │   - 涉及: main.ts ~3 行, 0 新依赖, 0 新 store. 估时: ~0.05d.            │
+  │ · **SSE 错误一报错就上 fatal banner, 跟 connection dot 矛盾**  ← 试用    │
+  │   - 现象: 用户在 assistant streaming 中途, 偶尔出现红色 fatal banner    │
+  │     "连接失败: error decoding response body (http://127.0.0.1:8642)",   │
+  │     但右上角 dot 仍显示绿"已连接". health check 跟 SSE 错误走的是两条  │
+  │     独立的 truth source, 互不更新.                                       │
+  │   - 根因: `src/lib/chat-stream.ts:340-351` catch 块无差别 `setError`   │
+  │     + 进 fatal banner; 但没调 `updateConnectionStatus` → dot 仍 connected.│
+  │     "error decoding response body" 几乎都是 mid-stream 偶发 (网络瞬断   │
+  │     / agent 端 JSON 略变), 不是真断网.                                  │
+  │   - 修法 sketch (~0.3d): 区分"send 握手失败" vs "mid-stream chunk 失败"│
+  │     - 握手失败 (openStream 之前) → setError + updateConnectionStatus    │
+  │       ('disconnected') + 上 fatal banner                                  │
+  │     - mid-stream chunk 失败 (openStream 之后) → 只在 assistant bubble  │
+  │       末尾 append 错误 (abortStream 已 done) + **不**上 banner, **不**动 │
+  │       dot. 这样下次 send 仍能正常连.                                     │
+  │   - 实现: chat-stream.ts 在 try 块顶部放 `let isFirstChunk = true;`    │
+  │     进 catch 看 flag 走两条路径. 估时 ~0.3d. alpha-33b 收.            │
+  │ · **User bubble 真正没 right-align**  ← 2026-08-03 试用 (修正)        │
+  │   - 现象: 截图里两个 user 气泡的"右边沿"明显不对齐到同一条垂直线, 第一  │
+  │     个 2 行 wrap 的气泡更靠左, 没贴到 chat 容器右边缘. 用户 (跟 mavis 之前│
+  │     错估) 都以为是中文断行问题, 实际是 CSS 布局层问题.                  │
+  │   - 根因: `.message` 是 `display: flex` (默认 row), `.message.user`    │
+  │     row 整体 right-align (align-self: flex-end + margin-left: auto),   │
+  │     但 row **内部** default `justify-content: flex-start` → child     │
+  │     (text bubble) 仍然 left-align in row. 视觉上 row 跟 chat 容器右边缘│
+  │     贴齐了, 但 child 还在 row 最左 → 看起来 text bubble 没贴右.         │
+  │   - 修法 sketch (~0.02d): `.message.user` 加 `flex-direction: column; │
+  │     align-items: flex-end;` — children 内部 stack 上下 + 横向 right.  │
+  │     不动 `.message.assistant` (它在左, 不需要改). 跟 alpha-33a CSS     │
+  │     catch-up 一起收.                                                    │
+  │ · **Assistant bubble: 加 Copy markdown 按钮 (右上 hover)**  ← 试用     │
+  │   - 现象: assistant 消息气泡右上没 copy 按钮. 业界 baseline (ChatGPT /  │
+  │     飞书 AI / Slack) 全有 — 用户选中 → 复制 → 粘到 IDE / 文档.        │
+  │   - 修法 sketch (~0.2d): assistant bubble 容器加 `position: relative` │
+  │     + child `<CopyButton content={msg.content} />` 绝对定位右上, 默认  │
+  │     opacity 0 / hover opacity 1. 点击 → `navigator.clipboard.writeText  │
+  │     (rawContent)` (复制 raw markdown, 不是渲染后 HTML — 粘到 IDE 仍可用)│
+  │     . 0 新依赖, ~30 行. alpha-33a 收.                                  │
+  │ · **Markdown CSS polish: 跟 ChatGPT 那种 "polish" 还差一截**  ← 试用  │
+  │   - 现状: marked@18 + highlight.js@11 + 基础 ul/ol/li/code/pre/h1-3   │
+  │     /blockquote 都已配. 但跟 ChatGPT / 飞书 AI 比:                      │
+  │     1. h1-h3 字号差太小 (1.25/1.15/1.05em) → 层级拉不开                  │
+  │     2. `p` 段落没 margin → 段落连成一片                                  │
+  │     3. inline code 跟 text 同色 (只换 bg) → "代码字" 不分明              │
+  │     4. `a` 链接无下划线 (hover 才有) → 不像"可点"                       │
+  │     5. task list (`- [ ]`) 没配 → checkbox 不显示                       │
+  │     6. `table` 表格没配 → 没法用                                          │
+  │     7. `hr` 横线没配 → 没法用                                            │
+  │     8. code block 没头部 (filename / Copy 按钮) → 复制要等 #9           │
+  │   - 修法 (~0.5-0.8d, CSS only, 不动 markdown 库):                       │
+  │     Phase A (~0.3d): p 间距 / h1-h3 字号差拉到 1.4/1.25/1.1 / a 默认下划 │
+  │     线 (lightgray) / inline code 加 color #c7254e / li 缩进 1.5em      │
+  │     Phase B (~0.5d): table 边框 + cell padding / task list checkbox    │
+  │     (marked v18 默认 GFM) / hr border-top / code block 包一层 div +   │
+  │     Copy 头部按钮                                                        │
+  │   - 跟 alpha-33a "U1 全量 CSS 补全 (47 class, 8 组件)" 天然合拍.       │
+  │ · **Assistant bubble: 点赞 / 点踩 / 重新生成 / 分享按钮**  ← 试用,   │
+  │   alpha-34+ 评估                                                          │
+  │   - 用户视角: 跟 #9 (Copy 按钮) 同位 (assistant bubble 底部 action bar)│
+  │   - 价值方: 跟 #9 不一样 — Copy 是 user convenience; 反馈按钮是       │
+  │     **agent-facing** (RLHF / 微调数据 / 路由权重调整).                  │
+  │   - 关键前提: **hermes-agent-cn 端是否接 feedback pipeline**. 如果      │
+  │     endpoint 已存在 (`/v1/feedback` 之类) 且 agent 端会消费,          │
+  │     tray 端就接 → 真有 data flywheel. 如果 endpoint 接收但 dead field, │
+  │     **不**做 — UI 是 dead code 占地方.                                │
+  │   - 重新生成 (~0.3d): abort + resend 当前 chat-stream 实现不一定干净.  │
+  │     估时保守.                                                            │
+  │   - 分享 (~0.05d): share-modal.tsx 已有, 直接调.                       │
+  │   - 状态: 等用户跟 hermes-agent-cn 确认 feedback 用途后再定.            │
+  │   - 估时: ~0.05d (分享) / ~0.3d (重答) / ~0.3d tray + ~0.5d agent (反馈)│
   └──────────────────────────────────────────────────┘
   ┌─ Phase 2: Toast + Persona 重做            1.5d ──┐
   │ · Toast → 右上角 + 4px 竖条 + error 手动关闭    │
