@@ -523,23 +523,57 @@ v0.3.0 大发版:
 
 ---
 
-## alpha-34+ tray 端跨项目增量 (2026-08-03 规划)
+## alpha-34+ tray 端跨项目增量 (2026-08-03 规划, 16:00 更新)
 
-> 来源: 2026-08-03 v0.2.2 试用 + hermes-agent-cn 端反馈。3 个新 feature 都依赖 **SSE event 协议 (B 方案, 跟 AIMC routing_decision event 同 pattern)**, 实施时跟 hermes-cn 端 K-5 PR 一起 review。
+> 来源: 2026-08-03 v0.2.2 试用 + hermes-agent-cn 端反馈 + 16:00 SSE event schema 草稿。所有 feature 都依赖 **SSE event 协议 (B 方案, 跟 AIMC `routing_decision` event 同 pattern)**, 实施时跟 hermes-cn 端 K-5 PR 一起 review。
 
-### 范围 (alpha-34 起, 估时合计 ~1.6d tray + ~1.5d agent)
+### 范围 (alpha-34 起, 估时合计 ~1.1d tray + ~1.2d agent)
 
-| # | feature | tray | agent | 前提 |
+| # | feature | tray | agent | 关联 |
 |---|---|---|---|---|
-| 12 | `/learn` 命令触发 UI (LearnModal) | ~0.3d | ~0.5d | SSE event schema (B) |
-| 13 | `/journey` 列表 + edit UI (Settings 新 section "Journeys") | ~0.5d | ~0.5d | SSE event schema (B) |
-| 14 | skill 评分 (per-skill rating, 1-5 星) | alpha-34+ 评估 | TBD | **先 confirm "skill 评分" 含义** |
+| 12 | `/learn` 命令触发 UI (LearnPreview modal) | ~0.3d | ~0.5d | event: `learn_preview` |
+| 13 | `/journey` 列表 + edit UI (Settings 新 section "Journeys") | ~0.5d | ~0.5d | event: `journey_list` / `journey_edit_request` |
+| 14 | skill 评分 (per-skill 1-5 星 widget on /journey card, 选项 a) | ~0.3d | ~0.2d | 跟 #13 一起做 |
 
-### 实施 3 件事 (按 mavis memory "UI 设计前必查后端 pipeline" + Cherry-pick split bug 防护)
+### 推迟 (alpha-34+ 之外, 跟 CAND-080 evolution loop + axiom 3 闭环一起)
 
-1. **走 B 方案 (SSE event, 跟 AIMC `routing_decision` event 同 pattern)** — hermes-agent-cn 端 parse `/learn`/`/journey` command, SSE 流里塞自定义 event (`event: learn_trigger` / `event: journey_list` / `event: journey_edit_request`), tray 端 `chat-stream.ts` 加 listener 弹 modal。**两侧都不本地 parse `/`**, 零冲突。
-2. **实施前 grep hermes-agent-cn 端 SSE event schema** — 避免跟 AIMC `routing_decision` event 撞名。Tray 端 `chat-stream.ts:172-180` 已经在 SSE chunk 上抓 `routing_decision`, 加新 listener 时**共用** 解析路径。
-3. **跟 hermes-cn 端 K-5 PR 一起 review** — B 方案的 SSE event 协议需要双方对齐, 不是 tray 单方面定。Event 命名 / payload 字段 / 触发时机 / 错误路径 都要一起 spec。
+- **评分 skill 输出 (选项 b)** — 给每条 assistant response 评 1-5 星, 喂 evolution loop 训练。~1d, **跟 CAND-080 sub-layers 实施时一起做** (跟 axiom 3 闭环 1 个 sprint 收)。先等 hermes-cn 端 axiom 3 spec 定。
+
+### SSE Event Schema 草稿 (hermes-cn 端 K-5 决定, tray 端 consumer)
+
+```
+Event 命名 (跟 OpenAI SSE 标准, snake_case):
+- learn_trigger      → 开始蒸馏 (agent 收到 /learn 后发)
+- learn_preview      → SKILL.md 准备好, 等用户 review  (弹 LearnPreview modal)
+- learn_commit       → 用户确认, 落库
+- journey_list       → 现有 skill 列表 (弹 /journey 列表用)
+- journey_edit_request → 编辑某 skill 请求 (弹 edit form)
+
+Payload schema (snake_case JSON):
+{
+  "action": "<skill_name | form_field_update | commit | cancel>",
+  "skill_md": "<string, optional>",
+  "metadata": { "<任意字段>", ... },
+  "turn_id": "<string>",
+  "session_id": "<string>",
+  "version": <int>
+}
+
+触发时机 (OpenAI SSE stream 兼容):
+- 在 chat.completion response 流里
+- 格式: event: <name>\ndata: <json>\n\n
+
+错误路径:
+- tray 解析失败 → 静默 + logger.warn (不阻断 chat flow)
+- agent emit 失败 → fallback text 走普通 text path (UI 没出来
+  时 user 仍能 chat 完整完成, 不卡死)
+```
+
+### tray 端实施 3 件事 (按 mavis memory "UI 设计前必查后端 pipeline" + Cherry-pick split bug 防护)
+
+1. **走 B 方案 (SSE event, 跟 AIMC `routing_decision` event 同 pattern)** — hermes-agent-cn 端 parse `/learn` / `/journey` command, SSE 流里塞自定义 event (5 个命名见上), tray 端 `chat-stream.ts:172-180` 已经在 SSE chunk 上抓 `routing_decision` — 加新 listener 时**共用**解析路径。**两侧都不本地 parse `/`**, 零冲突。
+2. **实施前 grep hermes-agent-cn 端 SSE event schema** — 避免跟 AIMC `routing_decision` 撞名 + 跟 hermes-cn 端 K-5 spec 对齐。
+3. **跟 hermes-cn 端 K-5 PR 一起 review** — SSE event 协议需要双方对齐, 不是 tray 单方面定。Event 命名 (5 个) / payload schema / 触发时机 / 错误路径 都要一起 spec (上面草稿先给个 baseline)。
 
 ### 不在 alpha-34 范围 (next sprint K-5 borrow 时再评估)
 
@@ -548,9 +582,9 @@ v0.3.0 大发版:
 
 ### 跨项目 cross-ref
 
-- hermes-agent-cn (WSL `~/hermes-agent-cn`) — K-5 PR 跟 tray alpha-34 同一 sprint review
-- AIMC (`D:\work\workspace\Qoder\aimc`) — `gateway/proxy.py:_forward_stream` SSE `event: routing_decision` 注入是同 pattern, 命名风格 (snake_case JSON payload) 可参考
-- hermes-cn (`D:\work\workspace\MiniMax\projects\hermes-agent-cn-notes\cross-pollination\2026-07-23-upstream-borrow\`) — CAND-080 剩余 sub-layers + K-5
+- hermes-agent-cn (WSL `~/hermes-agent-cn`) — K-5 PR 跟 tray alpha-34 同一 sprint review, SSE event schema 5 个 event 在 K-5 spec
+- AIMC (`D:\work\workspace\Qoder\aimc`) — `gateway/proxy.py:_forward_stream` SSE `event: routing_decision` 注入是同 pattern, 命名风格 (snake_case JSON payload) 跟 K-5 spec 对齐
+- hermes-cn (`D:\work\workspace\MiniMax\projects\hermes-agent-cn-notes\cross-pollination\2026-07-23-upstream-borrow\`) — CAND-080 剩余 sub-layers + K-5 + axiom 3 evolution loop (跟 评分 skill 输出 一并做)
 
 ---
 
