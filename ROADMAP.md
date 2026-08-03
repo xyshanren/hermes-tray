@@ -523,6 +523,37 @@ v0.3.0 大发版:
 
 ---
 
+## alpha-34+ tray 端跨项目增量 (2026-08-03 规划)
+
+> 来源: 2026-08-03 v0.2.2 试用 + hermes-agent-cn 端反馈。3 个新 feature 都依赖 **SSE event 协议 (B 方案, 跟 AIMC routing_decision event 同 pattern)**, 实施时跟 hermes-cn 端 K-5 PR 一起 review。
+
+### 范围 (alpha-34 起, 估时合计 ~1.6d tray + ~1.5d agent)
+
+| # | feature | tray | agent | 前提 |
+|---|---|---|---|---|
+| 12 | `/learn` 命令触发 UI (LearnModal) | ~0.3d | ~0.5d | SSE event schema (B) |
+| 13 | `/journey` 列表 + edit UI (Settings 新 section "Journeys") | ~0.5d | ~0.5d | SSE event schema (B) |
+| 14 | skill 评分 (per-skill rating, 1-5 星) | alpha-34+ 评估 | TBD | **先 confirm "skill 评分" 含义** |
+
+### 实施 3 件事 (按 mavis memory "UI 设计前必查后端 pipeline" + Cherry-pick split bug 防护)
+
+1. **走 B 方案 (SSE event, 跟 AIMC `routing_decision` event 同 pattern)** — hermes-agent-cn 端 parse `/learn`/`/journey` command, SSE 流里塞自定义 event (`event: learn_trigger` / `event: journey_list` / `event: journey_edit_request`), tray 端 `chat-stream.ts` 加 listener 弹 modal。**两侧都不本地 parse `/`**, 零冲突。
+2. **实施前 grep hermes-agent-cn 端 SSE event schema** — 避免跟 AIMC `routing_decision` event 撞名。Tray 端 `chat-stream.ts:172-180` 已经在 SSE chunk 上抓 `routing_decision`, 加新 listener 时**共用** 解析路径。
+3. **跟 hermes-cn 端 K-5 PR 一起 review** — B 方案的 SSE event 协议需要双方对齐, 不是 tray 单方面定。Event 命名 / payload 字段 / 触发时机 / 错误路径 都要一起 spec。
+
+### 不在 alpha-34 范围 (next sprint K-5 borrow 时再评估)
+
+- **`/goal` UI 触发** — 暂不需要, `/goal` 全 text-based, tray 现有 chat input 处理已够。如果未来 upstream `/goal` 加 modal (e.g. contract preview), 镜像即可, 标 "watch upstream `/goal`"。
+- **评价 agent output 按钮 (like / dislike)** — 2026-08-03 hermes-agent-cn 端确认**没有 feedback pipeline**, grep `feedback|like|dislike|thumbs|/v1/feedback` 0 hit → **不做** (memory 2026-08-03 lesson 防护)。
+
+### 跨项目 cross-ref
+
+- hermes-agent-cn (WSL `~/hermes-agent-cn`) — K-5 PR 跟 tray alpha-34 同一 sprint review
+- AIMC (`D:\work\workspace\Qoder\aimc`) — `gateway/proxy.py:_forward_stream` SSE `event: routing_decision` 注入是同 pattern, 命名风格 (snake_case JSON payload) 可参考
+- hermes-cn (`D:\work\workspace\MiniMax\projects\hermes-agent-cn-notes\cross-pollination\2026-07-23-upstream-borrow\`) — CAND-080 剩余 sub-layers + K-5
+
+---
+
 ## P2 candidates (deferred from v0.2, eligible for v0.3)
 
 | Item | Deferral reason | Re-eval when |
