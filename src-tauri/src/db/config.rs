@@ -107,10 +107,7 @@ mod tests {
     use crate::db::pool::{open_pool, Db};
 
     fn fresh_db() -> Db {
-        let dir = std::env::temp_dir().join(format!(
-            "hermes_config_test_{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir = std::env::temp_dir().join(format!("hermes_config_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let pool = open_pool(&dir.join("test.db")).unwrap();
         Db::new(pool)

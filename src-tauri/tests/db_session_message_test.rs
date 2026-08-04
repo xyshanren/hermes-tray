@@ -73,7 +73,10 @@ fn session_list_paginates() {
 fn session_update_partial_title_only() {
     let (_pool, dao) = fresh_db();
 
-    let created = dao.session().create("Initial", None, None, None, None).unwrap();
+    let created = dao
+        .session()
+        .create("Initial", None, None, None, None)
+        .unwrap();
     let updated = dao
         .session()
         .update(
@@ -132,7 +135,10 @@ fn session_update_can_clear_nullable_field() {
 fn session_delete_cascades_to_messages() {
     let (_pool, dao) = fresh_db();
 
-    let session = dao.session().create("to-delete", None, None, None, None).unwrap();
+    let session = dao
+        .session()
+        .create("to-delete", None, None, None, None)
+        .unwrap();
     let msg = dao
         .message()
         .append(&session.id, "user", "hi", None)
@@ -162,7 +168,10 @@ fn session_delete_cascades_to_messages() {
 #[test]
 fn message_append_then_get_round_trips() {
     let (_pool, dao) = fresh_db();
-    let s = dao.session().create("test", None, None, None, None).unwrap();
+    let s = dao
+        .session()
+        .create("test", None, None, None, None)
+        .unwrap();
 
     let msg = dao
         .message()
@@ -182,7 +191,10 @@ fn message_append_then_get_round_trips() {
 #[test]
 fn message_list_by_session_orders_by_created_at() {
     let (_pool, dao) = fresh_db();
-    let s = dao.session().create("test", None, None, None, None).unwrap();
+    let s = dao
+        .session()
+        .create("test", None, None, None, None)
+        .unwrap();
 
     let m1 = dao.message().append(&s.id, "user", "first", None).unwrap();
     let m2 = dao
@@ -214,7 +226,10 @@ fn message_list_by_session_orders_by_created_at() {
 #[test]
 fn message_count_tokens_sums_correctly() {
     let (pool, dao) = fresh_db();
-    let s = dao.session().create("test", None, None, None, None).unwrap();
+    let s = dao
+        .session()
+        .create("test", None, None, None, None)
+        .unwrap();
 
     // Manually append with custom token counts via raw UPDATE since
     // MessageDAO::append hardcodes tokens=0. We use a transaction-free
@@ -238,7 +253,10 @@ fn message_count_tokens_sums_correctly() {
 #[test]
 fn message_invalid_role_rejected() {
     let (_pool, dao) = fresh_db();
-    let s = dao.session().create("test", None, None, None, None).unwrap();
+    let s = dao
+        .session()
+        .create("test", None, None, None, None)
+        .unwrap();
 
     let err = dao
         .message()
@@ -253,7 +271,10 @@ fn message_invalid_role_rejected() {
 #[test]
 fn message_delete_decrements_msg_count() {
     let (_pool, dao) = fresh_db();
-    let s = dao.session().create("test", None, None, None, None).unwrap();
+    let s = dao
+        .session()
+        .create("test", None, None, None, None)
+        .unwrap();
     let m = dao.message().append(&s.id, "user", "x", None).unwrap();
 
     // After append, msg_count should be 1.
@@ -271,7 +292,10 @@ fn message_delete_decrements_msg_count() {
 #[test]
 fn message_record_usage_replaces_heuristic_with_real_tokens() {
     let (_pool, dao) = fresh_db();
-    let s = dao.session().create("test", None, None, None, None).unwrap();
+    let s = dao
+        .session()
+        .create("test", None, None, None, None)
+        .unwrap();
     let m = dao
         .message()
         .append(&s.id, "assistant", "long reply here", None)
@@ -293,7 +317,10 @@ fn message_record_usage_replaces_heuristic_with_real_tokens() {
 #[test]
 fn message_record_usage_stashes_image_tokens_in_metadata() {
     let (_pool, dao) = fresh_db();
-    let s = dao.session().create("test", None, None, None, None).unwrap();
+    let s = dao
+        .session()
+        .create("test", None, None, None, None)
+        .unwrap();
     let m = dao
         .message()
         .append(&s.id, "user", "see screenshot", None)
@@ -325,7 +352,10 @@ fn message_record_usage_stashes_image_tokens_in_metadata() {
 #[test]
 fn message_record_usage_preserves_existing_metadata() {
     let (_pool, dao) = fresh_db();
-    let s = dao.session().create("test", None, None, None, None).unwrap();
+    let s = dao
+        .session()
+        .create("test", None, None, None, None)
+        .unwrap();
     let m = dao
         .message()
         .append(&s.id, "user", "with attachment", None)
@@ -365,7 +395,10 @@ fn message_record_usage_does_not_underflow_session_total() {
     // heuristic (rare but possible for short reasoning-only responses),
     // session.total_tokens must floor at 0, not go negative.
     let (_pool, dao) = fresh_db();
-    let s = dao.session().create("test", None, None, None, None).unwrap();
+    let s = dao
+        .session()
+        .create("test", None, None, None, None)
+        .unwrap();
     let m = dao
         .message()
         .append(&s.id, "assistant", "this is thirty six chars, hi", None)
@@ -396,7 +429,10 @@ fn message_record_usage_persists_s12_cost_columns() {
     // + cost_threshold_exceeded INTEGER 0/1) AND mirror them into the
     // metadata JSON blob so legacy json_extract readers still work.
     let (_pool, dao) = fresh_db();
-    let s = dao.session().create("cost-test", None, None, None, None).unwrap();
+    let s = dao
+        .session()
+        .create("cost-test", None, None, None, None)
+        .unwrap();
     let m = dao
         .message()
         .append(&s.id, "assistant", "expensive reasoning", None)
@@ -550,7 +586,10 @@ fn migrations_apply_v4_cost_columns() {
     );
 
     // Insert a row and read back the defaults explicitly.
-    let s = dao.session().create("mig-test", None, None, None, None).unwrap();
+    let s = dao
+        .session()
+        .create("mig-test", None, None, None, None)
+        .unwrap();
     let m = dao
         .message()
         .append(&s.id, "user", "hello", None)

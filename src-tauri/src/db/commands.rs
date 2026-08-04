@@ -341,9 +341,7 @@ fn compute_token_stats(db: &Db, period: &str) -> Result<TokenStats, String> {
     // useful for budgeting) and zero the cost — the frontend can
     // decide to render the cell as "—" instead of "$0.00" if it
     // wants a clearer visual.
-    let is_pricing_known = |model: &str| -> bool {
-        !model.trim().is_empty() && model != "unknown"
-    };
+    let is_pricing_known = |model: &str| -> bool { !model.trim().is_empty() && model != "unknown" };
     let mut by_model_vec: Vec<ModelBucket> = by_model
         .into_iter()
         .map(|(model, (in_t, out_t, count))| {

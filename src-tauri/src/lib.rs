@@ -9,10 +9,10 @@ use db::{init_db, Db};
 
 pub use db::commands::{
     db_config_get, db_config_reset_all, db_config_set, export_session_json,
-    export_session_markdown, message_append, message_delete, message_list,
-    message_record_usage, persona_create, persona_delete, persona_get, persona_list,
-    persona_update, project_scan, session_clear_all, session_create, session_delete,
-    session_get, session_list, session_search, session_touch, session_update, token_stats,
+    export_session_markdown, message_append, message_delete, message_list, message_record_usage,
+    persona_create, persona_delete, persona_get, persona_list, persona_update, project_scan,
+    session_clear_all, session_create, session_delete, session_get, session_list, session_search,
+    session_touch, session_update, token_stats,
 };
 pub use db::pool::seed_builtin_personas;
 
@@ -393,8 +393,7 @@ fn hermes_save_config(app: tauri::AppHandle, updates: serde_json::Value) -> Resu
 fn hermes_reset_config(app: tauri::AppHandle) -> Result<(), String> {
     let new_path = resolve_config_dir(&app).join("config.json");
     if new_path.exists() {
-        std::fs::remove_file(&new_path)
-            .map_err(|e| format!("删除 config.json 失败: {}", e))?;
+        std::fs::remove_file(&new_path).map_err(|e| format!("删除 config.json 失败: {}", e))?;
         log::info!("Deleted legacy config at {}", new_path.display());
     }
     // Also wipe any legacy fallback locations (v0.1.x compat).
@@ -1620,7 +1619,7 @@ pub fn run() {
             session_create,
             session_update,
             session_delete,
-            session_clear_all,    // alpha-14: wipe all sessions
+            session_clear_all, // alpha-14: wipe all sessions
             session_search,
             session_touch,
             message_append,
@@ -1630,7 +1629,7 @@ pub fn run() {
             // T-Q-S1.3 — db_config table (SQLite K/V)
             db_config_get,
             db_config_set,
-            db_config_reset_all,  // alpha-14: wipe all db_config rows
+            db_config_reset_all, // alpha-14: wipe all db_config rows
             // T-Q-S7 — Persona library (also serves as session templates)
             persona_list,
             persona_get,

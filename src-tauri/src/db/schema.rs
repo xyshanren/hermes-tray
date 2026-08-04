@@ -149,10 +149,8 @@ mod tests {
         use serde_json::json;
 
         fn fresh_pool() -> DbPool {
-            let dir = std::env::temp_dir().join(format!(
-                "hermes_stripprefix_{}",
-                uuid::Uuid::new_v4()
-            ));
+            let dir =
+                std::env::temp_dir().join(format!("hermes_stripprefix_{}", uuid::Uuid::new_v4()));
             std::fs::create_dir_all(&dir).unwrap();
             // Run all migrations (1..5) on the fresh DB so the
             // sessions table is present.
