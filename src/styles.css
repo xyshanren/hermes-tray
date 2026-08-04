@@ -819,6 +819,23 @@ html, body {
   border-color: var(--accent-color, #6366f1);
   background: rgba(99, 102, 241, 0.08);
 }
+/* v0.3.0 P1-1 — selected chip in the first-run welcome card
+ * (design 06). Subtle indigo tint, a thicker brand border, and the
+ * avatar icon swaps to a check so the user can see at a glance
+ * which persona the CTA will use. The :focus ring stays on top of
+ * the .selected fill so keyboard navigation doesn't lose the focus
+ * affordance. */
+.persona-chip.selected {
+  border-color: var(--primary);
+  background: rgba(91, 108, 255, 0.14);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+.persona-chip.selected .persona-chip-avatar {
+  background: rgba(91, 108, 255, 0.25);
+}
+.persona-chip.selected .persona-chip-name {
+  color: var(--primary);
+}
 .persona-chip-avatar {
   font-size: 22px;
   width: 36px;
@@ -1000,6 +1017,14 @@ html, body {
    * changes .messages from flex-column to block/flow layout.
    * (alpha-25 regression took 4 rounds to fix — belt & suspenders.) */
   margin-left: auto;
+  /* v0.3.0 P1-8 — stack the bubble content + attachment strip on top
+   * of each other instead of side-by-side. Without this, a single
+   * thumbs-up message with one image would render the text + image
+   * on the same row and stretch the bubble to the viewport edge.
+   * column direction also guarantees the right-alignment of the text
+   * + images happens naturally — both children shrink to fit. */
+  flex-direction: column;
+  align-items: flex-end;
 }
 
 .message-avatar {
@@ -1117,6 +1142,98 @@ html, body {
   40% { transform: translateY(-6px); }
 }
 
+/* v0.3.0 P1-10 — Markdown typography and GFM polish. Keep these
+ * rules scoped to rendered assistant content so the surrounding chat
+ * layout and user bubbles are unaffected. */
+.message-content p {
+  margin: 0.65em 0;
+}
+.message-content p:first-child {
+  margin-top: 0;
+}
+.message-content p:last-child {
+  margin-bottom: 0;
+}
+.message-content h1,
+.message-content h2,
+.message-content h3 {
+  color: var(--text-primary);
+  line-height: 1.3;
+  font-weight: 650;
+  margin: 1.1em 0 0.55em;
+}
+.message-content h1 { font-size: 1.4em; }
+.message-content h2 { font-size: 1.25em; }
+.message-content h3 { font-size: 1.1em; }
+.message-content h1:first-child,
+.message-content h2:first-child,
+.message-content h3:first-child {
+  margin-top: 0;
+}
+.message-content a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-decoration-color: var(--text-muted);
+  text-underline-offset: 2px;
+}
+.message-content a:hover {
+  text-decoration-color: currentColor;
+}
+.message-content ul,
+.message-content ol {
+  margin: 0.65em 0;
+  padding-left: 1.5em;
+}
+.message-content li {
+  margin: 0.25em 0;
+}
+.message-content ul.contains-task-list {
+  list-style: none;
+  padding-left: 0;
+}
+.message-content li.task-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+  list-style: none;
+}
+.message-content li.task-list-item input[type="checkbox"] {
+  width: 1em;
+  height: 1em;
+  margin: 0.3em 0 0;
+  accent-color: var(--primary);
+  flex: 0 0 auto;
+}
+.message-content blockquote {
+  margin: 0.8em 0;
+}
+.message-content table {
+  width: 100%;
+  margin: 0.9em 0;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.message-content th,
+.message-content td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.message-content th {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.message-content tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--bg-tertiary) 35%, transparent);
+}
+.message-content hr {
+  margin: 1.2em 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
 /* Code blocks */
 .message-content pre {
   /* v0.2-alpha-31.1 — use design tokens instead of hard-coded
@@ -1168,9 +1285,19 @@ html, body {
 }
 
 .message-content code:not(pre code) {
+  /* v0.3.0 P1-10 — inline-code chip polish. The previous rule had
+   * 2px 6px padding + 4px radius + a flat tertiary background that
+   * disappeared into surrounding text on dark theme. Bumped radius
+   * to 5px and added a 1px border tinted from the text-secondary
+   * token so the chip reads distinctly on both themes. Font size
+   * slightly smaller (12.5 vs 13) so multi-line wraps within prose
+   * paragraphs sit comfortably. */
   background: var(--bg-tertiary);
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  color: #c7254e;
 }
 
 /* v0.3 Phase 4 — hljs token color overrides for CJK legibility.
@@ -1368,6 +1495,69 @@ html, body {
   margin: 4px 0;
 }
 
+/* v0.3.0 P1-10 — nested list indent (markdown renders >1 level deep
+ * via nested <ul>/<ol>; without this fix the inner bullets sit flush
+ * with the outer text and look broken). */
+.message-content li > ul,
+.message-content li > ol {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+/* v0.3.0 P1-10 — task list checkboxes emitted by marked from
+ * `- [ ]` / `- [x]`. We disable the native checkbox (rendered for
+ * semantics + a11y) and let our custom tick stand in for a clean
+ * look on both themes. */
+.message-content ul.contains-task-list {
+  list-style: none;
+  padding-left: 4px;
+}
+.message-content .task-list-item {
+  list-style: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-left: 0;
+}
+.message-content .task-list-item input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--text-secondary);
+  border-radius: 3px;
+  background: var(--bg-primary);
+  margin: 2px 0 0;
+  cursor: default;
+  position: relative;
+  flex-shrink: 0;
+}
+.message-content .task-list-item input[type="checkbox"]:checked {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.message-content .task-list-item input[type="checkbox"]:checked::after {
+  content: "✓";
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  position: absolute;
+  top: -3px;
+  left: 2px;
+  line-height: 1;
+}
+
+/* v0.3.0 P1-10 — `<hr>` separators. marked emits horizontal rules
+ * with <hr>; we give them a subtle muted tint rather than the
+ * default 3D-inset shading that looks dated against the flat
+ * surfaces. */
+.message-content hr {
+  border: none;
+  height: 1px;
+  background: var(--border);
+  margin: 14px 0;
+}
+
 .message-content blockquote {
   border-left: 3px solid var(--primary);
   padding-left: 12px;
@@ -1376,21 +1566,39 @@ html, body {
 }
 
 .message-content h1, .message-content h2, .message-content h3 {
-  margin: 12px 0 8px;
+  /* v0.3.0 P1-10 — heading rhythm. marked emits h1..h6; we focus on
+   * the top three which are the common case. h4-h6 inherit the h3
+   * size + weight via the cascade so longer docs don't blow up the
+   * bubble. Bumped h1 to 1.4em (was 1.25) for clearer hierarchy
+   * — the old sizes were too close to body text and read like
+   * emphasis rather than structure. */
+  margin: 14px 0 8px;
   font-weight: 600;
+  line-height: 1.3;
 }
 
-.message-content h1 { font-size: 1.25em; }
-.message-content h2 { font-size: 1.15em; }
-.message-content h3 { font-size: 1.05em; }
+.message-content h1 {
+  font-size: 1.4em;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.message-content h2 { font-size: 1.2em; }
+.message-content h3 { font-size: 1.08em; color: var(--text-secondary); }
 
 .message-content a {
   color: var(--primary);
   text-decoration: none;
+  /* v0.3.0 P1-10 — underline on hover stays (existing) but we also
+   * add a subtle dotted underline on focus-visible so keyboard users
+   * get the same affordance without losing focus styling. */
 }
-
 .message-content a:hover {
   text-decoration: underline;
+}
+.message-content a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 /* Markdown Tables */
@@ -3349,6 +3557,15 @@ html, body {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
+  /* v0.3.0 P1-5 — force the strip to take the full bubble width when
+   * the user bubble is laid out horizontally (`.message.user` had
+   * flex-direction: row before P1-8). Without this, attachments
+   * sit on the same row as the text and stretch the bubble. P1-8's
+   * flex-direction: column already flips this automatically; we
+   * keep `flex-basis: 100%` as belt-and-suspenders so a stray
+   * regression to the row layout still leaves the strip on its own
+   * line instead of overflowing into the viewport. */
+  flex-basis: 100%;
 }
 
 .message-attachment {

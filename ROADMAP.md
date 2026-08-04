@@ -622,6 +622,40 @@ Payload schema (snake_case JSON):
 
 ---
 
+## alpha-33a 输出文件路径问题（2026-08-04 发现）
+
+> 来源: hermes-tray + hermes-agent-cn WSL 联调。这个问题不是单纯的 tray UI bug：当前 tray 只把会话的 `project_dir` / `project_context` 注入 system prompt，真正创建文件的工具执行发生在 hermes-agent-cn 端，因此必须由两侧共同定义并落实输出目录契约。
+
+### 现象
+
+- 会话要求输出临时 Python / TXT / Markdown 或最终文档时，agent 可能直接写入 WSL `~`（home）。
+- 输出目录可能被临时创建为不可预测的名称，用户在 Windows 侧无法稳定找到、管理或归档。
+- 没有区分临时产物与最终交付物，也没有明确“当前会话工作区”与“项目目录”的关系。
+
+### 规范方案（待 tray + agent-cn 联合实现）
+
+1. **有项目目录时**：所有会话产物默认写入当前会话的 `project_dir`，不得写入 WSL home；建议固定子目录：`.hermes/working/<session_id>/`（临时文件）和 `.hermes/outputs/<session_id>/`（最终交付物）。
+2. **无项目目录时**：由 agent 端使用显式、可配置的 Hermes 工作区根目录（例如 `~/hermes-workspaces/<session_id>/`），不得散落写入 `~` 直接层级；tray 需要能显示该目录并提供打开入口。
+3. **文件分类**：临时脚本、调试日志、中间图片进入 `working`；用户明确要求保留/下载/交付的文件进入 `outputs`。禁止使用随机目录名，目录名至少包含稳定的 session 标识。
+4. **路径契约**：tray 在请求上下文中传递 `session_id`、`project_dir` 和规范化的 output policy；agent 负责工具执行侧的 cwd / 路径约束，不能只依赖模型口头遵守 system prompt。
+5. **可见性**：SSE 完成事件或专用 artifact event 返回生成文件的相对路径、类型和临时/最终分类；tray 在消息下提供文件列表、复制路径和打开所在目录的入口。
+6. **安全边界**：agent 端必须拒绝越过 workspace/project root 的写入路径与 `..` traversal；tray 端展示的路径必须来自 agent 返回的受约束 artifact 元数据，不把任意模型文本当作可执行路径。
+
+### 实施拆分
+
+- **hermes-agent-cn K-6（前置）**：定义并实施 workspace/output policy、工具执行 cwd、路径校验、artifact SSE schema；覆盖无项目目录和 WSL→Windows 路径映射。
+- **hermes-tray alpha-34+**：在 chat request 传递 policy/session 标识，消费 artifact 事件，展示临时/最终文件并提供打开目录；实施前先与 agent-cn schema 联合 review。
+- **本轮不在 alpha-33a 直接改 Rust 或伪造 tray 侧保存逻辑**：tray 没有 agent 工具执行权限，单侧实现无法阻止 WSL home 写入。
+
+### 验收标准
+
+- 有项目会话不再在 WSL `~` 直接创建文件。
+- 同一会话的临时文件和最终文件可预测、可区分、可定位。
+- 无项目会话的产物也集中在专用 workspace，不污染 home 顶层。
+- tray 能显示 artifact 相对路径，且路径越界与恶意路径不会被执行或打开。
+
+---
+
 ## P2 candidates (deferred from v0.2, eligible for v0.3)
 
 | Item | Deferral reason | Re-eval when |
