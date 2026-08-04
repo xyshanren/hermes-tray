@@ -78,54 +78,74 @@ function WelcomeBubble({ context }: { context: WelcomeContext | null }) {
 }
 
 /**
- * v0.2-alpha-20 — First-run welcome (design 06 main-card variant).
+ * v0.3.0 P1-1 — First-run welcome (design 06 main-card variant).
  *
  * Bigger, friendlier version of WelcomeBubble used on first launch
  * (no sessions in DB yet). Centered card with logo, description,
  * recommended-persona chips, the primary "create first session" CTA,
- * and a keyboard-shortcuts hint footer. main.ts wires the CTA to
- * createSession(); the chips surface the same personas the user
- * will see in the picker (cosmetic for now — clicking a chip also
- * creates the session).
+ * and a keyboard-shortcuts hint footer.
+ *
+ * The chip click is a SELECT step (not a create) — see ROADMAP
+ * §v0.3.0 P1-1. Clicking a chip highlights it (`.persona-chip.selected`
+ * + `aria-pressed="true"`) and lets the CTA copy mutate to e.g.
+ * "用 hermes-agent 开始 →". The CTA click is the only thing that
+ * actually creates the session; main.ts then clears the chip
+ * selection via `chatWelcomeStore.setSelectedWelcomePersona(null)`.
  */
 function FirstRunWelcome({
   onCreateSession,
   recommendedPersonas,
+  selectedPersonaName,
+  onSelectPersona,
 }: {
   onCreateSession: () => void;
   recommendedPersonas: { avatar: string; name: string; tag: string }[];
+  /** Currently-highlighted persona name (from chatWelcomeStore). */
+  selectedPersonaName: string | null;
+  /** Click on a chip — sets the selection, does NOT create a session. */
+  onSelectPersona: (name: string) => void;
 }) {
+  const ctaLabel = selectedPersonaName
+    ? `用 ${selectedPersonaName} 开始 →`
+    : "创建第一个会话 →";
   return (
     <div class="welcome-card first-run-welcome" role="region" aria-label="首次使用引导">
       <div class="welcome-card-logo" aria-hidden="true">💬</div>
       <h2 class="welcome-card-title">欢迎使用 Hermes Chat</h2>
       <p class="welcome-card-desc">
         Hermes 是你的本地 AI 对话助手，支持多会话管理、Token 成本统计与加密备份。
-        选择一个 Persona 开始你的第一次对话。
+        {selectedPersonaName
+          ? `已选择 ${selectedPersonaName}，点击下方按钮开始你的第一次对话。`
+          : "选择一个 Persona 开始你的第一次对话。"}
       </p>
       <div class="welcome-card-divider">推荐 Persona</div>
       <div class="welcome-card-personas">
-        {recommendedPersonas.map((p) => (
-          <button
-            key={p.name}
-            type="button"
-            class="persona-chip"
-            onClick={onCreateSession}
-          >
-            <span class="persona-chip-avatar" aria-hidden="true">{p.avatar}</span>
-            <span class="persona-chip-text">
-              <span class="persona-chip-name">{p.name}</span>
-              <span class="persona-chip-tag">{p.tag}</span>
-            </span>
-          </button>
-        ))}
+        {recommendedPersonas.map((p) => {
+          const isSelected = p.name === selectedPersonaName;
+          return (
+            <button
+              key={p.name}
+              type="button"
+              class={`persona-chip${isSelected ? " selected" : ""}`}
+              aria-pressed={isSelected}
+              data-persona-name={p.name}
+              onClick={() => onSelectPersona(p.name)}
+            >
+              <span class="persona-chip-avatar" aria-hidden="true">{p.avatar}</span>
+              <span class="persona-chip-text">
+                <span class="persona-chip-name">{p.name}</span>
+                <span class="persona-chip-tag">{p.tag}</span>
+              </span>
+            </button>
+          );
+        })}
       </div>
       <button
         type="button"
         class="btn btn-primary welcome-card-cta"
         onClick={onCreateSession}
       >
-        创建第一个会话 →
+        {ctaLabel}
       </button>
       <p class="welcome-card-shortcuts">
         或按 <kbd>Ctrl</kbd>+<kbd>K</kbd> 快速搜索 · <kbd>Ctrl</kbd>+<kbd>N</kbd> 新建会话
@@ -216,6 +236,25 @@ function AssistantBubble({ msg }: { msg: ChatMessage }) {
   // flush-left with their avatar and have NO background chip
   // (transparent assistant-bg, see styles.css :root). The avatar
   // stays as the visual anchor on the left edge.
+  //
+  // v0.3.0 P1-9 — Copy Markdown button. We copy the raw `msg.content`
+  // (still in markdown form, NOT the rendered HTML) so pasting into
+  // another editor / GitHub PR keeps code fences, links, table syntax
+  // intact. The button is hidden by default and surfaces on hover
+  // (CSS `.message.assistant:hover .bubble-copy-btn`) — it's there
+  // when needed but doesn't compete with the reply text. After click
+  // we flip the label to "✓" for ~1.8s as visible feedback, then
+  // restore the clipboard icon.
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(msg.content);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch (e) {
+      console.error("[P1-9] Copy markdown failed:", e);
+    }
+  };
   return (
     <div class="message assistant">
       <div class="message-avatar">🤖</div>
@@ -227,6 +266,15 @@ function AssistantBubble({ msg }: { msg: ChatMessage }) {
         // threat model.
         dangerouslySetInnerHTML={{ __html: formatMessage(msg.content) }}
       />
+      <button
+        type="button"
+        class={`bubble-copy-btn${copied ? " copied" : ""}`}
+        title={copied ? "已复制 Markdown" : "复制 Markdown 源码"}
+        aria-label={copied ? "已复制 Markdown" : "复制 Markdown 源码"}
+        onClick={handleCopy}
+      >
+        <span aria-hidden="true">{copied ? "✓" : "📋"}</span>
+      </button>
       {msg.bar ? <MessageBar bar={msg.bar} /> : null}
     </div>
   );
@@ -409,6 +457,8 @@ export function ChatView({
   onOpenSettings,
   recommendedPersonas,
   gatewayHint,
+  selectedPersonaName,
+  onSelectPersona,
 }: {
   welcomeContext?: WelcomeContext | null;
   onCreateSession?: () => void;
@@ -420,6 +470,12 @@ export function ChatView({
   recommendedPersonas?: { avatar: string; name: string; tag: string }[];
   /** Human-readable gateway hint shown in the no-network card. */
   gatewayHint?: string;
+  /** v0.3.0 P1-1 — currently-highlighted persona chip in the
+   *  first-run welcome card. Driven by `chatWelcomeStore
+   *  .selectedWelcomePersona` via ChatViewWithWelcome. */
+  selectedPersonaName?: string | null;
+  /** v0.3.0 P1-1 — chip click handler (select only, no create). */
+  onSelectPersona?: (name: string) => void;
 }) {
   const [state, setState] = useState<ChatStoreState>(chatStore.get());
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -499,6 +555,8 @@ export function ChatView({
         <FirstRunWelcome
           onCreateSession={() => onCreateSession?.()}
           recommendedPersonas={personas}
+          selectedPersonaName={selectedPersonaName ?? null}
+          onSelectPersona={(name) => onSelectPersona?.(name)}
         />
       ) : null}
       {showStandardWelcome ? <WelcomeBubble context={welcomeContext ?? null} /> : null}
@@ -532,10 +590,21 @@ function messageKey(m: ChatMessage & { id?: string }): string {
 
 interface WelcomeStore {
   context: WelcomeContext | null;
+  /**
+   * v0.3.0 P1-1 — name of the persona chip the user clicked in the
+   * first-run welcome card (design 06). Drives the highlighted chip
+   * + the dynamic CTA copy ("用 {name} 开始 →"). Cleared to null
+   * when a new session is created (one-shot UX — the chip selection
+   * doesn't follow the user into the subsequent session).
+   */
+  selectedWelcomePersona: string | null;
 }
 
 const welcomeListeners = new Set<(s: WelcomeStore) => void>();
-let welcomeState: WelcomeStore = { context: null };
+let welcomeState: WelcomeStore = {
+  context: null,
+  selectedWelcomePersona: null,
+};
 
 function notifyWelcome(): void {
   for (const l of welcomeListeners) l(welcomeState);
@@ -546,7 +615,19 @@ export const chatWelcomeStore = {
     return welcomeState;
   },
   setContext(context: WelcomeContext | null): void {
-    welcomeState = { context };
+    if (welcomeState.context === context) return;
+    welcomeState = { ...welcomeState, context };
+    notifyWelcome();
+  },
+  /**
+   * v0.3.0 P1-1 — set the highlighted persona chip. Pass `null` to
+   * clear (called from main.ts after a successful session_create so
+   * the next time the first-run card shows it's back to its default
+   * state).
+   */
+  setSelectedWelcomePersona(name: string | null): void {
+    if (welcomeState.selectedWelcomePersona === name) return;
+    welcomeState = { ...welcomeState, selectedWelcomePersona: name };
     notifyWelcome();
   },
   subscribe(listener: (s: WelcomeStore) => void): () => void {
@@ -571,6 +652,9 @@ export interface ChatViewActions {
   gatewayHint?: string;
   /** Persona chips for the first-run welcome card. */
   recommendedPersonas?: { avatar: string; name: string; tag: string }[];
+  /** v0.3.0 P1-1 — chip click handler wired in main.ts to
+   *  `chatWelcomeStore.setSelectedWelcomePersona`. */
+  onSelectPersona?: (name: string) => void;
 }
 
 /**
@@ -578,6 +662,10 @@ export interface ChatViewActions {
  * `chatWelcomeStore` and passes the latest context into <ChatView>.
  * main.ts renders this single component; the input form + sidebar +
  * header all stay outside the Preact tree for now (alpha-17 scope).
+ *
+ * v0.3.0 P1-1: also subscribes to `chatWelcomeStore.selectedWelcomePersona`
+ * so the first-run persona chip stays highlighted as the user clicks
+ * around without re-rendering <ChatView> on unrelated fields.
  */
 export function ChatViewWithWelcome({ actions }: { actions?: ChatViewActions } = {}) {
   const [welcome, setWelcome] = useState<WelcomeStore>(chatWelcomeStore.get());
@@ -590,6 +678,8 @@ export function ChatViewWithWelcome({ actions }: { actions?: ChatViewActions } =
       onOpenSettings={actions?.onOpenSettings}
       gatewayHint={actions?.gatewayHint}
       recommendedPersonas={actions?.recommendedPersonas}
+      selectedPersonaName={welcome.selectedWelcomePersona}
+      onSelectPersona={actions?.onSelectPersona}
     />
   );
 }

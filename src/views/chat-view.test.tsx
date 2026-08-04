@@ -329,6 +329,7 @@ describe("<ChatView /> (render shell)", () => {
 
   it("renders the first-run welcome card when online + !hasSessions (design 06)", () => {
     const onCreateSession = vi.fn();
+    const onSelectPersona = vi.fn();
     chatStore.setConnectionStatus("online");
     chatStore.setHasSessions(false);
     const host = document.createElement("div");
@@ -336,6 +337,7 @@ describe("<ChatView /> (render shell)", () => {
     render(
       <ChatView
         onCreateSession={onCreateSession}
+        onSelectPersona={onSelectPersona}
         recommendedPersonas={[
           { avatar: "🦊", name: "hermes-agent", tag: "通用助手" },
           { avatar: "🛡", name: "code-reviewer", tag: "代码审查" },
@@ -350,14 +352,71 @@ describe("<ChatView /> (render shell)", () => {
     expect(card!.textContent).toContain("code-reviewer");
     expect(card!.textContent).toContain("通用助手");
     expect(card!.textContent).toContain("代码审查");
+    // v0.3.0 P1-1: default CTA copy is the unselected "create session" label.
     const cta = card!.querySelector(".welcome-card-cta") as HTMLButtonElement;
     expect(cta.textContent).toContain("创建第一个会话");
+    // v0.3.0 P1-1: clicking a chip is a SELECT, not a CREATE.
+    // Regression guard for the pre-fix bug where chip.click() also
+    // called onCreateSession (the path that the test for this card
+    // had been locking in since alpha-20).
+    const chips = card!.querySelectorAll(".persona-chip");
+    (chips[0] as HTMLButtonElement).click();
+    expect(onCreateSession).toHaveBeenCalledTimes(0);
+    expect(onSelectPersona).toHaveBeenCalledTimes(1);
+    expect(onSelectPersona).toHaveBeenCalledWith("hermes-agent");
+    // The chip carries data-persona-name + aria-pressed="false" by
+    // default; clicking it flips aria-pressed to "true" + adds the
+    // .selected class. (Test below confirms the post-set highlight
+    // path via re-render.)
+    expect((chips[0] as HTMLElement).getAttribute("data-persona-name")).toBe("hermes-agent");
+    expect((chips[0] as HTMLElement).getAttribute("aria-pressed")).toBe("false");
+    expect((chips[1] as HTMLElement).getAttribute("aria-pressed")).toBe("false");
+    // Restore for subsequent tests.
+    chatStore.setHasSessions(true);
+  });
+
+  it("renders the first-run welcome card with the selected chip highlighted + dynamic CTA copy", () => {
+    const onCreateSession = vi.fn();
+    const onSelectPersona = vi.fn();
+    chatStore.setConnectionStatus("online");
+    chatStore.setHasSessions(false);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    render(
+      <ChatView
+        onCreateSession={onCreateSession}
+        onSelectPersona={onSelectPersona}
+        selectedPersonaName="code-reviewer"
+        recommendedPersonas={[
+          { avatar: "🦊", name: "hermes-agent", tag: "通用助手" },
+          { avatar: "🛡", name: "code-reviewer", tag: "代码审查" },
+        ]}
+      />,
+      host,
+    );
+    const card = host.querySelector(".first-run-welcome");
+    expect(card).not.toBeNull();
+    const chips = card!.querySelectorAll(".persona-chip");
+    const codeReviewerChip = Array.from(chips).find(
+      (c) => (c as HTMLElement).dataset.personaName === "code-reviewer",
+    ) as HTMLButtonElement;
+    expect(codeReviewerChip).toBeTruthy();
+    expect(codeReviewerChip.getAttribute("aria-pressed")).toBe("true");
+    expect(codeReviewerChip.classList.contains("selected")).toBe(true);
+    const hermesAgentChip = Array.from(chips).find(
+      (c) => (c as HTMLElement).dataset.personaName === "hermes-agent",
+    ) as HTMLButtonElement;
+    expect(hermesAgentChip.getAttribute("aria-pressed")).toBe("false");
+    expect(hermesAgentChip.classList.contains("selected")).toBe(false);
+    // CTA copy changes to "用 {name} 开始 →" when something is selected.
+    const cta = card!.querySelector(".welcome-card-cta") as HTMLButtonElement;
+    expect(cta.textContent).toContain("用 code-reviewer 开始");
+    // The selected chip's presence is also reflected in the description copy.
+    expect(card!.textContent).toContain("已选择 code-reviewer");
+    // Only the CTA click creates the session, not the chip click.
     cta.click();
     expect(onCreateSession).toHaveBeenCalledTimes(1);
-    // Persona chip click should also call onCreateSession.
-    const chip = card!.querySelector(".persona-chip") as HTMLButtonElement;
-    chip.click();
-    expect(onCreateSession).toHaveBeenCalledTimes(2);
+    expect(onSelectPersona).not.toHaveBeenCalled();
     // Restore for subsequent tests.
     chatStore.setHasSessions(true);
   });

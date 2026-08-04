@@ -6,6 +6,13 @@
 
 ---
 
+## alpha-33a（未发布）
+
+- **前端体验修复**：persona 欢迎卡选择、粘贴图片附件、附件布局、30 秒健康检查防止选中文本丢失、用户气泡右对齐、assistant Markdown 源码复制。
+- **Markdown 样式完善**：段落、标题层级、链接、列表、task list、表格、分隔线和 inline code 样式补全。
+- **输出文件路径问题记录**：确认临时文件和最终文档落入 WSL home 顶层的根因跨越 tray 与 hermes-agent-cn；新增联合 workspace/output policy，待 agent-cn K-6 先定义工具执行 cwd、路径安全和 artifact SSE schema 后，由 tray alpha-34+ 接入。
+---
+
 ## v0.2.2 (2026-07-27)
 
 **v0.2.1 上的 patch** — rebrand 真正走到 binary (产品名/zh-CN installer/tray tooltip 都跟),外加 master CI 红了一段的 alpha-23/31 drift 全清。装 v0.2.1 的用户**不用强升**(业务代码 0 改动);想要中文产品名 / zh-CN MSI / 装/卸一致中文界面的装这版。

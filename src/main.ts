@@ -484,7 +484,7 @@ async function selectSession(id: string): Promise<void> {
   syncProjectPickerStore();
 }
 
-async function createSession(): Promise<string | null> {
+async function createSession(welcomePersonaName?: string | null): Promise<string | null> {
   try {
     // T-Q-S8: if a default project path is configured, scan it and attach
     // the result to the new session. The scan is best-effort — if it
@@ -504,6 +504,19 @@ async function createSession(): Promise<string | null> {
       }
     }
 
+    // v0.3.0 P1-1 — when the user clicked a persona chip in the
+    // first-run welcome (design 06), map the chip's `name` back to
+    // a `personaId` via the personasCache. We prefer the current
+    // header picker value, falling back to the welcome-chip selection.
+    // Passing the resolved id keeps the persona pipeline working end-
+    // to-end (session.persona_id → system-prompt injection in
+    // buildCurrentSystemPrompt) without inventing a new schema path.
+    let personaIdForCreate: string | null = currentPersonaId;
+    if (!personaIdForCreate && welcomePersonaName) {
+      const match = personasCache.find((p) => p.name === welcomePersonaName);
+      if (match) personaIdForCreate = match.id;
+    }
+
     // T-Q-S7 + T-Q-S8: pass currentPersonaId + project context. The
     // session stores both fields; system-prompt injection happens at
     // send-message time (gateway/agent layer) so persona switches
@@ -517,7 +530,7 @@ async function createSession(): Promise<string | null> {
     // resolved yet.
     const session = await invoke<Session>('session_create', {
       title: '新会话',
-      personaId: currentPersonaId,
+      personaId: personaIdForCreate,
       projectDir,
       projectContext: projectContextJson,
       model: state.currentModel || defaultModel || null,
@@ -526,13 +539,17 @@ async function createSession(): Promise<string | null> {
     currentSession = session;
     syncProjectPickerStore();
     state.messages = [];
+    // v0.3.0 P1-1 — one-shot UX: clear the welcome-card chip selection
+    // so the next time the first-run card shows (e.g. after deleting
+    // all sessions) the user starts from an unselected state again.
+    chatWelcomeStore.setSelectedWelcomePersona(null);
     // v0.2-alpha-16: drive the welcome bubble via the store instead of
     // building innerHTML inline. The persona + project context are
     // pushed into chatWelcomeStore; <ChatViewWithWelcome /> picks them
     // up and renders the equivalent welcome. We compute the project
     // hint shape here so all string assembly happens in main.ts (the
     // Preact view is pure render).
-    const persona = personasCache.find(p => p.id === currentPersonaId);
+    const persona = personasCache.find(p => p.id === personaIdForCreate);
     const proj = parseProjectContext(session.project_context);
     chatWelcomeStore.setContext({
       headline: '👋 新会话已开始',
@@ -1104,6 +1121,32 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // v0.3.0 P1-4 — accept image paste into the chat form (Ctrl+V over
+  // an image in another app / paste a screenshot from clipboard).
+  // Mirrors the drop listener above. We filter the clipboard items
+  // to image/* only — text-only pastes must keep their default
+  // browser behaviour (inserting into the textarea). The file list
+  // hands off to the same addAttachments path as drag-drop so the
+  // fileToAttachment + attachmentLimit + chatInputStore pipeline
+  // (alpha-18 + alpha-32.x) is shared between both entry points.
+  // See ROADMAP §v0.3.0 P1-4.
+  chatForm?.addEventListener('paste', (e) => {
+    const ce = e as ClipboardEvent;
+    const items = ce.clipboardData?.items;
+    if (!items || items.length === 0) return;
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === 'file' && it.type.startsWith('image/')) {
+        const file = it.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length === 0) return;
+    ce.preventDefault();
+    void addAttachments(files);
+  });
+
   // v0.2-alpha-19: SSE stream listeners (hermes-stream-chunk /
 // hermes-stream-done) are wired by initChatStream() in
 // src/lib/chat-stream.ts. The dispose handle is captured below for
@@ -1305,7 +1348,17 @@ function openStatsModal(): void {
   // card (design 06) and the no-network error card (design 07) both
   // surface these buttons.
   mountChatView({
-    onCreateSession: () => void createSession(),
+    // v0.3.0 P1-1 — when the user clicks a persona chip in the
+    // first-run welcome (design 06), main.ts looks up the matching
+    // `personaId` via personasCache and passes it to createSession().
+    // The selected chip name lives in chatWelcomeStore so the Preact
+    // view re-renders the highlight independently of the rest of
+    // chat state.
+    onCreateSession: () => {
+      const name = chatWelcomeStore.get().selectedWelcomePersona;
+      void createSession(name);
+    },
+    onSelectPersona: (name) => chatWelcomeStore.setSelectedWelcomePersona(name),
     onRetryConnection: () => void checkConnection(),
     onOpenSettings: () => openSettings(),
     gatewayHint: `当前 Gateway: ${getGatewayUrl()}`,
@@ -1723,7 +1776,19 @@ function updateConnectionStatus(status: 'disconnected' | 'connecting' | 'connect
   // card (designs 06 / 08) and the no-network error card (design 07).
   // Only the "connected" state maps to online; the other two
   // transitional states count as offline for empty-state purposes.
-  chatStore.setConnectionStatus(status === 'connected' ? 'online' : 'offline');
+  //
+  // v0.3.0 P1-6 — DON'T push the transient 'connecting' status into
+  // chatStore. The 30s setInterval in checkConnection() cycles through
+  // online → connecting → online on every poll, which fired chatStore
+  // notify → ChatView re-render → cleared text-selection range (auto-
+  // scroll-to-bottom useEffect on `state` dep). Store update fires ONLY
+  // on terminal status changes — 'connected' / 'disconnected'. The UI
+  // (status-dot + statusText) keeps showing the transitional state via
+  // `connectionStatusEl` / `statusText` updates below. See ROADMAP
+  // §v0.3.0 P1-6.
+  if (status !== 'connecting') {
+    chatStore.setConnectionStatus(status === 'connected' ? 'online' : 'offline');
+  }
   if (connectionStatusEl) connectionStatusEl.className = `status-dot ${status}`;
   if (statusText) {
     const labels: Record<string, string> = { disconnected: '未连接', connecting: '连接中...', connected: '已连接' };
