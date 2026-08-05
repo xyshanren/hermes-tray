@@ -4,8 +4,14 @@
 //   const trapRef = useFocusTrap(open);
 //   return <div ref={trapRef} role="dialog" aria-modal="true">...</div>
 //
+// To override which element receives the initial focus (e.g. a
+// confirm-modal that should land on the Confirm button instead of
+// the first focusable), pass the ref as the second argument:
+//   const trapRef = useFocusTrap(open, confirmBtnRef);
+//
 // Behaviour:
-//   - When `open` becomes true, focuses the first focusable element
+//   - When `open` becomes true, focuses the explicit `initialFocusRef`
+//     if provided, otherwise the first focusable element
 //   - Tab / Shift+Tab cycles within the container
 //   - When `open` becomes false, restores focus to the previously
 //     focused element (trigger button)
@@ -25,8 +31,15 @@ const FOCUSABLE_SELECTOR = [
 /**
  * Preact hook that traps keyboard focus within a container element
  * while `open` is true.
+ *
+ * @param open              when true, the trap activates
+ * @param initialFocusRef   optional element to focus on open; if
+ *                          omitted, the first focusable child wins
  */
-export function useFocusTrap(open: boolean): RefObject<HTMLDivElement> {
+export function useFocusTrap(
+  open: boolean,
+  initialFocusRef?: RefObject<HTMLElement | null>,
+): RefObject<HTMLDivElement> {
   const containerRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
@@ -36,8 +49,15 @@ export function useFocusTrap(open: boolean): RefObject<HTMLDivElement> {
     // Save the currently focused element to restore later.
     previousFocusRef.current = document.activeElement as HTMLElement | null;
 
-    // Focus the first focusable element inside the container.
-    const focusFirst = () => {
+    // Focus the requested element (explicit ref) or fall back to
+    // the first focusable child. Wrapped in rAF so Preact flushes
+    // the DOM (and refs attach) before we call .focus().
+    const focusInitial = () => {
+      const explicit = initialFocusRef?.current;
+      if (explicit) {
+        explicit.focus();
+        return;
+      }
       const els = containerRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
       if (els && els.length > 0) {
         els[0].focus();
@@ -45,8 +65,7 @@ export function useFocusTrap(open: boolean): RefObject<HTMLDivElement> {
         containerRef.current?.focus();
       }
     };
-    // Delay to allow Preact render to flush DOM.
-    const raf = requestAnimationFrame(focusFirst);
+    const raf = requestAnimationFrame(focusInitial);
 
     // Keydown handler for Tab cycling.
     const handleKeyDown = (e: KeyboardEvent) => {

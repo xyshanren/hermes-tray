@@ -6,7 +6,21 @@
 
 ---
 
-## alpha-33b（未发布 — [PR #2](https://github.com/xyshanren/hermes-tray/pull/2) 待开）
+## alpha-34（未发布 — PR 待开）
+
+纯前端 polish 一锅端（Plan 1 = A 美学 + C 容器 + F 焦点陷阱 + G 全局细节）。完整 diff 见分支 `feat/alpha-34`。
+
+- **F: 焦点陷阱接入 8 个 modal** — `src/lib/focus-trap.ts` 增加可选 `initialFocusRef` 参数；8 个 modal-view 接入 `useFocusTrap`：settings / shortcuts / backup / persona / search / share-import（含 paste 子 view）/ stats / confirm。confirm-modal 透传 `confirmBtnRef` 让 Enter-to-dismiss 保持原行为，search-modal 透传 `inputRef` 让搜索框仍自动获焦；同时移除 confirm-modal 里手写的 `confirmBtnRef.current?.focus()` effect 和 search-modal 的 `queueMicrotask(() => inputRef.current?.focus())`（useFocusTrap 的 `requestAnimationFrame` 已替代）。
+- **F: backup-modal 补 ARIA** — alpha-9 写的根 `<div class="modal modal-backup">` 缺 `role="dialog" aria-modal="true"`，顺手补齐。
+- **G3: kbd 灰底圆角** — `.shortcut-key` 背景由 `var(--bg-tertiary)` 升档到 `var(--bg-secondary)`（slate-50 / gray-900），圆角由 4px 加到 6px，让快捷键 chip 从 row hover 中更突出。
+
+**A1 / A2 / C1 / C2 / G1 / G2 已在 alpha-33a / 33b 完成**（Inter + Sarasa Gothic SC 字体、btn:active、settings 640px / shortcuts 480px / stats 640px / backup 560px / share-import 520px、sonner toast 4px 语义色竖条 + top-right、--accent #FF7A45 token、settings "默认模型" label 清理），本轮只在「剩余真实工作」上推进。
+
+**Stats**: 473/473 frontend tests passing（alpha-33b 不变，无新增测试 — 焦点陷阱是行为层面增强，端到端 manual Tauri 验收），production build 通过（JS 1.24 MB / CSS 58.5 kB）。
+
+---
+
+## alpha-33b（已合并 — [PR #2](https://github.com/xyshanren/hermes-tray/pull/2) 待开）
 
 四件 P1 修复全到位，端到端测试覆盖，对应 ROADMAP §v0.3.0 P1-2 / P1-3 / P1-7 / P1-12。完整 diff 见分支 `feat/alpha-33b`。
 

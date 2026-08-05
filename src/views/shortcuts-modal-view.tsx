@@ -15,12 +15,15 @@
 // listener (after mount).
 
 import { useEffect, useMemo, useState } from "preact/hooks";
+import { useFocusTrap } from "../lib/focus-trap";
 import { shortcutsModalStore, SHORTCUT_GROUPS } from "./shortcuts-modal-store";
 import type { ShortcutsModalState, ShortcutGroup } from "./shortcuts-modal-store";
 
 export function ShortcutsModal() {
   const state = useShortcutsModalState();
   const [filter, setFilter] = useState("");
+  // v0.3-alpha-34: keyboard focus trap (Tab cycling + auto-focus).
+  const trapRef = useFocusTrap(state.open);
 
   // Escape-to-close (matches the other v0.2 modals).
   useEffect(() => {
@@ -56,7 +59,7 @@ export function ShortcutsModal() {
 
   if (!state.open) return null;
   return (
-    <div class="modal modal-shortcuts" role="dialog" aria-modal="true" aria-label="快捷键">
+    <div ref={trapRef} class="modal modal-shortcuts" role="dialog" aria-modal="true" aria-label="快捷键">
       <div class="modal-header">
         <h2>⌨ 快捷键</h2>
         <button

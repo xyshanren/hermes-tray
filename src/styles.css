@@ -3407,9 +3407,12 @@ html, body {
   font-family: inherit;
   font-weight: 500;
   color: var(--text-secondary);
-  background: var(--bg-tertiary);
+  /* v0.3-alpha-34: bumped the kbd surface to bg-secondary (slate-50 in
+   * light / gray-900 in dark) so it pops off the bg-tertiary row hover,
+   * and rounded the corners a touch more for the polished look. */
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
   box-shadow: 0 1px 0 var(--border-strong);
 }
 
