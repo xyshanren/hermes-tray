@@ -3,11 +3,12 @@
 //! Each command takes `State<Db>` as the first arg, which is managed by
 //! `tauri::Builder::manage()` in `lib.rs::run()`.
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use tauri::State;
 
 use crate::db::dao::{
-    ConfigDAO, ConfigEntry, Message, MessageDAO, Persona, PersonaDAO, ProjectContext, SearchHit,
-    Session, SessionDAO, SessionPatch,
+    ConfigDAO, ConfigEntry, Message, MessageAttachment, MessageDAO, Persona, PersonaDAO,
+    ProjectContext, SearchHit, Session, SessionDAO, SessionPatch,
 };
 use crate::db::export::{to_json, to_markdown, ExportPersona, ExportProject, ExportSession};
 use crate::db::project::scan_project;
@@ -588,6 +589,40 @@ pub fn message_list(
 ) -> Result<Vec<Message>, String> {
     db.message()
         .list_by_session(session_id, limit, offset)
+        .map_err(|e| e.to_string())
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub fn hermes_message_attach(
+    db: State<'_, Db>,
+    id: &str,
+    message_id: &str,
+    name: &str,
+    mime: &str,
+    size: i64,
+    data_url: &str,
+    sort_idx: i64,
+) -> Result<MessageAttachment, String> {
+    let expected_prefix = format!("data:{mime};base64,");
+    let encoded = data_url
+        .strip_prefix(&expected_prefix)
+        .ok_or_else(|| "attachment data URL MIME does not match declared MIME".to_string())?;
+    let data = BASE64_STANDARD
+        .decode(encoded)
+        .map_err(|e| format!("invalid attachment base64: {e}"))?;
+    db.message()
+        .attach(id, message_id, name, mime, size, &data, sort_idx)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn hermes_message_attachments(
+    db: State<'_, Db>,
+    message_id: &str,
+) -> Result<Vec<MessageAttachment>, String> {
+    db.message()
+        .list_attachments(message_id)
         .map_err(|e| e.to_string())
 }
 

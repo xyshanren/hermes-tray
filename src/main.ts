@@ -36,6 +36,7 @@ import { showToast } from './lib/toast';
 // ToastType used to be imported here for the gateway-notification
 // listener; that listener moved to src/lib/tray-menu.ts in alpha-19.
 import { mountAppToaster } from './lib/toaster-mount';
+import { initReplyNotificationActions } from './lib/reply-notification';
 import { mountSearchModal } from './views/search-modal-mount';
 import { searchModalStore } from './views/search-modal-store';
 import { mountPersonaModal } from './views/persona-modal-mount';
@@ -196,7 +197,17 @@ interface DbMessage {
   role: string;
   content: string;
   tool_calls: string | null;
-  created_at: string;
+  created_at: string | number;
+}
+
+interface DbMessageAttachment {
+  id: string;
+  message_id: string;
+  name: string;
+  type: string;
+  size: number;
+  data_url: string;
+  sort_idx: number;
 }
 
 // SearchHit is imported by ./views/search-modal.tsx from ./types directly.
@@ -464,10 +475,33 @@ async function selectSession(id: string): Promise<void> {
   chatWelcomeStore.setContext(null);
   try {
     const msgs = await invoke<DbMessage[]>('message_list', { sessionId: id, limit: 100, offset: 0 });
-    state.messages = msgs.map(m => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-      timestamp: new Date(m.created_at)
+    state.messages = await Promise.all(msgs.map(async (m) => {
+      let attachments: PendingAttachment[] | undefined;
+      if (m.role === 'user') {
+        try {
+          const stored = await invoke<DbMessageAttachment[]>('hermes_message_attachments', {
+            messageId: m.id,
+          });
+          if (stored.length > 0) {
+            attachments = stored.map((attachment) => ({
+              id: attachment.id,
+              dataUrl: attachment.data_url,
+              name: attachment.name,
+              type: attachment.type,
+              size: attachment.size,
+            }));
+          }
+        } catch (error) {
+          console.warn(`[DB] load attachments failed for message ${m.id}:`, error);
+        }
+      }
+      return {
+        id: m.id,
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        timestamp: new Date(m.created_at),
+        attachments,
+      };
     }));
     chatStore.setMessages(state.messages);
     await invoke('session_touch', { id });
@@ -1041,6 +1075,15 @@ window.addEventListener('DOMContentLoaded', async () => {
   // already populated before main.ts runs.
   mountAppToaster();
 
+  // v0.3.0 P1-12 — notification activation restores the hidden tray
+  // window. Registration failure must not block the rest of app boot.
+  let disposeReplyNotificationActions: () => Promise<void> = async () => {};
+  try {
+    disposeReplyNotificationActions = await initReplyNotificationActions();
+  } catch (error) {
+    console.warn('[P1-12] Reply notification actions unavailable:', error);
+  }
+
   // v0.2-alpha-19 — Mount the splash screen (design 17) FIRST so
   // it's visible while the rest of the boot is in flight. The
   // <div id="splash"> shell is shown by default in index.html and
@@ -1408,6 +1451,7 @@ function openStatsModal(): void {
     getDefaultPersonaId: () => currentPersonaId,
     setIsLoading: (b) => { state.isLoading = b; },
     setIsStreaming: (b) => { state.isStreaming = b; },
+    setConnectionStatus: (status) => updateConnectionStatus(status),
     setMessages: (m) => { state.messages = m; },
     onAfterReply: () => {
       void refreshCurrentSessionRow();
@@ -1452,6 +1496,7 @@ function openStatsModal(): void {
   // Cleanup on unload
   window.addEventListener('unload', async () => {
     try { await disposeChatStreamHandle(); } catch { /* ignore */ }
+    try { await disposeReplyNotificationActions(); } catch { /* ignore */ }
     try { await disposeShortcutHandle(); } catch { /* ignore */ }
     try { await disposeTrayMenuHandle(); } catch { /* ignore */ }
   });
@@ -1515,20 +1560,33 @@ async function handleSubmit(content: string, attachmentsAtSend: PendingAttachmen
     attachments: attachmentsAtSend.length > 0 ? attachmentsAtSend : undefined,
   });
   state.messages = chatStore.get().messages;
-  // Persist user message to DB (text only — images go in metadata for size).
+  // Persist the user message first, then store each attachment as a BLOB
+  // keyed to the returned message id. Failures are logged but do not block
+  // the Gateway request; the in-memory bubble still keeps its previews.
   if (currentSessionId) {
-    const metadata = attachmentsAtSend.length > 0
-      ? JSON.stringify({
-          attachments: attachmentsAtSend.map(a => ({ name: a.name, type: a.type, size: a.size })),
-        })
-      : null;
-    invoke('message_append', {
-      sessionId: currentSessionId,
-      role: 'user',
-      content,
-      toolCalls: null,
-      metadata,
-    }).catch(e => console.error('[DB] save user msg failed:', e));
+    try {
+      const appended = await invoke<{ id: string }>('message_append', {
+        sessionId: currentSessionId,
+        role: 'user',
+        content,
+        toolCalls: null,
+      });
+      if (appended?.id && attachmentsAtSend.length > 0) {
+        await Promise.all(attachmentsAtSend.map((attachment, sortIdx) =>
+          invoke('hermes_message_attach', {
+            id: attachment.id ?? `att-${crypto.randomUUID()}`,
+            messageId: appended.id,
+            name: attachment.name,
+            mime: attachment.type,
+            size: attachment.size,
+            dataUrl: attachment.dataUrl,
+            sortIdx,
+          })
+        ));
+      }
+    } catch (e) {
+      console.error('[DB] save user msg or attachments failed:', e);
+    }
     invoke('session_touch', { id: currentSessionId }).catch(() => {});
     // T-Q-S9: refresh session list so the token badge in the sidebar
     // updates after each send. We only re-fetch the current row to

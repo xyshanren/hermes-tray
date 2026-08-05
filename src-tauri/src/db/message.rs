@@ -10,10 +10,11 @@
 //! Delete mirrors the inverse: decrements `msg_count` and relies on the
 //! `messages_ad` trigger to remove the FTS entry.
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use rusqlite::{params, OptionalExtension, Row};
 use uuid::Uuid;
 
-use crate::db::dao::{Message, MessageDAO, SessionDAO};
+use crate::db::dao::{Message, MessageAttachment, MessageDAO, SessionDAO};
 use crate::db::pool::DbPool;
 use crate::db::session::SessionDao;
 use crate::db::{DbError, DbResult};
@@ -181,6 +182,34 @@ impl<'a> MessageDao<'a> {
     /// Shared SELECT column list for the messages table.
     const SELECT_COLUMNS: &'static str =
         "id, session_id, role, content, tokens, created_at, tool_calls, metadata";
+
+    fn row_to_attachment(row: &Row<'_>) -> rusqlite::Result<MessageAttachment> {
+        let mime: String = row.get(3)?;
+        let data: Vec<u8> = row.get(5)?;
+        Ok(MessageAttachment {
+            id: row.get(0)?,
+            message_id: row.get(1)?,
+            name: row.get(2)?,
+            data_url: format!("data:{mime};base64,{}", BASE64_STANDARD.encode(data)),
+            mime,
+            size: row.get(4)?,
+            sort_idx: row.get(6)?,
+        })
+    }
+
+    const ATTACHMENT_SELECT_COLUMNS: &'static str =
+        "id, message_id, name, mime, size, data, sort_idx";
+
+    fn get_attachment(&self, id: &str) -> DbResult<MessageAttachment> {
+        let conn = self.pool.get()?;
+        let sql = format!(
+            "SELECT {} FROM message_attachments WHERE id = ?1",
+            Self::ATTACHMENT_SELECT_COLUMNS
+        );
+        conn.query_row(&sql, params![id], Self::row_to_attachment)
+            .optional()?
+            .ok_or_else(|| DbError::NotFound(format!("message attachment id={id}")))
+    }
 }
 
 impl<'a> MessageDAO for MessageDao<'a> {
@@ -265,6 +294,60 @@ impl<'a> MessageDAO for MessageDao<'a> {
             .query_row(&sql, params![id], Self::row_to_message)
             .optional()?;
         msg.ok_or_else(|| DbError::NotFound(format!("message id={id}")))
+    }
+
+    fn attach(
+        &self,
+        id: &str,
+        message_id: &str,
+        name: &str,
+        mime: &str,
+        size: i64,
+        data: &[u8],
+        sort_idx: i64,
+    ) -> DbResult<MessageAttachment> {
+        if !mime.starts_with("image/") {
+            return Err(DbError::Invalid(format!(
+                "attachment mime must be image/*, got {mime:?}"
+            )));
+        }
+        if data.len() > 10 * 1024 * 1024 {
+            return Err(DbError::Invalid("attachment exceeds 10 MiB limit".into()));
+        }
+        if size < 0 || size as usize != data.len() {
+            return Err(DbError::Invalid(format!(
+                "attachment size mismatch: declared {size}, decoded {}",
+                data.len()
+            )));
+        }
+        if sort_idx < 0 {
+            return Err(DbError::Invalid(
+                "attachment sort_idx must be non-negative".into(),
+            ));
+        }
+
+        let conn = self.pool.get()?;
+        conn.execute(
+            "INSERT INTO message_attachments \
+             (id, message_id, name, mime, size, data, sort_idx) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![id, message_id, name, mime, size, data, sort_idx],
+        )?;
+        self.get_attachment(id)
+    }
+
+    fn list_attachments(&self, message_id: &str) -> DbResult<Vec<MessageAttachment>> {
+        let conn = self.pool.get()?;
+        let sql = format!(
+            "SELECT {} FROM message_attachments \
+             WHERE message_id = ?1 ORDER BY sort_idx ASC, id ASC",
+            Self::ATTACHMENT_SELECT_COLUMNS
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map(params![message_id], Self::row_to_attachment)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
     }
 
     fn record_usage(

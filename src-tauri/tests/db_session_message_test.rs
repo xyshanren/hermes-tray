@@ -552,6 +552,60 @@ fn message_record_usage_persists_threshold_flag_set() {
 }
 
 #[test]
+fn message_attachments_round_trip_and_cascade_with_message() {
+    let (_pool, dao) = fresh_db();
+    let session = dao
+        .session()
+        .create("attachment-test", None, None, None, None)
+        .expect("create session");
+    let message = dao
+        .message()
+        .append(&session.id, "user", "see image", None)
+        .expect("append message");
+
+    let first = dao
+        .message()
+        .attach(
+            "att-1",
+            &message.id,
+            "pixel.png",
+            "image/png",
+            4,
+            &[0, 1, 2, 3],
+            1,
+        )
+        .expect("attach first image");
+    dao.message()
+        .attach(
+            "att-0",
+            &message.id,
+            "first.png",
+            "image/png",
+            3,
+            &[4, 5, 6],
+            0,
+        )
+        .expect("attach second image");
+
+    assert_eq!(first.data_url, "data:image/png;base64,AAECAw==");
+    let attachments = dao
+        .message()
+        .list_attachments(&message.id)
+        .expect("list attachments");
+    assert_eq!(attachments.len(), 2);
+    assert_eq!(attachments[0].id, "att-0");
+    assert_eq!(attachments[1].id, "att-1");
+    assert_eq!(attachments[0].data_url, "data:image/png;base64,BAUG");
+
+    dao.message().delete(&message.id).expect("delete message");
+    assert!(dao
+        .message()
+        .list_attachments(&message.id)
+        .expect("list after cascade")
+        .is_empty());
+}
+
+#[test]
 fn migrations_apply_v4_cost_columns() {
     // Regression guard for the v0.1.5 schema migration. A fresh DB
     // must have the 2 new columns on `messages` after the migration

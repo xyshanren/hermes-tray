@@ -9,10 +9,10 @@ use db::{init_db, Db};
 
 pub use db::commands::{
     db_config_get, db_config_reset_all, db_config_set, export_session_json,
-    export_session_markdown, message_append, message_delete, message_list, message_record_usage,
-    persona_create, persona_delete, persona_get, persona_list, persona_update, project_scan,
-    session_clear_all, session_create, session_delete, session_get, session_list, session_search,
-    session_touch, session_update, token_stats,
+    export_session_markdown, hermes_message_attach, hermes_message_attachments, message_append,
+    message_delete, message_list, message_record_usage, persona_create, persona_delete, persona_get,
+    persona_list, persona_update, project_scan, session_clear_all, session_create, session_delete,
+    session_get, session_list, session_search, session_touch, session_update, token_stats,
 };
 pub use db::pool::seed_builtin_personas;
 
@@ -1478,6 +1478,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         // v0.2-alpha-32 — register the dialog plugin so the
         // backup-modal `<input>` can spawn a native file-save /
         // file-open dialog (replaces the previous "type the full
@@ -1625,6 +1626,8 @@ pub fn run() {
             message_append,
             message_record_usage,
             message_list,
+            hermes_message_attach,
+            hermes_message_attachments,
             message_delete,
             // T-Q-S1.3 — db_config table (SQLite K/V)
             db_config_get,

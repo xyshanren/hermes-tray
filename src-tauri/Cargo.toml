@@ -26,6 +26,7 @@ tauri-plugin-window-state = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
 # v0.2-alpha-32 — native file dialog for the backup/restore modal.
 # `save()` for picking the backup output path; `open()` with an `.htbk`
 # filter for picking the restore input. Replaces the previous text-input

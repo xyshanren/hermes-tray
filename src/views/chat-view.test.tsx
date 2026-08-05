@@ -8,6 +8,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render } from "preact";
 import { act } from "preact/test-utils";
+
+vi.mock("@tauri-apps/plugin-shell", () => ({
+  open: vi.fn(async () => undefined),
+}));
+
+import { open } from "@tauri-apps/plugin-shell";
 import {
   chatStore,
   type ChatMessage,
@@ -165,6 +171,7 @@ describe("<ChatView /> (render shell)", () => {
   beforeEach(() => {
     chatStore.__resetForTests();
     chatWelcomeStore.setContext(null);
+    vi.mocked(open).mockClear();
     document.body.innerHTML = "";
   });
 
@@ -199,6 +206,24 @@ describe("<ChatView /> (render shell)", () => {
     const img = host.querySelector("img.message-attachment-thumb");
     expect(img).not.toBeNull();
     expect(img!.getAttribute("alt")).toBe("cat.png");
+  });
+
+  it("opens assistant links in the system browser without navigating the WebView", async () => {
+    chatStore.appendMessage({
+      role: "assistant",
+      content: "[Hermes docs](https://example.com/docs)",
+      timestamp: new Date(),
+    });
+    const host = mountView();
+    const anchor = host.querySelector<HTMLAnchorElement>(".message.assistant a");
+    expect(anchor).not.toBeNull();
+
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    anchor!.dispatchEvent(click);
+    await Promise.resolve();
+
+    expect(click.defaultPrevented).toBe(true);
+    expect(vi.mocked(open)).toHaveBeenCalledWith("https://example.com/docs");
   });
 
   it("renders an assistant bubble with markdown HTML and a CLI bar", () => {

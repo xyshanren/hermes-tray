@@ -6,7 +6,19 @@
 
 ---
 
-## alpha-33a（未发布）
+## alpha-33b（未发布 — [PR #2](https://github.com/xyshanren/hermes-tray/pull/2) 待开）
+
+四件 P1 修复全到位，端到端测试覆盖，对应 ROADMAP §v0.3.0 P1-2 / P1-3 / P1-7 / P1-12。完整 diff 见分支 `feat/alpha-33b`。
+
+- **P1-2：assistant 外部链接走系统默认浏览器**（PR #2） — assistant Markdown 渲染里点 `<a href>` 之前会把整 WebView 替换成外网页面（无返回按钮、卡死），现在改走 `@tauri-apps/plugin-shell.open()`，协议白名单限制为 `http:` / `https:` / `mailto:`，其他协议静默拒绝；capability `shell:allow-open` 已添加；plugin-shell@2.3.3 + 4 个 mock 测试 (`chat-view.test.tsx` 44/44 pass)。
+- **P1-3：图片附件 DB 持久化 + 切 session 回放**（PR #2） — 新增 `message_attachments` BLOB 子表（migration 0006，`schema_version: 6`），FK 级联删除保证 session 清理时附件一并清掉；DAO 新增 `attach` / `list_attachments` (MIME 限定 `image/*`，最大 10 MiB)，Tauri commands 新增 `hermes_message_attach` / `hermes_message_attachments`；前端 `main.ts` 切换 session 时拉 attachments 重建 data URL，发送 user 消息时先等 `message_append` 返回 id 再写附件；5 个新 Rust 测试 (`message_attachments_round_trip_and_cascade_with_message` 等) 通过。
+- **P1-7：SSE 错误分三类路径**（PR #2） — `chat-stream.ts` catch 块区分 handshake 失败（已发请求但无 SSE payload → 把 connectionStatus 改 disconnected + fatal banner error）、mid-stream 中断（已收到 SSE chunk 后报错 → 只在 assistant bubble 末尾 append 错误，不动 connection dot）、本地准备失败（system prompt / message 准备阶段报错 → 不污染连接状态）。3 个新测试覆盖全三类。
+- **P1-12：后台回复系统通知 + 点击回前台**（PR #2） — 加 `tauri-plugin-notification@2.3.3`（Cargo + npm），capability `notification:default`；`reply-notification.ts` 封装通知逻辑：窗口在前台直接跳过，通知 body 用用户提问前 30 字符（不泄漏 assistant 长文本），点击通知通过 `getCurrentWindow().show() + setFocus()` 把隐藏窗口拉回前台；4 个新测试覆盖（提示词压缩/截断、前台跳过、后台发送、点击聚焦）。
+
+**Stats**: 473/473 frontend tests passing（alpha-33a 465 → alpha-33b +8，新增 3 个 SSE 错误分类 + 4 个通知 + 1 个已合并）、164/164 Rust lib + integration tests passing（133 + 12 + 19，含 5 个新 attachment round-trip + cascade 测试）；production build 通过（JS 1.24 MB / CSS 58.49 kB），`cargo check` 通过。
+
+---
+## alpha-33a（已合并 — [PR #1](https://github.com/xyshanren/hermes-tray/pull/1) squash）
 
 - **前端体验修复**：persona 欢迎卡选择、粘贴图片附件、附件布局、30 秒健康检查防止选中文本丢失、用户气泡右对齐、assistant Markdown 源码复制。
 - **Markdown 样式完善**：段落、标题层级、链接、列表、task list、表格、分隔线和 inline code 样式补全。
