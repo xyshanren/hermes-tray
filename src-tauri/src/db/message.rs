@@ -296,6 +296,7 @@ impl<'a> MessageDAO for MessageDao<'a> {
         msg.ok_or_else(|| DbError::NotFound(format!("message id={id}")))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn attach(
         &self,
         id: &str,

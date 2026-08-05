@@ -175,6 +175,7 @@ pub trait MessageDAO: Send + Sync {
     ) -> DbResult<Message>;
     fn list_by_session(&self, session_id: &str, limit: i64, offset: i64) -> DbResult<Vec<Message>>;
     fn get(&self, id: &str) -> DbResult<Message>;
+    #[allow(clippy::too_many_arguments)]
     fn attach(
         &self,
         id: &str,
