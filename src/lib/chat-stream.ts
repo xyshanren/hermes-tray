@@ -30,6 +30,7 @@ import type { ChatMessage, ChatMessageBar } from "../views/chat-view-store";
 import { buildMultimodalContent } from "./multimodal";
 import { pickModelForRequest } from "./modelPicker";
 import { getGatewayUrl } from "./state";
+import { notifyReplyIfBackground } from "./reply-notification";
 import { CONFIG } from "../config";
 import type { Session, Persona } from "../types";
 
@@ -59,6 +60,9 @@ export interface ChatStreamDeps {
   /** Update main.ts's `state.isStreaming` flag (legacy; not used by
    *  the Preact view but kept for any future analytics consumers). */
   setIsStreaming: (b: boolean) => void;
+  /** Update the shared gateway reachability truth after an initial SSE
+   *  handshake failure. Mid-stream failures deliberately leave it alone. */
+  setConnectionStatus: (status: "disconnected" | "connected") => void;
   /** Sync main.ts's `state.messages` mirror after a successful stream
    *  (the next sendChatMessage reads the 10-row recent slice from here). */
   setMessages: (m: ChatStreamMessage[]) => void;
@@ -83,6 +87,13 @@ let lastStreamElapsedMs: number | null = null;
  *  proxy entry ("hermes-agent") but each chunk carries the real
  *  downstream model name. Captured so the UI can show it. */
 let lastStreamModel: string | null = null;
+/** True once the Rust proxy has emitted any SSE payload for the current
+ * request. The invoke Promise resolves only after the whole stream, so this
+ * flag is how the catch path distinguishes handshake from mid-stream errors. */
+let streamHasStarted = false;
+/** User prompt associated with the active stream. Used only for the concise
+ * background completion notification; assistant text is never exposed. */
+let lastUserPrompt = "";
 
 let unlistenChunk: UnlistenFn | null = null;
 let unlistenDone: UnlistenFn | null = null;
@@ -127,6 +138,7 @@ export async function disposeChatStream(): Promise<void> {
   lastStreamRouting = null;
   lastStreamElapsedMs = null;
   lastStreamModel = null;
+  lastUserPrompt = "";
 }
 
 /** v0.3: the actual model id from the most recent SSE stream, or null
@@ -144,6 +156,7 @@ export function getLastStreamModel(): string | null {
  * Pure function over the `data:` lines; side-effect via chatStore.
  */
 export function handleStreamChunk(payload: string): void {
+  streamHasStarted = true;
   const lines = payload.split("\n");
   for (const line of lines) {
     if (!line.startsWith("data: ")) continue;
@@ -217,6 +230,7 @@ export async function finishStream(): Promise<void> {
     // clears its own streaming slot as part of finaliseStream().
     chatStore.finaliseStream(bar);
     deps.setMessages(chatStore.get().messages);
+    void notifyReplyIfBackground(lastUserPrompt);
 
     // Persist assistant message to DB
     const sessionId = deps.getCurrentSessionId();
@@ -263,6 +277,7 @@ export async function finishStream(): Promise<void> {
   lastStreamUsage = null;
   lastStreamRouting = null;
   lastStreamElapsedMs = null;
+  lastUserPrompt = "";
 }
 
 // ── Send entry ────────────────────────────────────────────────────────────
@@ -286,8 +301,10 @@ export async function sendChatMessage(): Promise<void> {
   // the empty streaming bubble; subsequent handleStreamChunk calls
   // accumulate content into it.
   deps.setIsStreaming(true);
+  streamHasStarted = false;
   chatStore.openStream();
 
+  let requestDispatched = false;
   try {
     // T-Q-S7 + T-Q-S8: prepend a system message that combines the
     // session's persona system_prompt with the cached project context
@@ -306,6 +323,7 @@ export async function sendChatMessage(): Promise<void> {
     for (let i = recent.length - 1; i >= 0; i--) {
       if (recent[i].role === "user") { lastUserIdx = i; break; }
     }
+    lastUserPrompt = lastUserIdx >= 0 ? recent[lastUserIdx].content : "";
     const userMessages = recent.map((m, i) => ({
       role: m.role,
       content: (i === lastUserIdx && m.attachments && m.attachments.length > 0)
@@ -330,6 +348,7 @@ export async function sendChatMessage(): Promise<void> {
       deps.getDefaultModel(),
       CONFIG.defaultModel,
     );
+    requestDispatched = true;
     await hermesPostStream("/v1/chat/completions", {
       model,
       messages: apiMessages,
@@ -347,7 +366,24 @@ export async function sendChatMessage(): Promise<void> {
     // store's error channel — the Preact view renders a red error
     // bubble.
     chatStore.abortStream();
-    chatStore.setError(`连接失败: ${errorMsg} (${getGatewayUrl()})`);
+    if (requestDispatched && !streamHasStarted) {
+      // v0.3.0 P1-7 — the HTTP/SSE handshake never produced a payload.
+      // This is a real reachability failure, so keep the connection dot and
+      // chat empty-state truth in sync with the inline error.
+      deps.setConnectionStatus("disconnected");
+      chatStore.setError(`无法连接 Hermes Gateway: ${errorMsg} (${getGatewayUrl()})`);
+    } else if (streamHasStarted) {
+      // The gateway accepted the request and emitted at least one SSE payload.
+      // A later body-decode/network failure is transient: show it below the
+      // turn, but do not contradict the healthy connection dot or raise a
+      // sticky fatal banner. The next send may succeed without reconnecting.
+      chatStore.setError(`回复中断: ${errorMsg}。请重试本条消息。`);
+    } else {
+      // Local preparation failed before dispatch (for example system-prompt
+      // composition). It says nothing about gateway reachability.
+      chatStore.setError(`发送失败: ${errorMsg}`);
+    }
+    deps.setIsLoading(false);
   }
 }
 
@@ -359,5 +395,7 @@ export function __resetForTests(): void {
   lastStreamRouting = null;
   lastStreamElapsedMs = null;
   lastStreamModel = null;
+  streamHasStarted = false;
+  lastUserPrompt = "";
   deps = null;
 }

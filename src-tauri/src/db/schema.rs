@@ -22,7 +22,7 @@
 use crate::db::pool::DbPool;
 use crate::db::{DbError, DbResult};
 
-const CURRENT_SCHEMA_VERSION: i64 = 5;
+const CURRENT_SCHEMA_VERSION: i64 = 6;
 
 /// Embedded migrations in version order. The version number is the
 /// leading digits of the original filename (e.g. `0001_initial.sql` -> 1).
@@ -58,6 +58,13 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (
         5,
         include_str!("../../migrations/0005_strip_windows_verbatim_prefix.sql"),
+    ),
+    // v0.3.0 alpha-33b P1-3: binary image attachments are stored in a
+    // child table so session reload can rebuild data URLs without placing
+    // multi-megabyte base64 strings in messages.metadata.
+    (
+        6,
+        include_str!("../../migrations/0006_add_message_attachments.sql"),
     ),
 ];
 

@@ -46,6 +46,19 @@ pub struct Message {
     pub metadata: Option<String>,
 }
 
+/// Binary attachment persisted separately from message text/metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MessageAttachment {
+    pub id: String,
+    pub message_id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub mime: String,
+    pub size: i64,
+    pub data_url: String,
+    pub sort_idx: i64,
+}
+
 /// Assistant role definition.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Persona {
@@ -162,6 +175,18 @@ pub trait MessageDAO: Send + Sync {
     ) -> DbResult<Message>;
     fn list_by_session(&self, session_id: &str, limit: i64, offset: i64) -> DbResult<Vec<Message>>;
     fn get(&self, id: &str) -> DbResult<Message>;
+    #[allow(clippy::too_many_arguments)]
+    fn attach(
+        &self,
+        id: &str,
+        message_id: &str,
+        name: &str,
+        mime: &str,
+        size: i64,
+        data: &[u8],
+        sort_idx: i64,
+    ) -> DbResult<MessageAttachment>;
+    fn list_attachments(&self, message_id: &str) -> DbResult<Vec<MessageAttachment>>;
     /// Replace the char/4 heuristic token estimate with the real upstream
     /// usage (prompt_tokens + completion_tokens) and stash the S14/S12
     /// metadata (image_tokens / routing_decision / elapsed_ms /

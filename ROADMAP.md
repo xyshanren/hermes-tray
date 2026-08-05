@@ -622,6 +622,76 @@ Payload schema (snake_case JSON):
 
 ---
 
+## alpha-33a → alpha-33b 收尾进度 (2026-08-04)
+
+### alpha-33a（[PR #1](https://github.com/xyshanren/hermes-tray/pull/1) squash merged）
+
+- P1-1 / P1-4 / P1-5 / P1-6 / P1-8 / P1-9 / P1-10 前端修复完整收完。
+- 顺手记录 hermes-tray + hermes-agent-cn WSL `~` 输出污染问题，定了联合 `workspace/output policy` 等 agent-cn K-6 完成后 tray alpha-34+ 接入。
+
+### alpha-33b（branch `feat/alpha-33b`，基于 alpha-33a [PR #1](https://github.com/xyshanren/hermes-tray/pull/1)）
+
+四项 P1 修复全到位，后续 alpha-34+ 接入前准备到位。
+
+#### P1-2 外部链接走系统默认浏览器
+
+- 根因：`chat-view.tsx:285-292` `dangerouslySetInnerHTML` 把 `formatMessage(...)` 输出直接渲染，没有拦截 click；CSP `security: {}` 空，整个 WebView 默认 in-app navigation。
+- 修：assistant Markdown 容器顶层 `onClick={handleContentClick}` 拦截 anchor click → `event.preventDefault()` → `@tauri-apps/plugin-shell.open(href)`；协议白名单 (http / https / mailto)，非白名单协议 console.warn 后静默拒绝。
+- npm 包：`@tauri-apps/plugin-shell@2.3.3`（已有但 0 import，本次导入）。`capabilities/default.json` 加 `shell:allow-open`。
+- 测试：`chat-view.test.tsx` 4 个新 case（开外部链接走 plugin-shell.open、点击 handler 被调用、open 的字符串参数与 href 一致）— 44/44 passing。
+
+#### P1-3 图片附件 DB 持久化
+
+- 根因：`main.ts:1466-1470` 把 attachment metadata 写 `messages.metadata` JSON blob 时只存 `{name, type, size}`，dataUrl 没存；切 session / 重开 → 读出来 attachment object 没 dataUrl → `<img src={undefined}>` 不显示。
+- 修：migration 0006 加 `message_attachments(id, message_id FK CASCADE, name, mime, size, data BLOB, sort_idx)` 表 + `message_id` 索引；schema_version 5 → 6。DAO 新增 `attach(...)` 和 `list_attachments(message_id)`，mime 限定 `image/*`，data ≤ 10 MiB，sort_idx ≥ 0；Tauri commands 新增 `hermes_message_attach` (校验 data URL 的 base64 + mime prefix 和声明的 mime 一致) 和 `hermes_message_attachments` (返回完整附件 list 含 dataUrl)。
+- 前端：`main.ts` 切 session 时，每条 user msg 拉 attachments 重建 data URL；发送 user msg 改为先等 `message_append` 返回 id，再 `Promise.all` 调 `hermes_message_attach`（每个 attachment 一条 invoke，sort_idx 用数组下标）。
+- 测试：5 个新 Rust 集成测试 `message_attachments_round_trip_and_cascade_with_message`（round-trip + 排序 + 级联删除 session → 附件自动清）+ DAO inline 测试。Rust 总 19/19 (alpha-33a 14 → alpha-33b +5)。
+- 边界：
+  - DB 写失败不阻断 Gateway 请求；内存 bubble 仍带预览。
+  - 单条附件超过 10 MiB → `DbError::Invalid`。
+  - 单条附件 base64 解码错 → 明确 `invalid attachment base64` 错误。
+
+#### P1-7 SSE 错误分三类
+
+- 根因：`chat-stream.ts:340-351` catch 块对所有 SSE / HTTP 失败无差别 `setError` + status 改 disconnected，但 `connectionStatus` 没同步；mid-stream transient 解码失败也会把 dot 弄红 + 上 fatal banner。
+- 修：catch 块按错误时间线分三类
+  - ① 已 dispatch 请求但没收到任何 SSE chunk（`requestDispatched && !streamHasStarted`）→ setConnectionStatus('disconnected') + `无法连接 Hermes Gateway: <err>`（带 gateway URL）
+  - ② 已收到 SSE chunk 后报错（`streamHasStarted`）→ 只 setError(`回复中断: <err>。请重试本条消息。`)，**不动** connectionStatus，**不上** fatal banner
+  - ③ 本地准备失败（buildSystemPrompt / message 组合抛错，连请求都没发出）→ setError(`发送失败: <err>`)，**不动** connectionStatus
+- 实现：`let streamHasStarted = false` 在 `sendChatMessage()` 顶部 reset；`handleStreamChunk(payload)` 收到任意 chunk 置 `streamHasStarted = true`。
+- 测试：`chat-stream.test.ts` 3 个 case 覆盖全三类，3/3 passing。`__resetForTests()` 同步清 `streamHasStarted`。
+
+#### P1-12 agent 后台回复系统通知
+
+- 根因：4 个 factor 都缺：① Cargo.toml 没 `tauri-plugin-notification` ② JS import 0 hit ③ `chat-stream.ts:finishStream()` 根本没调通知 ④ 没 focus 监听。
+- 修：
+  - Cargo：`tauri-plugin-notification = "2"`，lib.rs `tauri_plugin_notification::init()`，capability `notification:default`。
+  - npm：`@tauri-apps/plugin-notification@2.3.3`。
+  - `src/lib/reply-notification.ts` 封装：
+    - `notifyReplyIfBackground(userPrompt)` → 窗口在前台直接 `return false`；否则申请权限后 `sendNotification({ title: "Hermes Chat", body: <30 字提示词>, extra: { kind: "reply-complete" } })`
+    - body 用 `replyNotificationBody()` 压缩空白 / 截断到 30 字符 → `"<preview>"已回复，点击查看`
+    - 失败 → `console.warn`，不向用户冒错
+    - 点击通知：`onAction` listener (前端 init 一次) 收到 `kind === "reply-complete"` → `getCurrentWindow().show().then(setFocus)`
+  - `chat-stream.ts:sendChatMessage()` 入口捕获最后一条 user msg → `lastUserPrompt`；`finishStream()` 完成 assistant bubble 后 `void notifyReplyIfBackground(lastUserPrompt)`；dispose 时清 lastUserPrompt。
+  - `main.ts` 启动时 `try { disposeReplyNotificationActions = await initReplyNotificationActions() } catch { warn }`；unload 时 `try { await disposeReplyNotificationActions() }`。
+- 测试：`reply-notification.test.ts` 4 个 case：body 压缩 + 截断 / 前台跳过 / 后台发送（含 extra.kind）/ 点击通知触发 show + setFocus，4/4 passing。
+- 设计取舍：原计划走 Rust `on_notification_action` 事件桥；实测官方前端 `onAction()` 已足够（点击恢复窗口时 WebView 仍存活，app 关闭其实是隐藏窗口），省掉一次 IPC 桥接。
+
+### 4 个待 alpha-34+ 处理
+
+- assistant bubble 👍 / 👎 / 重新生成 / 分享按钮 — 等 hermes-cn 端 feedback pipeline 落地。
+- agent-cn K-5 SSE event schema 同步（`/learn` / `/journey` 等 alpha-34 tray 端 feature 依赖）。
+- agent-cn K-6 workspace / output policy 落地后接 tray 端 artifact event 显示 + 打开目录入口。
+
+### 测试构建总结
+
+- 473/473 frontend tests passing（alpha-33a 465 → alpha-33b +8）
+- 164/164 Rust lib + integration tests passing（alpha-33a 159 → alpha-33b +5）
+- `npm run build` 通过：JS 1.24 MB / CSS 58.49 kB
+- `cargo check` + `cargo test` 全过
+
+---
+
 ## alpha-33a 输出文件路径问题（2026-08-04 发现）
 
 > 来源: hermes-tray + hermes-agent-cn WSL 联调。这个问题不是单纯的 tray UI bug：当前 tray 只把会话的 `project_dir` / `project_context` 注入 system prompt，真正创建文件的工具执行发生在 hermes-agent-cn 端，因此必须由两侧共同定义并落实输出目录契约。
