@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import type { SearchHit } from "../types";
 import { showToast } from "../lib/toast";
+import { useFocusTrap } from "../lib/focus-trap";
 import { escapeHtml, sanitizeSnippet } from "../lib/sanitize";
 import { searchModalStore } from "./search-modal-store";
 
@@ -37,6 +38,10 @@ export function SearchModal({ onSelect }: SearchModalProps) {
   const [activeIdx, setActiveIdx] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // v0.3-alpha-34: focus trap wraps the dialog and lands on the
+  // search input (the explicit initialFocusRef). useFocusTrap's
+  // requestAnimationFrame handles the focus after Preact flushes refs.
+  const trapRef = useFocusTrap(open, inputRef);
 
   // Expose the setter for tests via the module singleton.
   _setQuery = setQuery;
@@ -58,7 +63,7 @@ export function SearchModal({ onSelect }: SearchModalProps) {
       setHits([]);
       setLoading(false);
       setActiveIdx(-1);
-      queueMicrotask(() => inputRef.current?.focus());
+      // Initial focus is handled by useFocusTrap (alpha-34).
     }
     prevOpenRef.current = open;
   }, [open]);
@@ -131,7 +136,7 @@ export function SearchModal({ onSelect }: SearchModalProps) {
   if (!open) return null;
 
   return (
-    <div class="modal modal-search" role="dialog" aria-modal="true" aria-label="搜索会话">
+    <div ref={trapRef} class="modal modal-search" role="dialog" aria-modal="true" aria-label="搜索会话">
       <div class="modal-header">
         <h2>🔍 搜索会话</h2>
         <button

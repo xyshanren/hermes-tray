@@ -12,12 +12,16 @@
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { showToast } from "../lib/toast";
+import { useFocusTrap } from "../lib/focus-trap";
 import { shareStore } from "./share-modal-store";
 import { executeShareImport, clearShareHash, validateShareHash } from "./share-flow";
 
 export function ShareImportModal() {
   const [state, setState] = useState(shareStore.get());
   useEffect(() => shareStore.subscribe(setState), []);
+  // v0.3-alpha-34: keyboard focus trap (Tab cycling + auto-focus).
+  // Wraps whichever view (preview or paste-import) is currently rendered.
+  const trapRef = useFocusTrap(state.pasteOpen || state.pending !== null);
 
   // v0.3: paste-import mode — desktop recipients can't open a #share=
   // URL directly, so they paste the link here. Validate → preview.
@@ -54,7 +58,7 @@ export function ShareImportModal() {
   }
 
   return (
-    <div class="modal modal-share-import" role="dialog" aria-modal="true">
+    <div ref={trapRef} class="modal modal-share-import" role="dialog" aria-modal="true">
       <div class="modal-header">
         <h2>📥 导入分享的会话</h2>
         <button
@@ -130,6 +134,10 @@ export function ShareImportModal() {
 function PasteImportView() {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // v0.3-alpha-34: focus trap for the paste-import sub-view (separate
+  // from the parent ShareImportModal's trap so the lifecycle stays
+  // local when this view mounts/unmounts on pasteOpen toggles).
+  const trapRef = useFocusTrap(true);
 
   function handleParse(): void {
     const trimmed = text.trim();
@@ -160,7 +168,7 @@ function PasteImportView() {
   }
 
   return (
-    <div class="modal modal-share-import" role="dialog" aria-modal="true" aria-label="粘贴导入分享">
+    <div ref={trapRef} class="modal modal-share-import" role="dialog" aria-modal="true" aria-label="粘贴导入分享">
       <div class="modal-header">
         <h2>📥 导入分享的会话</h2>
         <button

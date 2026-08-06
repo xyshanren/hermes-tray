@@ -22,6 +22,7 @@ import {
 import type { DailyBucket, TokenStats } from "../types";
 import { showToast } from "../lib/toast";
 import { escapeHtml } from "../lib/sanitize";
+import { useFocusTrap } from "../lib/focus-trap";
 import { statsStore } from "./stats-modal-store";
 import { formatRoutingTrace } from "../main";
 
@@ -43,6 +44,9 @@ export function StatsModal() {
   const [period, setPeriod] = useState<StatsPeriod>("week");
   const [stats, setStats] = useState<TokenStats | null>(null);
   const [loading, setLoading] = useState(false);
+  // v0.3-alpha-34: keyboard focus trap (Tab cycling + auto-focus on
+  // first interactive element when the modal opens).
+  const trapRef = useFocusTrap(open);
 
   // Subscribe to open/close. fire-on-subscribe means a fresh mount
   // gets the current state synchronously, even before the effect's
@@ -69,7 +73,7 @@ export function StatsModal() {
   if (!open) return null;
 
   return (
-    <div class="modal modal-stats" role="dialog" aria-modal="true">
+    <div ref={trapRef} class="modal modal-stats" role="dialog" aria-modal="true">
       <div class="modal-header">
         <h2>📊 Token 用量与成本</h2>
         <button

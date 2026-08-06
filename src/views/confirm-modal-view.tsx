@@ -13,22 +13,17 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { confirmStore } from "./confirm-modal-store";
 import type { ConfirmStoreState } from "./confirm-modal-store";
+import { useFocusTrap } from "../lib/focus-trap";
 
 export function ConfirmModal() {
   const state = useConfirmStoreState();
   const confirmBtnRef = useRef<HTMLButtonElement | null>(null);
-
-  // Focus the Confirm button when the modal opens. Destructive
-  // confirmations still default to focus on Cancel — the AGENTS.md
-  // §4 "dangerous actions need 2-step confirmation" pattern (which
-  // we honour at a higher level via the count-down or checkbox
-  // guards). For a plain confirm, focus-on-Confirm is the standard
-  // desktop UX (Enter to dismiss).
-  useEffect(() => {
-    if (state.pending) {
-      confirmBtnRef.current?.focus();
-    }
-  }, [state.pending]);
+  // v0.3-alpha-34: focus trap wraps the dialog and lands on the
+  // Confirm button by default so Enter still dismisses (the previous
+  // hand-rolled useEffect that called confirmBtnRef.focus() is
+  // replaced — useFocusTrap's requestAnimationFrame does the same
+  // thing once Preact has flushed the refs).
+  const trapRef = useFocusTrap(!!state.pending, confirmBtnRef);
 
   // Escape closes the modal (resolves false). We listen on the
   // document level so the user doesn't have to focus inside the
@@ -48,7 +43,7 @@ export function ConfirmModal() {
   if (!state.pending) return null;
   const p = state.pending;
   return (
-    <div class="modal modal-confirm" role="dialog" aria-modal="true">
+    <div ref={trapRef} class="modal modal-confirm" role="dialog" aria-modal="true">
       <div class="modal-header">
         <h2>{p.title}</h2>
         <button

@@ -15,6 +15,7 @@ import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import type { Persona } from "../types";
 import { showToast } from "../lib/toast";
+import { useFocusTrap } from "../lib/focus-trap";
 import { escapeHtml } from "../lib/sanitize";
 import { personaStore } from "./persona-modal-store";
 
@@ -26,6 +27,9 @@ interface PersonaModalProps {
 export function PersonaModal({ onPersonasChanged }: PersonaModalProps) {
   const [storeState, setStoreState] = useState(personaStore.get());
   const [personas, setPersonas] = useState<Persona[]>([]);
+  // v0.3-alpha-34: keyboard focus trap (Tab cycling + auto-focus on
+  // first interactive element when the modal opens).
+  const trapRef = useFocusTrap(storeState.open);
 
   // Subscribe to the store. Fire-on-subscribe means a fresh mount gets
   // the current state synchronously, even before the effect's microtask
@@ -130,7 +134,7 @@ export function PersonaModal({ onPersonasChanged }: PersonaModalProps) {
       : null;
 
   return (
-    <div class="modal modal-persona" role="dialog" aria-modal="true" aria-label="Persona 库">
+    <div ref={trapRef} class="modal modal-persona" role="dialog" aria-modal="true" aria-label="Persona 库">
       <div class="modal-header">
         <h2>👤 Persona 库</h2>
         <button

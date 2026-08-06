@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { Eye, EyeOff } from "lucide-preact";
 import { showToast } from "../lib/toast";
+import { useFocusTrap } from "../lib/focus-trap";
 import { CountdownButton } from "../components/ui/countdown-button";
 import { backupStore } from "./backup-modal-store";
 
@@ -131,10 +132,13 @@ export function PasswordInput({
 export function BackupModal() {
   const [open, setOpen] = useState(backupStore.getOpen());
   useEffect(() => backupStore.subscribe(setOpen), []);
+  // v0.3-alpha-34: keyboard focus trap (Tab cycling + auto-focus on
+  // first interactive element when the modal opens).
+  const trapRef = useFocusTrap(open);
   if (!open) return null;
 
   return (
-    <div class="modal modal-backup">
+    <div ref={trapRef} class="modal modal-backup" role="dialog" aria-modal="true">
       <div class="modal-header">
         <h2>💾 加密备份</h2>
         <button

@@ -44,6 +44,7 @@ import {
 } from "../lib/state";
 import { hermesGet } from "../lib/api";
 import { showToast } from "../lib/toast";
+import { useFocusTrap } from "../lib/focus-trap";
 import {
   coerceConfigValue,
   formatBoolPref,
@@ -86,6 +87,9 @@ interface ConnectionTestState {
 export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
   const [open, setOpen] = useState(settingsStore.getOpen());
   useEffect(() => settingsStore.subscribe(setOpen), []);
+  // v0.3-alpha-34: keyboard focus trap (Tab cycling + auto-focus on
+  // the close button when the modal opens; first focusable = ×).
+  const trapRef = useFocusTrap(open);
 
   // ── Form fields ────────────────────────────────────────────────────────
   const [theme, setThemeMode] = useState<ThemeMode>(
@@ -381,7 +385,7 @@ export function SettingsModal({ onDefaultsChanged }: SettingsModalProps) {
   if (!open) return null;
 
   return (
-    <div class="modal" role="dialog" aria-modal="true">
+    <div ref={trapRef} class="modal" role="dialog" aria-modal="true">
       <div class="modal-header">
         <h2>⚙️ 设置</h2>
         <button
