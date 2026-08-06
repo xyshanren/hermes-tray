@@ -1,0 +1,68 @@
+feat: alpha-35a 纯前端 polish — assistant 复制按钮 CSS (B 位置修正) + 中文 IME 文档
+
+# alpha-35a — post-manual-verification polish (B + F')
+
+## 改了什么
+
+### B — assistant 气泡右上角复制按钮 CSS 补全 + 位置修正
+
+- `src/styles.css`: 新增 `.bubble-copy-btn` 完整规则 (定位 / 尺寸 / 配色 / hover / focus / copied 6 个状态) +
+  `.message.assistant { position: relative; width: fit-content; max-width: 100%; }` —— alpha-35a post-review
+  fix 把 assistant 容器收缩到 fit-content,让绝对定位的 `right: 8px` 锚到 bubble 右上角,
+  而不是 messages 区右边缘(那个位置会紧贴 user bubble 下方,视觉上像按钮属于 user bubble)。
+  修复用户报告的"按钮被挤成竖向窄条"+ post-review "按钮位置像属于 user bubble" 两个 bug。
+- `src/views/chat-view.tsx`: button `title` / `aria-label` 文案从"复制 Markdown 源码"简化成"复制"(hover);
+  emoji `📋 / ✓` 换成 inline Material SVG (content_copy / check, 14×14, `fill="currentColor"`),
+  避免不同 OS emoji 渲染宽度差异再次挤压按钮。
+
+### F' — Ctrl+/ 中文 IME 文档 gap
+
+- `src/views/shortcuts-modal-store.ts`: `ShortcutRow` 改为 discriminated union
+  (`{ type?: "shortcut"; keys; description } | { type: "note"; text }`);
+  SHORTCUT_GROUPS 的"全局"组 `Ctrl+/` 行下方追加一条 note row, 文案
+  "提示: 中文输入法激活时 Ctrl+/ 会被 IME 拦截, 请切换到英文模式或按 Esc 退出候选后再试。"
+- `src/views/shortcuts-modal-view.tsx`: 加 `isShortcutRow` 类型谓词; row 渲染 dispatch:
+  shortcut row → 原有 `<li class="shortcuts-row">`, note row → `<li class="shortcuts-note">`;
+  filter 加 `isShortcutRow(row) &&` 前置守卫避免搜索时误命中 note row。
+- `src/styles.css`: 新增 `.shortcuts-note` 6 条规则 + `::before` ⓘ icon: muted 文字,
+  1px dashed 上边框, 11px 字号, `--text-muted` 色。
+- `src/views/shortcuts-modal.test.tsx`: 改写 2 断言 (7 → 7+1note) + 新增 2 测试
+  (asserts SHORTCUT_GROUPS note row + asserts view DOM 渲染 note row)。
+
+### docs
+
+- `verification/alpha-35-plan.md`: 完整 plan spec (229 行) — 4 候选 + 拆分 + 关键决策 + 不在范围 + PR 检查。
+- `ROADMAP.md`: §v0.3.0 同步插入 alpha-35 polish 引用段 (+39 行)。
+- `verification/alpha-35a-commit-msg.txt`: 本文件。
+
+## 不改什么
+
+- 0 Rust 改动 (`src-tauri/` 路径 0 变更)。
+- splash / settings / tray tooltip 版本号 (V 留给 alpha-35b,根据用户决定)。
+- 分享按钮 ↗/↙ 重设计 (S 留给 alpha-35b)。
+- `?` 键绑定 (避免跟 IME + 英文输入问号冲突)。
+
+## 验证
+
+- 手动验证: 装 alpha-35a MSI 后开任意会话, assistant 气泡右上角出现 28×28 圆角按钮
+  (hover fade-in, focus-visible ring, copied 翻绿 1.8s); 浅/深色主题都 OK。
+- alpha-35a post-review: button 视觉锚定 bubble 右上角,不再贴 user bubble 下方/右边缘。
+- 浅色 + 深色主题各一遍。
+- 自动化:
+  - `npm run build` 通过 (CSS 59.87 kB → 期望 < 80 kB)。
+  - `npm test` 475/475 frontend tests passing (含 2 新增 IME note 测试)。
+  - `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` 0 警告 (无 Rust 改动)。
+  - `cargo fmt --manifest-path src-tauri/Cargo.toml --check` clean。
+
+## 文件清单 (5 changed + 2 new)
+
+```
+M  src/styles.css                                  (+98, -1)  (.bubble-copy-btn + .shortcuts-note + B 位置修正)
+M  src/views/chat-view.tsx                         (+19, -3)  (button SVG + 文案)
+M  src/views/shortcuts-modal-store.ts              (+18, -4)  (ShortcutRow union + IME note row)
+M  src/views/shortcuts-modal-view.tsx              (+24, -12) (note row 渲染 + isShortcutRow 谓词)
+M  src/views/shortcuts-modal.test.tsx              (+25, -5)  (改写 2 + 新增 2 测试)
+M  ROADMAP.md                                      (+39, 0)   (alpha-35 polish 段)
+A  verification/alpha-35-plan.md                   (+229 lines, new)
+A  verification/alpha-35a-commit-msg.txt           (本文件, new)
+```

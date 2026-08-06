@@ -293,11 +293,27 @@ function AssistantBubble({ msg }: { msg: ChatMessage }) {
       <button
         type="button"
         class={`bubble-copy-btn${copied ? " copied" : ""}`}
-        title={copied ? "已复制 Markdown" : "复制 Markdown 源码"}
-        aria-label={copied ? "已复制 Markdown" : "复制 Markdown 源码"}
+        title={copied ? "已复制" : "复制"}
+        aria-label={copied ? "已复制" : "复制"}
         onClick={handleCopy}
       >
-        <span aria-hidden="true">{copied ? "✓" : "📋"}</span>
+        {copied ? (
+          // 14×14 checkmark (Material check), currentColor.
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"
+              fill="currentColor"
+            />
+          </svg>
+        ) : (
+          // 14×14 clipboard (Material content_copy), currentColor.
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M16 1H4v16h2V3h10V1zm3 4H8v18h14V5h-3zm-1 16H9V7h9v14z"
+              fill="currentColor"
+            />
+          </svg>
+        )}
       </button>
       {msg.bar ? <MessageBar bar={msg.bar} /> : null}
     </div>
