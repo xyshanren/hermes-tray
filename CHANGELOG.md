@@ -6,6 +6,17 @@
 
 ---
 
+## alpha-35a（未发布 — PR 待开）
+
+post-manual-verification polish 第 1 轮（**纯前端，0 Rust 变更**）。源：alpha-34 PR #3 MERGED 后用户装 MSI 试用时反馈的 2 个问题。完整 plan 见 [`verification/alpha-35-plan.md`](./verification/alpha-35-plan.md) §B / §F'。
+
+- **B：assistant 复制按钮 CSS 补全 + 文案简化** — `src/styles.css` 加 `.bubble-copy-btn` 完整规则 (28×28 圆角矩形，absolute 定位 top 6px right 8px；hover 渐现 (opacity 0→1)，hover bg 走 `--bg-tertiary`，focus-visible 走 `--ring`，copied 状态色翻 `--success` + 锁 `pointer-events`) + `.message.assistant { position: relative }` 作为锚点。`src/views/chat-view.tsx` button `title` / `aria-label` 从 "复制 Markdown 源码" 简化成 "复制"，emoji `📋 / ✓` 换成 inline Material SVG (content_copy / check, 14×14, `fill="currentColor"`)。
+- **F'：Ctrl+/ 中文 IME 文档 gap** — `src/views/shortcuts-modal-store.ts` 把 `ShortcutRow` 改为 discriminated union (`{ type?: "shortcut"; keys; description } | { type: "note"; text }`)；SHORTCUT_GROUPS 的"全局"组 `Ctrl+/` 行下方追加一条 note row。`src/views/shortcuts-modal-view.tsx` 加 `isShortcutRow` 类型谓词 + row 渲染 dispatch。`src/styles.css` 加 `.shortcuts-note` muted 文字 + dashed 上边框 + ⓘ icon。`src/views/shortcuts-modal.test.tsx` 改写 2 断言 + 新增 2 测试。**不开 `?` 绑定**（`?` 物理键就是 `Shift+/`，会冲突英文输入问号 + 跟 IME 拦截路径相同）。
+
+**Stats**: 475/475 frontend tests passing（alpha-34 473 → alpha-35a +2，含新增 IME note 断言测试 + DOM 渲染测试）；`cargo clippy --all-targets -- -D warnings` 0;`cargo fmt --check` clean;production build 通过（JS 1.24 MB / CSS 59.82 kB, +1.33 kB CSS）。`shortcuts-modal.test.tsx` 子套增加到 16 个,全过。
+
+---
+
 ## alpha-34（未发布 — PR 待开）
 
 纯前端 polish 一锅端（Plan 1 = A 美学 + C 容器 + F 焦点陷阱 + G 全局细节）。完整 diff 见分支 `feat/alpha-34`。

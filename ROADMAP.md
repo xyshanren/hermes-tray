@@ -726,6 +726,45 @@ Payload schema (snake_case JSON):
 
 ---
 
+## alpha-35 polish（2026-08-05 manual 试用反馈 — plan-only）
+
+alpha-34 [PR #3 MERGED](https://github.com/xyshanren/hermes-tray/pull/3)（commit `9b9f128`，在 master 上）ship 后用户装 MSI 试用时反馈 4 个问题/改进候选，整理成 alpha-35 polish 一锅端。**纯前端，零 Rust 变更**。完整 spec 见 [`verification/alpha-35-plan.md`](./verification/alpha-35-plan.md)。
+
+| ID | 候选 | 估时 | 拆分 |
+|---|---|---|---|
+| B | assistant 复制按钮 CSS 补全 + 文案改“复制” | 0.15d | **alpha-35a** |
+| F' | shortcuts modal 加中文 IME 提示行（不引入 `?` 绑定） | 0.05d | **alpha-35a** |
+| V | 主窗口 footer 显示版本号（`v0.2.2`，muted 文字） | 0.1d | **alpha-35b** |
+| S | 分享按钮 ↗/↙ icon 强化 + 视觉分隔 | 0.2d | **alpha-35b** |
+| **合计** | | **0.5d** | **2 PR**: 35a (B+F') + 35b (V+S) |
+
+**关键决策**：
+
+1. **版本号注入走方案 a**（vite `define.__HERMES_VERSION__` 从 `tauri.conf.json` 读，`try/catch` fallback 到 `"0.0.0-dev"`）—— 因为严禁改 Rust 排除了方案 b（运行时 invoke）。
+2. **不引入 `?` 键绑定**：`?` 物理键就是 `Shift+/`，会冲突英文输入 + 跟 IME 拦截路径相同；改走 shortcuts modal 内加 note row 解释 IME。
+3. **发送方按钮行为不变**：保持 copy-to-clipboard 单步快速路径；UX 改进通过 icon + 文案 + tooltip + 视觉分隔解决。
+4. **测试**：F' 净增 2 个测试（asserts SHORTCUT_GROUPS + asserts view DOM）。B 不新增（纯 CSS + 文案）。
+5. **拆分**：alpha-35a 2 PR ~0.2d、alpha-35b 2 PR ~0.3d；本质是避免 35b 出意外 constraint 拦 35a。
+
+**不在范围**：
+
+- Rust 后端代码（“v0.3 phase 后端冻结”硬性约束）；tray / settings / splash 版本号 alpha-36+ 再添。
+- 发送方按钮行为变更（不变 modal-only）。
+- 新增 `?` 键绑定。
+
+**与 P4 long-tail 重叠**：本轮正好收掉了 long-tail 的“assistant 复制按钮竖条”与“调起快捷键面板 `?` 无反应”两项；alpha-36 剩余 long-tail 以 V + splash 版本号为主。
+
+**PR 前强制检查**（alpha-35a / 35b 都跑）：
+
+```bash
+cd src-tauri
+cargo clippy --manifest-path Cargo.toml -- -D warnings    # 0 改动但仍要 0 告警
+cargo fmt --manifest-path Cargo.toml --check               # 0 改动仍要 clean
+cd ..
+npm run build                                             # 前端 tsc + vite build
+npm test                                                  # vitest 单元测试
+```
+
 ## P2 candidates (deferred from v0.2, eligible for v0.3)
 
 | Item | Deferral reason | Re-eval when |

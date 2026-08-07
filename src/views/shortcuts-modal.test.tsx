@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "preact";
 import { shortcutsModalStore, SHORTCUT_GROUPS } from "./shortcuts-modal-store";
+import type { ShortcutRow } from "./shortcuts-modal-store";
 import { ShortcutsModal } from "./shortcuts-modal-view";
 
 function mountView() {
@@ -66,18 +67,36 @@ describe("SHORTCUT_GROUPS data", () => {
     expect(SHORTCUT_GROUPS.map((g) => g.name)).toEqual(["全局", "输入区", "通用"]);
   });
 
-  it("has exactly 7 shortcuts total (per design 16)", () => {
-    const total = SHORTCUT_GROUPS.reduce((acc, g) => acc + g.shortcuts.length, 0);
-    expect(total).toBe(7);
-  });
-
-  it("each shortcut has at least one key + a non-empty description", () => {
+  it("has exactly 7 shortcuts + 1 note total (alpha-35a added Ctrl+/ IME hint)", () => {
+    const isShortcutRow = (r: ShortcutRow) => !("text" in r);
+    let shortcuts = 0;
+    let notes = 0;
     for (const group of SHORTCUT_GROUPS) {
       for (const row of group.shortcuts) {
+        if (isShortcutRow(row)) shortcuts++;
+        else notes++;
+      }
+    }
+    expect(shortcuts).toBe(7);
+    expect(notes).toBe(1);
+  });
+
+  it("every shortcut row has at least one key + a non-empty description", () => {
+    for (const group of SHORTCUT_GROUPS) {
+      for (const row of group.shortcuts) {
+        if ("text" in row) continue; // skip note rows
         expect(row.keys.length).toBeGreaterThan(0);
         expect(row.description.length).toBeGreaterThan(0);
       }
     }
+  });
+
+  it("the global group carries an IME doc-gap note under Ctrl+/", () => {
+    const global = SHORTCUT_GROUPS.find((g) => g.name === "全局");
+    expect(global).toBeDefined();
+    const notes = global!.shortcuts.filter((r) => "text" in r);
+    expect(notes).toHaveLength(1);
+    expect(notes[0].text).toMatch(/IME/);
   });
 });
 
@@ -94,7 +113,7 @@ describe("<ShortcutsModal /> (render shell)", () => {
     expect(host.querySelector(".modal-shortcuts")).toBeNull();
   });
 
-  it("renders 3 group sections + 7 rows when open", async () => {
+  it("renders 3 group sections + 7 shortcut rows + 1 IME note when open", async () => {
     const host = mountView();
     shortcutsModalStore.setOpen(true);
     await new Promise((r) => setTimeout(r, 10));
@@ -104,6 +123,17 @@ describe("<ShortcutsModal /> (render shell)", () => {
     expect(groups).toHaveLength(3);
     const rows = modal!.querySelectorAll(".shortcuts-row");
     expect(rows).toHaveLength(7);
+    const notes = modal!.querySelectorAll(".shortcuts-note");
+    expect(notes).toHaveLength(1);
+  });
+
+  it("renders the IME note text inside the global group", async () => {
+    const host = mountView();
+    shortcutsModalStore.setOpen(true);
+    await new Promise((r) => setTimeout(r, 10));
+    const note = host.querySelector(".shortcuts-note");
+    expect(note).not.toBeNull();
+    expect(note!.textContent).toMatch(/IME/);
   });
 
   it("renders the group name labels from SHORTCUT_GROUPS", async () => {

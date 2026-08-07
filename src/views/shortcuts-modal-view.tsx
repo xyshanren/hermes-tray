@@ -17,7 +17,7 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { useFocusTrap } from "../lib/focus-trap";
 import { shortcutsModalStore, SHORTCUT_GROUPS } from "./shortcuts-modal-store";
-import type { ShortcutsModalState, ShortcutGroup } from "./shortcuts-modal-store";
+import type { ShortcutsModalState, ShortcutGroup, ShortcutRow } from "./shortcuts-modal-store";
 
 export function ShortcutsModal() {
   const state = useShortcutsModalState();
@@ -44,16 +44,16 @@ export function ShortcutsModal() {
   }, [state.open]);
 
   // Filter groups by query (matches description or key names).
+  // Note rows are skipped by the filter since they don't carry keys.
   const filteredGroups: ShortcutGroup[] = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return SHORTCUT_GROUPS;
     return SHORTCUT_GROUPS.map((g) => ({
       ...g,
-      shortcuts: g.shortcuts.filter(
-        (row) =>
-          row.description.toLowerCase().includes(q) ||
-          row.keys.some((k) => k.toLowerCase().includes(q)),
-      ),
+      shortcuts: g.shortcuts.filter((row) => isShortcutRow(row) && (
+        row.description.toLowerCase().includes(q) ||
+        row.keys.some((k) => k.toLowerCase().includes(q))
+      )),
     })).filter((g) => g.shortcuts.length > 0);
   }, [filter]);
 
@@ -86,18 +86,25 @@ export function ShortcutsModal() {
           <section key={group.name} class="shortcuts-group">
             <h3 class="shortcuts-group-name">{group.name}</h3>
             <ul class="shortcuts-list">
-              {group.shortcuts.map((row, idx) => (
-                <li key={idx} class="shortcuts-row">
-                  <span class="shortcut-keys">
-                    {row.keys.map((k, i) => (
-                      <span key={i} class="shortcut-key">
-                        {k}
-                      </span>
-                    ))}
-                  </span>
-                  <span class="shortcut-desc">{row.description}</span>
-                </li>
-              ))}
+              {group.shortcuts.map((row, idx) =>
+                isShortcutRow(row) ? (
+                  <li key={idx} class="shortcuts-row">
+                    <span class="shortcut-keys">
+                      {row.keys.map((k, i) => (
+                        <span key={i} class="shortcut-key">
+                          {k}
+                        </span>
+                      ))}
+                    </span>
+                    <span class="shortcut-desc">{row.description}</span>
+                  </li>
+                ) : (
+                  // v0.3-alpha-35a — IME doc-gap hint (no kbd chip).
+                  <li key={idx} class="shortcuts-note">
+                    <span class="shortcuts-note-text">{row.text}</span>
+                  </li>
+                ),
+              )}
             </ul>
           </section>
           ))
@@ -116,4 +123,14 @@ function useShortcutsModalState(): ShortcutsModalState {
   const [state, setState] = useState<ShortcutsModalState>(shortcutsModalStore.get());
   useEffect(() => shortcutsModalStore.subscribe(setState), []);
   return state;
+}
+
+// v0.3-alpha-35a — discriminate the union by `"text" in row`.
+// Shortcut rows always have keys[] + description; note rows carry text only.
+// Type narrowing via a single predicate keeps the JSX exhaustive and lets
+// the TypeScript compiler reject new variants until the renderer handles them.
+function isShortcutRow(
+  row: ShortcutRow,
+): row is { type?: "shortcut"; keys: string[]; description: string } {
+  return !("text" in row);
 }
