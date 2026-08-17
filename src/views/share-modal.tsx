@@ -139,7 +139,7 @@ function PasteImportView() {
   // local when this view mounts/unmounts on pasteOpen toggles).
   const trapRef = useFocusTrap(true);
 
-  function handleParse(): void {
+  async function handleParse(): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) {
       setError("请先粘贴分享链接");
@@ -156,10 +156,15 @@ function PasteImportView() {
       // Assume a raw base64url payload.
       hash = `#share=${trimmed}`;
     }
-    const result = validateShareHash(hash);
+    // v0.3.0 P1-13 — validateShareHash is async (verifies the v2 SHA-256
+    // checksum via crypto.subtle.digest). v1 docs skip the checksum and
+    // are accepted as legacy.
+    const result = await validateShareHash(hash);
     if (result.ok) {
       setError(null);
       shareStore.setPending(result.doc); // switches to preview mode
+    } else if (result.reason === "checksum-mismatch") {
+      setError("链接已损坏 — 校验和不匹配，可能被篡改或转码损坏");
     } else if (result.reason === "unsupported-version") {
       setError(`链接版本不支持 (version=${result.version ?? "?"})`);
     } else {

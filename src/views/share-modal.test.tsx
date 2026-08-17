@@ -58,45 +58,58 @@ afterEach(() => {
 // ── validateShareHash pure function tests ──────────────────────────────
 
 describe("validateShareHash", () => {
-  it("returns no-match for empty hash", () => {
+  it("returns no-match for empty hash", async () => {
     // v0.2-alpha-26 — empty hash is no-match (silently ignored by
     // share-ui.ts), NOT decode-failed. Folding no-match into
     // decode-failed caused the cold-boot toast spam bug.
-    const result = validateShareHash("");
+    // v0.3.0 P1-13 — validateShareHash is async (v2 SHA-256 verify).
+    const result = await validateShareHash("");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("no-match");
   });
 
-  it("returns decode-failed for malformed base64url payload", () => {
+  it("returns decode-failed for malformed base64url payload", async () => {
     // #share= prefix but invalid payload.
-    const result = validateShareHash("#share=@@@not-base64@@@");
+    const result = await validateShareHash("#share=@@@not-base64@@@");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("decode-failed");
   });
 
-  it("returns unsupported-version for doc.version !== 1", () => {
-    const doc = { version: 2, session: { id: "s1", title: "t" }, messages: [] };
+  it("returns checksum-mismatch for version-2 doc without a checksum", async () => {
+    // v0.3.0 P1-13 — version: 2 is now accepted (with verification); a v2
+    // doc without an embedded sha256 fails the verification and returns
+    // checksum-mismatch so we don't silently import tampered links.
+    const doc = { version: 2 as const, session: { id: "s1", title: "t" }, messages: [] };
+    const url = buildShareUrl(encodeShareDoc(doc), "https://x.com", "/");
+    const hash = url.substring(url.indexOf("#"));
+    const result = await validateShareHash(hash);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("checksum-mismatch");
+  });
+
+  it("returns unsupported-version for doc.version > 2", async () => {
+    const doc = { version: 3, session: { id: "s1", title: "t" }, messages: [] };
     // Extract just the hash from the full URL — validateShareHash
     // expects window.location.hash format (`#share=...`), not a full URL.
     const url = buildShareUrl(encodeShareDoc(doc), "https://x.com", "/");
     const hash = url.substring(url.indexOf("#"));
-    const result = validateShareHash(hash);
+    const result = await validateShareHash(hash);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe("unsupported-version");
-      expect(result.version).toBe(2);
+      expect(result.version).toBe(3);
     }
   });
 
-  it("returns ok=true for valid version-1 ShareDoc", () => {
+  it("returns ok=true for valid version-1 ShareDoc", async () => {
     const doc = {
-      version: 1,
+      version: 1 as const,
       session: { id: "s1", title: "Test" },
       messages: [{ role: "user", content: "hi" }],
     };
     const url = buildShareUrl(encodeShareDoc(doc), "https://x.com", "/");
     const hash = url.substring(url.indexOf("#"));
-    const result = validateShareHash(hash);
+    const result = await validateShareHash(hash);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.doc.version).toBe(1);
@@ -105,10 +118,10 @@ describe("validateShareHash", () => {
     }
   });
 
-  it("returns decode-failed for valid base64 but invalid JSON", () => {
+  it("returns decode-failed for valid base64 but invalid JSON", async () => {
     // Encode non-JSON string as a share fragment.
     const hash = "#share=" + "bm90LWpzb24="; // base64url("not-json")
-    const result = validateShareHash(hash);
+    const result = await validateShareHash(hash);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("decode-failed");
   });
@@ -125,7 +138,7 @@ describe("shareStore", () => {
   it("setPending notifies subscribers and stores the doc", () => {
     const listener = vi.fn();
     const unsub = shareStore.subscribe(listener);
-    const doc = { version: 1, session: { id: "x", title: "t" }, messages: [] };
+    const doc = { version: 1 as const, session: { id: "x", title: "t" }, messages: [] };
     shareStore.setPending(doc);
     expect(shareStore.get().pending).toBe(doc);
     expect(listener).toHaveBeenLastCalledWith(
@@ -136,7 +149,7 @@ describe("shareStore", () => {
 
   it("setPending(null) clears pending", () => {
     shareStore.setPending({
-      version: 1,
+      version: 1 as const,
       session: { id: "x", title: "t" },
       messages: [],
     });
@@ -145,7 +158,7 @@ describe("shareStore", () => {
   });
 
   it("setImporting toggles the in-flight flag without touching pending", () => {
-    const doc = { version: 1, session: { id: "x", title: "t" }, messages: [] };
+    const doc = { version: 1 as const, session: { id: "x", title: "t" }, messages: [] };
     shareStore.setPending(doc);
     shareStore.setImporting(true);
     expect(shareStore.get().isImporting).toBe(true);
@@ -160,7 +173,7 @@ describe("shareStore", () => {
     expect(listener).toHaveBeenCalledTimes(1);
     unsub();
     shareStore.setPending({
-      version: 1,
+      version: 1 as const,
       session: { id: "x", title: "t" },
       messages: [],
     });
@@ -183,7 +196,7 @@ describe("ShareImportModal rendering", () => {
     // notify nobody (matches the search-modal.test.tsx pattern).
     await flushRender();
     shareStore.setPending({
-      version: 1,
+      version: 1 as const,
       session: { id: "s1", title: "Imported Session" },
       messages: [
         { role: "user", content: "hello" },
@@ -206,7 +219,7 @@ describe("ShareImportModal rendering", () => {
     mountShareImportModalInto();
     await flushRender();
     shareStore.setPending({
-      version: 1,
+      version: 1 as const,
       session: { id: "s1", title: "Test" },
       messages: [{ role: "user", content: "hi" }],
     });
@@ -222,7 +235,7 @@ describe("ShareImportModal rendering", () => {
     mountShareImportModalInto();
     await flushRender();
     shareStore.setPending({
-      version: 1,
+      version: 1 as const,
       session: { id: "s1", title: "Test" },
       messages: [],
     });
@@ -239,7 +252,7 @@ describe("ShareImportModal rendering", () => {
     mountShareImportModalInto();
     await flushRender();
     shareStore.setPending({
-      version: 1,
+      version: 1 as const,
       session: { id: "s1", title: "Test" },
       messages: [],
     });
@@ -253,7 +266,7 @@ describe("ShareImportModal rendering", () => {
     await flushRender();
     const longContent = "x".repeat(200);
     shareStore.setPending({
-      version: 1,
+      version: 1 as const,
       session: { id: "s1", title: "Test" },
       messages: [
         { role: "user", content: longContent },
@@ -279,7 +292,7 @@ describe("ShareImportModal rendering", () => {
     mountShareImportModalInto();
     await flushRender();
     shareStore.setPending({
-      version: 1,
+      version: 1 as const,
       session: { id: "s1", title: "Test" },
       messages: [],
     });
@@ -293,7 +306,7 @@ describe("ShareImportModal rendering", () => {
     mountShareImportModalInto();
     await flushRender();
     shareStore.setPending({
-      version: 1,
+      version: 1 as const,
       session: { id: "s1", title: "Test" },
       messages: [{ role: "user", content: "a" }, { role: "assistant", content: "b" }],
     });
@@ -308,7 +321,7 @@ describe("ShareImportModal rendering", () => {
     mountShareImportModalInto();
     await flushRender();
     shareStore.setPending({
-      version: 1,
+      version: 1 as const,
       session: { id: "s1", title: "Test" },
       messages: [{ role: "user", content: "a" }],
     });

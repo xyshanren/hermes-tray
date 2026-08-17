@@ -198,8 +198,20 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 // receiving end decodes it via parseShareHash() and offers to import.
 // Future iterations may add an HMAC signature or versioned envelope.
 
+// v0.3.0 P1-13 (alpha-34) — share-link schema v2.
+//
+// v1 was a plain base64url(JSON({version:1, session, messages})) — easy to
+// forge by hand or by a corrupted transport. v2 adds a SHA-256 checksum
+// over the canonical (session, messages) pair so the receiving end can
+// tell a tampered link from a clean one. We slice the digest to 16 hex
+// chars (64 bits) — enough collision space for a single doc, keeps the
+// URL fragment manageable.
+//
+// v1 docs are still accepted (no checksum to verify) so old shared
+// links keep working. New links emitted by the tray are v2-only.
 export interface ShareDoc {
-  version: number;
+  /** Schema version. Tray writes 2 (with sha256); accepts both 1 and 2. */
+  version: 1 | 2;
   session: {
     id: string;
     title: string;
@@ -208,4 +220,7 @@ export interface ShareDoc {
     role: string;
     content: string;
   }>;
+  /** v2 only: first 16 hex chars of SHA-256 over canonical-json(session, messages).
+   *  Absent on v1 docs. */
+  sha256?: string;
 }

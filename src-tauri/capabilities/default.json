@@ -15,39 +15,6 @@
     "dialog:allow-save",
     "dialog:allow-open",
     "shell:allow-open",
-    "notification:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "wsl",
-          "cmd": "wsl",
-          "args": true,
-          "sidecar": false
-        }
-      ]
-    },
-    "fs:default",
-    {
-      "identifier": "fs:allow-read-text-file",
-      "allow": [
-        { "path": "$EXE/config.json" },
-        { "path": "$EXE/**" }
-      ]
-    },
-    {
-      "identifier": "fs:allow-write-text-file",
-      "allow": [
-        { "path": "$EXE/config.json" },
-        { "path": "$EXE/**" }
-      ]
-    },
-    {
-      "identifier": "fs:allow-exists",
-      "allow": [
-        { "path": "$EXE/config.json" },
-        { "path": "$EXE/**" }
-      ]
-    }
+    "notification:default"
   ]
 }

@@ -102,9 +102,85 @@ fn read_wsl_distro(app: &tauri::AppHandle) -> String {
 fn read_wsl_distro_from(path: &std::path::Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
-    json.get("wsl_distro")
-        .and_then(|v| v.as_str())
-        .map(String::from)
+    let raw = json.get("wsl_distro").and_then(|v| v.as_str())?;
+    Some(sanitize_wsl_distro(raw))
+}
+
+/// v0.3.0 P1-11 — sanitize a distro name before passing it to the
+/// `wsl -d <name>` flag. WSL accepts names like `Ubuntu`, `Ubuntu-24.04`,
+/// `Debian` (alphanumeric, `-`, `.`, `_`); it does NOT accept quotes /
+/// spaces / shell metachars. We allow the conservative subset and refuse
+/// everything else so a config.json edited by hand can't smuggle
+/// `; rm -rf ~` into a future command line.
+fn sanitize_wsl_distro(s: &str) -> String {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return "Ubuntu-24.04.4".to_string();
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '_')
+    {
+        log::warn!("Refused non-conforming wsl_distro: {:?}", trimmed);
+        return "Ubuntu-24.04.4".to_string();
+    }
+    if trimmed.len() > 64 {
+        log::warn!("Refused over-long wsl_distro: {} chars", trimmed.len());
+        return "Ubuntu-24.04.4".to_string();
+    }
+    trimmed.to_string()
+}
+
+#[cfg(test)]
+mod wsl_distro_sanitize_tests {
+    use super::sanitize_wsl_distro;
+
+    #[test]
+    fn allows_conventional_distro_names() {
+        assert_eq!(sanitize_wsl_distro("Ubuntu"), "Ubuntu");
+        assert_eq!(sanitize_wsl_distro("Ubuntu-24.04"), "Ubuntu-24.04");
+        assert_eq!(sanitize_wsl_distro("Debian_GNU"), "Debian_GNU");
+        assert_eq!(
+            sanitize_wsl_distro("openSUSE.Leap.15.5"),
+            "openSUSE.Leap.15.5"
+        );
+    }
+
+    #[test]
+    fn falls_back_to_default_on_empty() {
+        assert_eq!(sanitize_wsl_distro(""), "Ubuntu-24.04.4");
+        assert_eq!(sanitize_wsl_distro("   "), "Ubuntu-24.04.4");
+    }
+
+    #[test]
+    fn falls_back_to_default_on_shell_metachars() {
+        for bad in [
+            "Ubuntu; rm -rf ~",
+            "Ubuntu && evil",
+            "Ubuntu|pipe",
+            "Ubuntu`backtick`",
+            "Ubuntu$var",
+            "Ubuntu\nnewline",
+            "Ubuntu space",
+            "Ubuntu\"quote",
+            "Ubuntu'apos",
+        ] {
+            assert_eq!(
+                sanitize_wsl_distro(bad),
+                "Ubuntu-24.04.4",
+                "should reject {:?}",
+                bad
+            );
+        }
+    }
+
+    #[test]
+    fn falls_back_to_default_on_overlong() {
+        let long = "A".repeat(65);
+        assert_eq!(sanitize_wsl_distro(&long), "Ubuntu-24.04.4");
+        let ok = "A".repeat(64);
+        assert_eq!(sanitize_wsl_distro(&ok).len(), 64);
+    }
 }
 
 /// Returns candidate paths for legacy `config.json` (v0.1.x behavior: exe dir + CWD).
@@ -572,14 +648,109 @@ async fn hermes_proxy_post_stream(
     }
     let mut stream = resp.bytes_stream();
     use futures_util::StreamExt;
+    // v0.3.0 P1-15 — UTF-8 chunk boundary safety. HTTP bytes_stream
+    // cuts arbitrarily on byte boundaries; the previous
+    // `String::from_utf8(bytes.to_vec())` silently dropped the entire
+    // chunk when a multi-byte char (中文 / emoji) straddled the
+    // boundary. Now we accumulate leftover bytes in `carry` and only
+    // emit text once we've assembled a complete UTF-8 sequence. The
+    // trailing 1–3 bytes of a multi-byte char sit in `carry` until the
+    // next chunk fills them in.
+    let mut carry: Vec<u8> = Vec::with_capacity(8);
     while let Some(chunk) = stream.next().await {
         let bytes = chunk.map_err(|e| e.to_string())?;
-        if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+        carry.extend_from_slice(&bytes);
+        // Find the largest valid-UTF-8 prefix; emit that, keep the tail.
+        let valid_up_to = utf8_boundary(&carry);
+        if valid_up_to > 0 {
+            // SAFETY: utf8_boundary verifies the prefix is valid UTF-8.
+            let text = unsafe {
+                std::str::from_utf8_unchecked(&carry[..valid_up_to])
+            }.to_string();
+            let _ = window.emit("hermes-stream-chunk", &text);
+            // Shift the leftover bytes to the front of the buffer.
+            carry.drain(..valid_up_to);
+        }
+    }
+    // Stream closed with trailing partial UTF-8 bytes — emit them as a
+    // lossy string (replacement char) rather than dropping them. The
+    // probability of hitting this path is low (gateway always closes
+    // on a complete event), but if it does happen we degrade gracefully.
+    if !carry.is_empty() {
+        let text = String::from_utf8_lossy(&carry).into_owned();
+        if !text.is_empty() {
             let _ = window.emit("hermes-stream-chunk", &text);
         }
     }
     let _ = window.emit("hermes-stream-done", ());
     Ok(())
+}
+
+/// Find the largest byte index `n` ( ≤ len ) such that `&buf[..n]` is
+/// valid UTF-8. Returns 0 if even the first byte is malformed. Pure
+/// helper — pulled out of `hermes_proxy_post_stream` so the logic can
+/// be unit-tested with hand-crafted byte sequences that simulate
+/// mid-multi-byte-char HTTP chunk cuts.
+fn utf8_boundary(buf: &[u8]) -> usize {
+    let len = buf.len();
+    // std::str::from_utf8 walks from index 0; when it hits an error it
+    // reports the index of the first invalid byte. We slice the buffer
+    // from the back, stripping one byte at a time, until the prefix
+    // is valid. For ASCII-heavy SSE payloads the first iteration
+    // succeeds and we exit at full length; for partial multi-byte
+    // tails (1–3 bytes) we usually fail once or twice then return.
+    for n in (0..=len).rev() {
+        if std::str::from_utf8(&buf[..n]).is_ok() {
+            return n;
+        }
+    }
+    0
+}
+
+#[cfg(test)]
+mod utf8_boundary_tests {
+    use super::utf8_boundary;
+
+    #[test]
+    fn ascii_returns_full_length() {
+        assert_eq!(utf8_boundary(b"hello"), 5);
+    }
+
+    #[test]
+    fn empty_returns_zero() {
+        assert_eq!(utf8_boundary(b""), 0);
+    }
+
+    #[test]
+    fn valid_cjk_returns_full_length() {
+        let s = "\u{4f60}\u{597d}\u{4e16}\u{754c}".as_bytes(); // 你好世界 = 12 bytes for 4 CJK chars
+        assert_eq!(utf8_boundary(s), 12);
+    }
+
+    #[test]
+    fn cjk_split_mid_3byte_returns_before_split() {
+        // "你" is 3 bytes (0xE4 0xBD 0xA0); split after the 1st byte.
+        let partial = &"\u{4f60}".as_bytes()[..1];
+        assert_eq!(utf8_boundary(partial), 0);
+        // Add the next 2 bytes — now full and valid.
+        let full = "\u{4f60}".as_bytes();
+        assert_eq!(utf8_boundary(full), 3);
+    }
+
+    #[test]
+    fn mixed_ascii_then_cjk_partial() {
+        // "hi你" = 'h'(1) 'i'(1) '你'(3) = 5 bytes.  Cut at byte 4 → still partial.
+        let buf = &"hi\u{4f60}".as_bytes()[..4];
+        assert_eq!(utf8_boundary(buf), 2); // "hi" is valid
+        assert_eq!(utf8_boundary("hi\u{4f60}".as_bytes()), 5);
+    }
+
+    #[test]
+    fn emoji_4byte_split() {
+        // "🎉" is 4 bytes (0xF0 0x9F 0x8E 0x89); split after byte 2.
+        let buf = &"\u{1f389}".as_bytes()[..2];
+        assert_eq!(utf8_boundary(buf), 0);
+    }
 }
 
 // ── Backup commands (T-Q-S11) ────────────────────────────────────────────

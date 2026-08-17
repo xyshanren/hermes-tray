@@ -9,10 +9,11 @@
 // in src/shareLink.ts — they're domain logic, not view logic.
 
 import {
-  encodeShareDoc,
+  encodeShareDocV2,
   buildShareUrl,
   parseShareHash,
   SHARE_FRAGMENT_RE,
+  verifyShareDocChecksum,
 } from "../shareLink";
 
 // ── Outbound: copy markdown to clipboard ───────────────────────────────────
@@ -41,6 +42,11 @@ export async function copySessionAsMarkdown(
  * Build a self-contained share link. The session's full state
  * (title, messages, persona, project) is encoded in the URL fragment
  * so the receiving end can preview the import without any server.
+ *
+ * v0.3.0 P1-13 — uses schema v2 (SHA-256 checksum). The receiving
+ * tray verifies the checksum and rejects the link if it was tampered
+ * with or got truncated mid-flight. encodeShareDocV2 is async
+ * because it relies on `crypto.subtle.digest`.
  */
 export async function copySessionShareLink(
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>,
@@ -48,8 +54,11 @@ export async function copySessionShareLink(
   sessionId: string,
 ): Promise<void> {
   try {
-    const json = await invoke<unknown>("export_session_json", { sessionId });
-    const encoded = encodeShareDoc(json);
+    const doc = await invoke<{
+      session: { id: string; title: string };
+      messages: Array<{ role: string; content: string }>;
+    }>("export_session_json", { sessionId });
+    const encoded = await encodeShareDocV2(doc.session, doc.messages);
     const url = buildShareUrl(encoded, window.location.origin, window.location.pathname);
     await navigator.clipboard.writeText(url);
     showToast(
@@ -69,18 +78,20 @@ export async function copySessionShareLink(
  * decode failure, or unsupported version. The caller (main.ts boot
  * hook) decides whether to surface a toast or open the import modal.
  *
+ * v0.3.0 P1-13 — async now so the v2 checksum can be verified via
+ * `crypto.subtle.digest`. v1 docs skip checksum verification (no
+ * checksum field exists in the legacy payload) and are accepted as-is
+ * so old shared links keep working.
+ *
  * Returned shape (when valid):
  *   { ok: true,  doc: ShareDoc }
- *   { ok: false, reason: 'no-match' | 'decode-failed' | 'unsupported-version', version?: number }
- *
- * Validation rule: doc.version must === 1. Anything else returns
- * 'unsupported-version' with the offending value attached.
+ *   { ok: false, reason: 'no-match' | 'decode-failed' | 'unsupported-version' | 'checksum-mismatch', version?: number }
  */
 export type ShareHashValidation =
   | { ok: true; doc: import("../types").ShareDoc }
-  | { ok: false; reason: "no-match" | "decode-failed" | "unsupported-version"; version?: number };
+  | { ok: false; reason: "no-match" | "decode-failed" | "unsupported-version" | "checksum-mismatch"; version?: number };
 
-export function validateShareHash(hash: string): ShareHashValidation {
+export async function validateShareHash(hash: string): Promise<ShareHashValidation> {
   // Pattern check first — if the hash doesn't match #share=... at
   // all (empty hash, plain anchor, or any other fragment), it's a
   // no-match and the caller silently ignores it. The previous
@@ -93,7 +104,15 @@ export function validateShareHash(hash: string): ShareHashValidation {
   const decoded = parseShareHash(hash);
   if (decoded === null) return { ok: false, reason: "decode-failed" };
   const doc = decoded as import("../types").ShareDoc;
-  if (doc.version !== 1) return { ok: false, reason: "unsupported-version", version: doc.version };
+  if (doc.version !== 1 && doc.version !== 2) {
+    return { ok: false, reason: "unsupported-version", version: doc.version };
+  }
+  // v0.3.0 P1-13 — v2 docs must pass checksum verification. v1 docs
+  // skip the check (no checksum field) and are accepted as legacy.
+  if (doc.version === 2) {
+    const ok = await verifyShareDocChecksum(doc);
+    if (!ok) return { ok: false, reason: "checksum-mismatch" };
+  }
   return { ok: true, doc };
 }
 
@@ -144,4 +163,4 @@ export function clearShareHash(): void {
 // instead of two) and document the intent: "everything related to the
 // share flow lives in src/views/share-flow.ts".
 
-export { encodeShareDoc, buildShareUrl, parseShareHash } from "../shareLink";
+export { encodeShareDocV2, buildShareUrl, parseShareHash } from "../shareLink";
