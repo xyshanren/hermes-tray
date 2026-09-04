@@ -58,7 +58,7 @@ export interface StreamingBotBubble {
   peerId: string;
 }
 
-interface BotChatStoreState {
+export interface BotChatStoreState {
   peers: BotPeer[];
   messages: BotMessage[];
   streaming: StreamingBotBubble | null;
@@ -244,4 +244,3 @@ export const botChatStore = {
 };
 
 export const __testing = { MAX_GROUP_SIZE, freshId };
-export type { BotChatStoreState };
