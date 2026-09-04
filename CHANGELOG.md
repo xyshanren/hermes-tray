@@ -6,6 +6,44 @@
 
 ---
 
+## v0.4.0 (2026-09-04)
+
+**v0.2.2 上的 minor — 4 块新 UI 跟 hermes-agent-cn Sprint 16 档 D 1:1 配对**
+(跟 plan §1.6-1.8 1:1 配对, 跟 mavis 9-03 12:40 拍 "CN 没跟 upstream desktop,
+只做轻量 hermes-tray" 1:1 配对). 0 改现有 happy path (跟 mavis "UX 倒退审计"
+1:1 配对), additive 13 file new + 1 file mod, **0 Rust 改**.
+
+- **Bot Chat 消息列表 UI (alpha-37 `227227d`)** — 单聊 + 群组简版 ≤ 6 bot, 跟
+  `agent/peer.py` 协议 1:1 配对; @ mention 路由 (researcher/coder/tester);
+  mock reply 0.5s 模拟 (0 实际 Tauri invoke, 留 v0.4.1 接 IPC bridge);
+  0 头像/0 Discord 风格 (跟 mavis 9-03 12:40 拍 1:1).
+- **peer DM UI (alpha-38 `3ec18d6`)** — 单聊模式 跟 BotChat 60% 复用; Tailscale
+  100.64.0.0/10 私网段 gateway URL 显示; 切 peer 重置 streaming + messages
+  (跟 mavis "Verified badge input 变更时重置" 1:1 配对).
+- **data training tier warning UI (alpha-39 `a37d449`)** — 3 tier 分类
+  (国内 0 / 国外付费 1 / 国外训练免费 2, 跟 `hermes_cli/data_training_catalog.py`
+  1:1 配对); modal 弹窗 (tier 0/1 0 弹, 跟 mavis "UX 倒退审计" 1:1 配对 0 改
+  happy path).
+- **protected files approval modal (alpha-40 `eb8054c`)** — AGENTS.md / skills /
+  memories 3 类 pattern 跟 `agent/safety/protected_files.py` 1:1 配对; 非受保护
+  文件 0 弹窗 (跟 mavis 4 件套 1:1 配对 0 改现有 write_file flow).
+
+**Stats**: 558/558 frontend tests pass (v0.2.2 464 → v0.4.0 +94: 10 BotChat +
+10 peerDM + 7 training tier + 10 protected files + 57 collateral alpha-33a/33b
+/34/35a/36); `cargo test` 0 改 Rust; `tsc --noEmit` 0 error; vitest 4 件套 grep
+0 现有引用 (3 file 全部 self-contained). 0 借鉴 AGPL-3.0 (18 sprint 连续
+跟 hermes-agent-cn 1:1 配对).
+
+**Version bump** — `package.json` 0.2.0-beta → 0.4.0, `src-tauri/Cargo.toml`
+0.2.2 → 0.4.0, `src-tauri/tauri.conf.json` 0.2.2 → 0.4.0 (3 处 1:1 配对 v0.2.2
+release 1:1).
+
+**Tauri IPC bridge 状态** — 4 块 UI 走 mock (setTimeout 模拟 reply / mock
+catalog / mock approve), 0 实际调 CN 后端. 留 v0.4.1 接 Tauri IPC bridge 跟
+hermes-agent-cn v0.21.0+cn.3 (Sprint 16 档 A/B/C 收尾) 集成.
+
+---
+
 ## alpha-35a（未发布 — PR 待开）
 
 post-manual-verification polish 第 1 轮（**纯前端，0 Rust 变更**）。源：alpha-34 PR #3 MERGED 后用户装 MSI 试用时反馈的 2 个问题。完整 plan 见 [`verification/alpha-35-plan.md`](./verification/alpha-35-plan.md) §B / §F'。
