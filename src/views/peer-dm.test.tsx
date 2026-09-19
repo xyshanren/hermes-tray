@@ -129,9 +129,11 @@ describe("peerDMStore (data layer)", () => {
 });
 
 describe("<PeerDMView /> (render shell)", () => {
-  it("无 peer 时显示 empty state Card (跟 mavis UX 倒退审计 1:1 配对)", () => {
+  it("无 peer 时显示 empty state Card + catalog picker (v0.4.1)", () => {
     const host = mountPeerDM();
-    expect(host.textContent).toContain("No peer selected");
+    expect(host.querySelector('[data-testid="peer-dm-empty"]')).not.toBeNull();
+    // catalog 空 → 引导去 Peer 管理
+    expect(host.textContent).toContain("Peer 管理");
   });
 
   it("有 peer 时显示 gateway URL (跟 plan §1.2 跨 Gateway 1:1 配对, 跟 mavis 后端先调查 1:1 Tailscale 100.64/10 1:1)", () => {

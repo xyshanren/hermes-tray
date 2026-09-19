@@ -20,9 +20,15 @@ export interface TierProvider {
   tier: TrainingTier;
 }
 
-/** 默认 3 tier catalog (跟 hermes_cli/data_training_catalog._DEFAULT_TIER_CATALOG
- *  1:1 配对, 跟 mavis 9-03 12:35 "国内方案" 1:1 配对) */
-const DEFAULT_TIER_CATALOG: Record<string, TrainingTier> = {
+/** 默认 3 tier catalog (跟 hermes-agent-cn hermes_cli/data_training_catalog
+ *  ._DEFAULT_TIER_CATALOG 1:1 配对, 跟 mavis 9-03 12:35 "国内方案" 1:1 配对)
+ *
+ *  同步源 (v0.4.1 钉死): WSL ~/hermes-agent-cn v0.21.0+cn.2 Sprint 16 档 C.3。
+ *  gateway /v1/models 只广播虚拟模型名 (grep data_training 0 命中), live 同步
+ *  等 agent-cn 端暴露方式确定; 在那之前以 dataTrainingTier.test.ts 的
+ *  catalog pinning 测试防漂移 — 改这里必须同步改 agent-cn 源或改测试并注明。
+ */
+export const DEFAULT_TIER_CATALOG: Readonly<Record<string, TrainingTier>> = {
   // tier 0: 国内 (5 厂商, 0 警告)
   deepseek: 0,
   qwen: 0,

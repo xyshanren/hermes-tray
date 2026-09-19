@@ -4000,3 +4000,181 @@ html, body {
 [data-sonner-toast][data-type="info"] {
   border-left-color: var(--info) !important;
 }
+
+/* ── v0.4.1 — Peer 管理 modal + 视图切换器 ─────────────────────── */
+
+.modal-peers {
+  width: 640px;
+  max-width: 90vw;
+}
+
+.peers-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 20px;
+  overflow-y: auto;
+  max-height: 70vh;
+}
+
+.peers-list-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.peers-empty {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.peers-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.peers-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.peers-row-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.peers-row-url {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.peers-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.peers-token-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.peers-row-btn {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.peers-row-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.peers-row-danger {
+  color: var(--destructive, #c0392b);
+}
+
+.peers-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.peers-form-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.peers-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.peers-error {
+  font-size: 13px;
+  color: var(--destructive, #c0392b);
+  margin: 0;
+}
+
+.peers-verify-ok {
+  font-size: 13px;
+  color: var(--success, #27ae60);
+  margin: 0;
+}
+
+.peers-form-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* 侧栏视图切换器 (会话 / Bot 群聊 / Peer DM) */
+.view-switcher {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.view-switch-btn {
+  flex: 1;
+  font-size: 12px;
+  padding: 5px 4px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.view-switch-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.view-switch-active,
+.view-switch-active:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.view-switch-manage {
+  flex: 0 0 auto;
+}

@@ -26,19 +26,45 @@
 | alpha-36 安全加固 | `4abbd56` | P5 (withGlobalTauri=false + 显式 CSP) / P9-P15 (shareLink 重写 / sanitize / humanizeError / capability 收紧 / lib.rs defense-in-depth) — 唯一动 Rust 的 v0.4 提交 |
 | alpha-41 peer IPC bridge | `9d2b6cf` | `src/lib/peer-bridge.ts` A2A v1.0 client: discovery (card.json → legacy agent.json) / rpc url 三级解析 / `SendMessage` JSON-RPC / reply 三级提取 / 错误 8 分类独立 kind; peer-dm `sendViaBridge` + `contextId` 续聊; bot-chat `trySendViaBridge` (per-bot contextIds + 无 url fallback mock); 578/578 tests (+20) |
 
-### v0.4.1 剩余 (下次开工)
+### v0.4.1 剩余 — 2026-09-19 第二轮收口更新
 
-1. **peer 管理 UI** — `discoverAgent` 已在 bridge 导出; 需要一个 peer 添加/编辑入口
-   (name + gateway URL + 可选 token), 把 `peerDMStore.setPeer` /
-   `botChatStore.setPeers` 从"测试驱动"变成用户可操作。
-2. **training tier catalog 后端联动** — alpha-39 走 mock catalog; 等 agent-cn 端
-   确定 catalog 暴露方式 (model catalog IPC or 静态同步) 后接真源。
-3. **protected files approval 后端联动** — alpha-40 审批弹窗独立成 modal; 等
-   agent-cn 端 `agent/safety/protected_files.py` 的审批事件如何到达 tray
-   (SSE event? IPC?) 确定后接 write_file 流程。
-4. **8/8 manual MSI 验证** — v0.4.0 + alpha-41 从未人工装包验证。
+> 第一轮 (alpha-41) 落了 IPC bridge。第二轮 (alpha-42) 收口结果如下。
 
-### 外部依赖 (阻塞中, 2026-09-19 确认无变化)
+**已完成 (alpha-42)**:
+
+1. **peer 管理 UI** ✅ — `src/views/peers/` 三件套 (peer-catalog 数据层 +
+   peers-modal store/view/mount): 侧栏 ⚙ 按钮打开 Peer 管理 modal
+   (列表/新增/编辑/删除 + discoverAgent 验证连接); 持久化走 db_config
+   `peer_endpoints` KV (JSON, 0 改 Rust); Bot Chat 进房时 catalog 全体
+   hydrate (≤6 cap 沿用 store), Peer DM 空态改为 catalog 选择器。
+2. **bot-chat / peer-dm 接入 app 可达** ✅ — v0.4.0 两 surface 的 mount
+   0 caller (运行中应用不可达), 补 `src/views/view-switch.ts` 切换层 +
+   侧栏 segmented 控件 (会话 / Bot 群聊 / Peer DM); 切换前
+   `render(null, root)` 正规 unmount (Preact container WeakMap 防 stale
+   tree diff); `mountChatView` 的 actions 在 main.ts 捕获注册,
+   切回 chat 重挂同 actions (0 改 chat happy path)。
+
+**有结论的阻塞 (维持不做, 原因如下)**:
+
+3. **training tier catalog 后端联动** — 2026-09-19 查证: CN gateway
+   `/v1/models` 只广播 `hermes-agent` 虚拟模型名 + aliases
+   (grep data_training 0 命中), 无 tier 字段。tray 维持静态 catalog
+   (已 1:1 对齐 WSL `hermes_cli/data_training_catalog._DEFAULT_TIER_CATALOG`,
+   同步源 v0.21.0+cn.2); 防漂移: `dataTrainingTier.test.ts` catalog
+   pinning 测试 + `DEFAULT_TIER_CATALOG` 导出注释钉死同步源。
+   等 agent-cn 端确定暴露方式 (model catalog IPC / 静态同步) 再接真源。
+4. **protected files approval 后端联动** — 2026-09-19 查证: tray SSE
+   解析 (chat-stream.ts) 的 `toolCalls` 固定 null, 拿不到工具调用事件;
+   且真审批闭环 (拦截 write_file → 等用户回执 → 放行/拒绝) 必须 agent-cn
+   端 emit 审批请求事件 + 挂起等待, 单 tray 侧最多做"检测+中止"。
+   维持 blocked, 等 agent-cn 定审批事件协议 (SSE event? IPC?)。
+   alpha-40 的弹窗 UI + protectedFiles matcher 已就绪, 协议定了即可接。
+
+**MSI 验证**: 本地 `npm run tauri build` 产出 MSI (首次验证 alpha-36
+CSP / withGlobalTauri=false / capability 收紧后的打包路径); 8/8 人工
+checklist 仍需用户装包执行。
+
+**外部依赖 (阻塞中, 2026-09-19 确认无变化)**
 
 | 依赖 | 状态 | tray 侧动作 |
 |---|---|---|

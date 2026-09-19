@@ -77,6 +77,11 @@ import { sidebarStore, mountSidebar } from './views/sidebar-mount';
 // delegates message-bubble rendering, streaming bubble updates, and
 // the welcome screen to <ChatViewWithWelcome />.
 import { chatStore, chatWelcomeStore, mountChatView } from './views/chat-view-mount';
+import type { ChatViewActions } from './views/chat-view-mount';
+// v0.4.1 — peer 管理 + 视图切换 (bot-chat / peer-dm surface 接入 app 可达)
+import { mountPeersModal, peerCatalog, peersModalStore } from './views/peers/peers-modal-mount';
+import { botChatStore } from './views/bot-chat/mount';
+import { registerChatActions, initViewSwitcher, switchView } from './views/view-switch';
 // v0.2-alpha-18 — chat input form (textarea + send button + attach
 // preview + drag/drop + mic) migrated to Preact. main.ts keeps:
 //   - fileToAttachment (Tauri FileReader side-effect)
@@ -1360,6 +1365,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   autoConnect = await loadAutoConnect();
   autoRename = await loadAutoRename();
 
+  // ── v0.4.1: peer catalog init (db_config "peer_endpoints" KV) ──
+  // 解析失败 catalog 内部归空 + warn (0 静默吞), boot 不被打断。
+  await peerCatalog.load();
+
   // ── T-Q-S9: stats modal wiring ───────────────────
   document.getElementById('sidebar-stats-btn')?.addEventListener('click', () => openStatsModal());
   mountStatsModal();
@@ -1381,6 +1390,10 @@ function openStatsModal(): void {
   document.getElementById('sidebar-backup-btn')?.addEventListener('click', () => openBackupModal());
   mountBackupModal();
 
+  // ── v0.4.1: peers modal wiring (peer 管理: A2A 端点增删改 + 验证) ──
+  document.getElementById('sidebar-peers-btn')?.addEventListener('click', () => peersModalStore.open());
+  mountPeersModal();
+
   // v0.2-alpha-16: mount the chat view Preact component. This replaces
   // the v0.1.5 innerHTML-based message rendering inside <div id="messages">.
   // Must run after the modal mounts above so chatStore / chatWelcomeStore
@@ -1390,7 +1403,10 @@ function openStatsModal(): void {
   // retry + open settings + gateway hint). The first-run welcome
   // card (design 06) and the no-network error card (design 07) both
   // surface these buttons.
-  mountChatView({
+  // v0.4.1: capture the actions object so the view switcher can re-mount
+  // the chat view with the same callbacks after the user visits
+  // bot-chat / peer-dm and comes back (switchView → mountChatView).
+  const chatViewActions: ChatViewActions = {
     // v0.3.0 P1-1 — when the user clicks a persona chip in the
     // first-run welcome (design 06), main.ts looks up the matching
     // `personaId` via personasCache and passes it to createSession().
@@ -1405,7 +1421,23 @@ function openStatsModal(): void {
     onRetryConnection: () => void checkConnection(),
     onOpenSettings: () => openSettings(),
     gatewayHint: `当前 Gateway: ${getGatewayUrl()}`,
+  };
+  mountChatView(chatViewActions);
+  registerChatActions(chatViewActions);
+
+  // ── v0.4.1: view switcher wiring (会话 / Bot 群聊 / Peer DM) ──
+  initViewSwitcher();
+  document.getElementById('view-chat-btn')?.addEventListener('click', () => switchView('chat'));
+  document.getElementById('view-botchat-btn')?.addEventListener('click', () => {
+    // 进 Bot Chat 前 hydrate 房间: catalog 有记录 → 全体进房 (≤6 cap 由
+    // botChatStore.setPeers 执行); catalog 空 → 保留默认 3 mock bot
+    // (跟 v0.4.0 行为 1:1 配对)
+    if (peerCatalog.get().records.length > 0) {
+      botChatStore.setPeers(peerCatalog.toBotPeers());
+    }
+    switchView('bot-chat');
   });
+  document.getElementById('view-peerdm-btn')?.addEventListener('click', () => switchView('peer-dm'));
 
   // v0.2-alpha-19: chat view mounted + initial state fetched. Mark
   // the boot as complete and fade the splash out. The store snaps

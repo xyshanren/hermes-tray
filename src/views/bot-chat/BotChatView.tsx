@@ -18,6 +18,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Card } from "../../components/ui/card";
 import { realPeerBridge } from "../../lib/peer-bridge";
+import { peerCatalog } from "../peers/peer-catalog";
 import { botChatStore, type BotMessage, type BotPeer, type BotChatStoreState } from "./bot-chat-store";
 
 const MOCK_REPLY_DELAY_MS = 500;
@@ -91,6 +92,16 @@ export function BotChatView() {
 
   useEffect(() => {
     return botChatStore.subscribe(setS);
+  }, []);
+
+  // v0.4.1: catalog 有记录时保持房间同步 (编辑 peer 后不用重进视图);
+  // catalog 空 → 保留默认 3 mock bot (跟 v0.4.0 行为 1:1 配对)
+  useEffect(() => {
+    return peerCatalog.subscribe((catalog) => {
+      if (catalog.records.length > 0) {
+        botChatStore.setPeers(peerCatalog.toBotPeers());
+      }
+    });
   }, []);
 
   function handleSend() {

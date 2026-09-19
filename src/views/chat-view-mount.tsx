@@ -15,6 +15,10 @@
 import { render } from "preact";
 import { ChatViewWithWelcome, type ChatViewActions } from "./chat-view";
 
+// v0.4.1: re-export the actions type so view-switch.ts / main.ts can type
+// the captured callbacks object (single import path convention 1:1).
+export type { ChatViewActions } from "./chat-view";
+
 // Re-export the chat view stores from the mount module so main.ts only
 // needs one import path. chatStore lives in ./chat-view-store.ts (the
 // pure data layer) and chatWelcomeStore lives in ./chat-view.tsx

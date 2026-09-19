@@ -15,6 +15,8 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Card } from "../../components/ui/card";
 import { realPeerBridge } from "../../lib/peer-bridge";
+import { peerCatalog } from "../peers/peer-catalog";
+import { peersModalStore } from "../peers/peers-modal-store";
 import {
   peerDMStore,
   type PeerDMState,
@@ -99,11 +101,42 @@ export function PeerDMView() {
   }
 
   if (!s.peer) {
+    // v0.4.1: 空态从 catalog 选 peer (0 条时引导去 Peer 管理 modal),
+    // 不再要求测试代码外部 setPeer
+    const records = peerCatalog.get().records;
     return (
       <div class="flex h-full items-center justify-center p-4">
-        <Card class="p-4 text-center text-sm text-slate-500">
-          No peer selected. Use peerDMStore.setPeer() with a Tailscale / VPN
-          gateway URL to start a DM session.
+        <Card class="w-full max-w-md p-4 text-sm" data-testid="peer-dm-empty">
+          <p class="mb-3 text-center text-slate-500">
+            选择一个 peer 开始单聊 (A2A v1.0 端点)。
+          </p>
+          {records.length === 0 ? (
+            <p class="text-center text-slate-400">
+              还没有 peer — 点侧栏 ⚙ 打开「Peer 管理」添加一个。
+            </p>
+          ) : (
+            <div class="flex flex-col gap-2" data-testid="peer-dm-picker">
+              {records.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  class="flex flex-col items-start rounded-lg border px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => {
+                    const mapped = peerCatalog.toPeerDMPeer(r.id);
+                    if (mapped) peerDMStore.setPeer(mapped);
+                  }}
+                >
+                  <span class="font-medium">{r.name}</span>
+                  <span class="text-xs text-slate-500">{r.url}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div class="mt-3 text-center">
+            <Button variant="outline" onClick={() => peersModalStore.open()}>
+              打开 Peer 管理
+            </Button>
+          </div>
         </Card>
       </div>
     );
