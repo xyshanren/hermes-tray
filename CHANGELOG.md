@@ -6,6 +6,19 @@
 
 ---
 
+## alpha-42（2026-09-19 — v0.4.1 收口：peer 管理 UI + 视图切换接入）
+
+v0.4.1 剩余 4 项收口（**纯前端 + 0 改 Rust**）。完整结论见 [`ROADMAP.md`](./ROADMAP.md) § v0.4.x 状态。
+
+- **peer 管理 UI**（`src/views/peers/` 三件套）— 侧栏 ⚙ 打开 Peer 管理 modal：列表 / 新增 / 编辑 / 删除 + `discoverAgent` 验证连接（拉 Agent Card 确认对端可达）。持久化走 db_config `peer_endpoints` KV（JSON 数组，0 改 Rust）；URL 走 `normalizePeerUrl` 校验，token 可选。`mentionFor` 把名称归一成喂得进 `@(\w+)` 路由的 mention，`roleFor` 关键词推断 researcher/coder/tester。
+- **bot-chat / peer-dm 接入 app 可达** — v0.4.0 两个 surface 的 mount 函数 0 caller（运行中的应用里不可达），本轮补 `src/views/view-switch.ts` 切换层 + 侧栏 segmented 控件（会话 / Bot 群聊 / Peer DM）。切换前 `render(null, root)` 正规 unmount（防 Preact container stale tree diff）；`mountChatView` 的 actions 在 main.ts 捕获注册，切回 chat 重挂同 actions（0 改 chat happy path）。`peer-dm/mount.tsx` 补齐（v0.4.0 缺件）；PeerDMView 空态改为 catalog 选择器。
+- **training tier 收口** — 查证 CN gateway `/v1/models` 无 tier 字段（只广播虚拟模型名），维持静态 catalog；`DEFAULT_TIER_CATALOG` 导出 + pinning 测试防漂移（改动必须显式更新测试并注明 agent-cn 同步源）。
+- **protected files 收口** — 查证 tray SSE 解析 `toolCalls` 固定 null，且真审批闭环必须 agent-cn 端配合；维持 blocked（alpha-40 弹窗 UI + matcher 已就绪等协议），结论落 ROADMAP。
+
+**Stats**: 597/597 frontend tests passing（alpha-41 578 → +19：peer-catalog 10 + PeersModal 5 + view-switch 3 + tier pinning 1）；`tsc --noEmit` 0 error；`npm run build` 通过；本地 `npm run tauri build` 产出 MSI（alpha-36 CSP / capability 收紧后打包路径首次验证）。
+
+---
+
 ## alpha-41（2026-09-19 — v0.4.1 第一步：peer IPC bridge）
 
 v0.4.0 release 遗留的 "4 块 UI 走 mock, 留 v0.4.1 接 IPC bridge" 本体收尾（**纯前端 + 0 改 Rust**）。协议层对照 WSL `~/hermes-agent-cn/plugins/platforms/a2a/tools.py` 客户端路径 1:1 实施（`agent/peer.py` peer_call → a2a_call → `_send_task`），0 重新发明。

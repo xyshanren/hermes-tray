@@ -1,19 +1,14 @@
 # Hermes Chat (hermes-tray) — Agent Memory
 
 > Project memory for hermes-tray. Read this first before touching any file.
-> Updated 2026-09-19 — **v0.4.0 shipped on master** (tag `v0.4.0`, commit
-> `7f9ce3f`, Sprint 16 档 D 4 块 UI: Bot Chat / peer DM / training tier /
-> protected files, 全部 mock 实现, 0 改 Rust)。alpha-34 (PR #3) /
-> alpha-35a / alpha-36 security hardening (P5/P9-P15, 依
-> `docs/hermes-tray-architecture-review.md`) 已全部合入 master。
-> **alpha-41** (2026-09-19, commit `9d2b6cf`) 补上 v0.4.1 第一步:
-> `src/lib/peer-bridge.ts` A2A v1.0 JSON-RPC client (对照 WSL
-> `~/hermes-agent-cn/plugins/platforms/a2a/tools.py` 1:1), transport 复用
-> `hermes_proxy_get/post` (0 Rust 改), peer 配置 http(s) URL 即走真实 IPC,
-> 无 URL 保留 mock reply。
-> **Next**: v0.4.1 收尾 — peer 管理 UI (discoverAgent 已导出待接) +
-> training tier / protected files 后端联动 + 人工 MSI 验证。
-> Detail in `ROADMAP.md` § v0.4.x 状态.
+> Updated 2026-09-19 (晚) — **v0.4.0 shipped on master** (tag `v0.4.0`,
+> commit `7f9ce3f`, Sprint 16 档 D 4 块 UI)。**alpha-41** peer IPC bridge
+> (`src/lib/peer-bridge.ts` A2A v1.0 client, 0 Rust 改) + **alpha-42**
+> v0.4.1 收口: peer 管理 modal (db_config `peer_endpoints` 持久化 +
+> discoverAgent 验证) + 侧栏视图切换 (会话/Bot 群聊/Peer DM, 修复 v0.4.0
+> mount 0 caller 不可达问题) + training tier catalog pinning。
+> **Next**: 用户 8/8 人工 MSI 验证 → v0.4.1 tag; training tier /
+> protected files 后端联动等 agent-cn 侧协议 (见 ROADMAP § v0.4.x)。
 
 ---
 
@@ -22,15 +17,15 @@
 | 项 | 值 |
 |---|---|
 | 产品形态 | Tauri 2 桌面应用（Rust 后端 + WebView 前端） |
-| 当前版本 | **v0.4.0** on master (tag `v0.4.0`, commit `7f9ce3f`) + alpha-41 bridge (`9d2b6cf`) |
+| 当前版本 | **v0.4.0** on master (tag `v0.4.0`) + alpha-41 bridge + alpha-42 收口 |
 | 上一版本 | v0.2.2（rebrand + zh-CN MSI + CI 清红）；v0.3.0 计划内 alpha-33a/33b/34/35a 全部合入 |
-| 下一版本 | v0.4.1 — peer 管理 UI + training tier / protected files 后端联动 + MSI 验证 |
+| 下一版本 | v0.4.1 — 8/8 人工 MSI 验证后打 tag；training tier / protected files 联动等 agent-cn 协议 |
 | 项目根 | `D:\work\workspace\Qoder\hermes-tray` |
 | 前端 | Preact 10 + Vite + Tailwind v3 + shadcn/ui via preact/compat |
 | 后端 | Rust + rusqlite + tokio + aes-gcm + argon2 |
-| 测试 | 46 个 .test.ts/.tsx 文件，578 tests passing (vitest + happy-dom)；Rust 174 (lib 143 + integration 31) |
+| 测试 | 50 个 .test.ts/.tsx 文件，597 tests passing (vitest + happy-dom)；Rust 174 (lib 143 + integration 31) |
 | 设计稿位置 | `D:\work\workspace\MiniMax\projects\hermes-tray-notes\`（20 张 SVG + 验收报告 + UI 设计要求） |
-| 路线图 | [`ROADMAP.md`](./ROADMAP.md) — v0.3.0 P3 完成记录 + § v0.4.x 状态 + K-5/K-6 外部依赖 |
+| 路线图 | [`ROADMAP.md`](./ROADMAP.md) — § v0.4.x 状态（含 K-5/K-6 外部依赖 + 收口结论） |
 
 ---
 
