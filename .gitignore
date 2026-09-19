@@ -51,3 +51,10 @@ src-tauri/target/release/bundle/
 # Python integration test artifacts
 tests/integration/__pycache__/
 tests/integration/.pytest_cache/
+
+# Mimosa security scanner local state
+.mimosa/
+
+# Commit message drafts (agent working files, not source)
+alpha-*-commit-msg.txt
+v*-commit-msg.txt
