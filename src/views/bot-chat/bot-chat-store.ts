@@ -22,12 +22,22 @@
 //   - error:        last transient error (跟 chat-view 1:1 配对)
 //
 // Mock 范围 (跟 mavis 9-03 12:40 拍 "轻量 hermes-tray" 1:1 配对):
-//   - 0 实际 Tauri invoke, 走 setTimeout 0.5s 模拟 reply
+//   - mock 走 setInterval 逐字模拟 reply (跟 BotChatView 1:1 配对)
 //   - 6 bot 群组, @ mention 路由到对应 bot
 //   - 1:1 配对 agent/peer.py 接口协议 (peer_discover / peer_call / peer_list
-//     / peer_history / peer_run), 留 v0.4.1 接 Tauri IPC bridge
+//     / peer_history / peer_run)
+//
+// v0.4.1 — IPC bridge 接入 (跟 lib/peer-bridge.ts A2A v1.0 client 1:1 配对):
+//   - BotPeer 加可选 url/token: 配了 URL 的 bot 走实际 A2A "SendMessage"
+//     (跟 peer_call → a2a_call 线上协议 1:1 配对), 没 URL 的 bot 走原 mock
+//     (0 改现有 happy path, 跟 mavis "UX 倒退审计" 1:1 配对)
+//   - contextIds: Record<peerId, contextId> 续聊 (跟 a2a_call context_id 1:1,
+//     每个 bot 独立 context)
+//   - trySendViaBridge: mention 路由 + 实际发送; 路由目标无 URL 返回 false,
+//     视图 fallback 到 mock (0 状态突变)
 
 import type { PendingAttachment } from "../chat-view-store";
+import type { PeerBridgeLike } from "../../lib/peer-bridge";
 
 export interface BotPeer {
   /** 跟 ~/.hermes/peers/<peer_name>/ 1:1 配对 */
@@ -36,8 +46,12 @@ export interface BotPeer {
   mention: string;
   /** Display name in UI */
   name: string;
-  /** Bot 类型 (跟 peer_run 1:1 配对, v0.4.1 实际 invoke 时用) */
+  /** Bot 类型 (跟 peer_run 1:1 配对) */
   role: "researcher" | "coder" | "tester" | "general";
+  /** 可选 A2A peer URL (http/https) — 配了才走实际 IPC bridge */
+  url?: string;
+  /** 可选 bearer token (跟 a2a_agents auth 1:1 配对) */
+  token?: string;
 }
 
 export interface BotMessage {
@@ -64,6 +78,9 @@ export interface BotChatStoreState {
   streaming: StreamingBotBubble | null;
   isLoading: boolean;
   error: string | null;
+  /** per-bot A2A 续聊 context (跟 a2a_call context_id 1:1 配对, bridge 回包
+   *  后写入; mock 路径 0 触碰) */
+  contextIds: Record<string, string>;
 }
 
 const MAX_GROUP_SIZE = 6; // 跟 plan §1.1 1:1 配对: 最多 6 bot 同室
@@ -100,6 +117,7 @@ let state: BotChatStoreState = {
   streaming: null,
   isLoading: false,
   error: null,
+  contextIds: {},
 };
 
 const listeners = new Set<(state: BotChatStoreState) => void>();
@@ -201,8 +219,8 @@ export const botChatStore = {
   /**
    * Mock peer_call (跟 agent/peer.py.peer_call 1:1 配对).
    *
-   * 0 实际 Tauri invoke — 走 setTimeout 0.5s 模拟 reply (跟 mavis 9-03 12:40 拍
-   * "轻量" 1:1 配对). 留 v0.4.1 实际接 Tauri IPC bridge.
+   * mock 走 setInterval 逐字模拟 reply (跟 BotChatView 1:1 配对). Bot 配了
+   * url 时视图走 trySendViaBridge 实际 A2A, 0 走这里.
    *
    * Returns the routed peer id (single-DM: explicit peer, 群组: state.peers
    * 顺序 first mention match — 跟 mavis 4 件套 "first match wins" 1:1 配对,
@@ -220,6 +238,65 @@ export const botChatStore = {
     return state.peers[0]?.id ?? "general";
   },
 
+  /** 解析 mention 路由目标 (跟 routeMockReply 同一 first-match 语义, 返回
+   *  完整 peer 供 trySendViaBridge 判 url) */
+  resolveRoutedPeer(mentions: string[], explicitPeerId?: string): BotPeer | null {
+    const id = this.routeMockReply(mentions, explicitPeerId);
+    return state.peers.find((p) => p.id === id) ?? null;
+  },
+
+  /** 错误路径中止流式 bubble (streaming 清空 + isLoading 复位, 0 落消息 —
+   *  跟 chat-stream P1-7 "错误不污染 happy path" 语义 1:1 配对) */
+  abortBotStream(): void {
+    if (!state.streaming) return;
+    state = { ...state, streaming: null, isLoading: false };
+    notify();
+  },
+
+  /** v0.4.1 实际 IPC 发送 (跟 agent/peer.py peer_call 线上协议 1:1 配对).
+   *
+   *  mention 路由 (explicitPeerId / @mention first-match) 到带 url 的 bot →
+   *  走 bridge.send 实际 A2A; 路由目标无 url → return false (视图 fallback
+   *  mock, 0 状态突变)。bridge 参数依赖注入 (视图传 realPeerBridge, 测试传
+   *  fake)。失败 → abortBotStream + setError (fail-fast 0 静默, user 消息
+   *  保留可重试)。
+   */
+  async trySendViaBridge(
+    content: string,
+    bridge: PeerBridgeLike,
+    explicitPeerId?: string,
+  ): Promise<boolean> {
+    const trimmed = content.trim();
+    if (!trimmed) return false;
+    const mentions = parseMentionsFromText(trimmed, state.peers);
+    const target = this.resolveRoutedPeer(mentions, explicitPeerId);
+    if (!target || !target.url) return false;
+    this.addUserMessage(trimmed, mentions);
+    this.startBotStream(target.id);
+    try {
+      const res = await bridge.send(
+        target.url,
+        target.token,
+        trimmed,
+        state.contextIds[target.id],
+      );
+      if (res.reply) this.appendBotChunk(res.reply);
+      this.finishBotStream();
+      if (res.contextId) {
+        state = {
+          ...state,
+          contextIds: { ...state.contextIds, [target.id]: res.contextId },
+        };
+      }
+      notify();
+      return true;
+    } catch (e) {
+      this.abortBotStream();
+      this.setError(e instanceof Error ? e.message : String(e));
+      return true;
+    }
+  },
+
   /** Test-only: reset module-level state (跟 chat-view-store 0 暴露 reset_cache
    *  1:1 配对 — 走 reload module 隔离 state, 跟 mavis 4 件套 1:1 配对) */
   __resetForTests(): void {
@@ -233,6 +310,7 @@ export const botChatStore = {
       streaming: null,
       isLoading: false,
       error: null,
+      contextIds: {},
     };
     notify();
   },

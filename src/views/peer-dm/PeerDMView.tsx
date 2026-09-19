@@ -14,6 +14,7 @@ import { useEffect, useState } from "preact/hooks";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Card } from "../../components/ui/card";
+import { realPeerBridge } from "../../lib/peer-bridge";
 import {
   peerDMStore,
   type PeerDMState,
@@ -65,9 +66,16 @@ export function PeerDMView() {
     }
     const content = draft.trim();
     if (!content || s.isLoading) return;
-    peerDMStore.addUserMessage(content);
     setDraft("");
 
+    // v0.4.1: gateway 是 http(s) URL → 走实际 A2A bridge (跟 agent/peer.py
+    // peer_call 线上协议 1:1 配对); 其他 → 原 mock (0 改现有 happy path)
+    if (/^https?:\/\//i.test(s.peer.gateway)) {
+      void peerDMStore.sendViaBridge(content, realPeerBridge);
+      return;
+    }
+
+    peerDMStore.addUserMessage(content);
     // Mock reply (跟 D.1 BotChat 1:1 配对 1:1 pattern)
     peerDMStore.startPeerStream();
     const replyText = `[${s.peer.name}] echo: ${content}`;

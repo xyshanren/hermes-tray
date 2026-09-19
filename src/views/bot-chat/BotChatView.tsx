@@ -17,6 +17,7 @@ import { useEffect, useState } from "preact/hooks";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Card } from "../../components/ui/card";
+import { realPeerBridge } from "../../lib/peer-bridge";
 import { botChatStore, type BotMessage, type BotPeer, type BotChatStoreState } from "./bot-chat-store";
 
 const MOCK_REPLY_DELAY_MS = 500;
@@ -95,26 +96,32 @@ export function BotChatView() {
   function handleSend() {
     const content = draft.trim();
     if (!content || s.isLoading) return;
-    const mentions = parseMentions(content, s.peers);
-    botChatStore.addUserMessage(content, mentions);
     setDraft("");
 
-    // Mock reply: route to peer via mentions, then stream 0.5s
-    const peerId = botChatStore.routeMockReply(mentions);
-    botChatStore.startBotStream(peerId);
-    let accumulated = "";
-    const replyText = `[${peerId}] echo: ${content}`;
-    let i = 0;
-    const interval = setInterval(() => {
-      if (i >= replyText.length) {
-        clearInterval(interval);
-        botChatStore.finishBotStream();
-        return;
-      }
-      accumulated += replyText[i];
-      i += 1;
-      botChatStore.appendBotChunk(replyText[i - 1] ?? "");
-    }, MOCK_REPLY_DELAY_MS / Math.max(replyText.length, 1));
+    // v0.4.1: 路由目标 bot 配了 url → 实际 A2A bridge (跟 peer_call 线上
+    // 协议 1:1 配对); 返回 false (无 url / 空内容) → 原 mock fallback
+    void botChatStore.trySendViaBridge(content, realPeerBridge).then((handled) => {
+      if (handled) return;
+
+      const mentions = parseMentions(content, s.peers);
+      botChatStore.addUserMessage(content, mentions);
+      // Mock reply: route to peer via mentions, then stream 0.5s
+      const peerId = botChatStore.routeMockReply(mentions);
+      botChatStore.startBotStream(peerId);
+      let accumulated = "";
+      const replyText = `[${peerId}] echo: ${content}`;
+      let i = 0;
+      const interval = setInterval(() => {
+        if (i >= replyText.length) {
+          clearInterval(interval);
+          botChatStore.finishBotStream();
+          return;
+        }
+        accumulated += replyText[i];
+        i += 1;
+        botChatStore.appendBotChunk(replyText[i - 1] ?? "");
+      }, MOCK_REPLY_DELAY_MS / Math.max(replyText.length, 1));
+    });
   }
 
   function handleKey(e: KeyboardEvent) {

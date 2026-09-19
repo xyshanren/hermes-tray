@@ -13,10 +13,26 @@ import { act } from "preact/test-utils";
 import { peerDMStore, type PeerDMMessage } from "./peer-dm/peer-dm-store";
 import { PeerDMView } from "./peer-dm/PeerDMView";
 
+// v0.4.1: 视图 http(s) gateway 走 realPeerBridge — 组件测试 mock 掉模块
+// (跟 api.test.ts vi.mock invoke 隔离 pattern 1:1 配对)
+vi.mock("../lib/peer-bridge", () => ({
+  realPeerBridge: { send: vi.fn() },
+}));
+
+import { realPeerBridge } from "../lib/peer-bridge";
+const mockBridgeSend = vi.mocked(realPeerBridge.send);
+
 const TEST_PEER = {
   id: "alpha",
   name: "Alpha",
   gateway: "http://100.64.0.1:9999", // Tailscale 100.64.0.0/10 私网段
+};
+
+/** 非 URL gateway — v0.4.1 语义下走 mock reply (跟 v0.4.0 行为 1:1 配对) */
+const MOCK_PEER = {
+  id: "alpha-mock",
+  name: "Alpha",
+  gateway: "peer-local://alpha",
 };
 
 function mountPeerDM() {
@@ -42,6 +58,7 @@ beforeEach(() => {
   peerDMStore.__resetForTests();
   document.body.innerHTML = "";
   vi.useRealTimers();
+  mockBridgeSend.mockReset();
 });
 
 describe("peerDMStore (data layer)", () => {
@@ -142,7 +159,9 @@ describe("<PeerDMView /> (render shell)", () => {
 
   it("有 peer + send 完整 mock reply 流程 (跟 D.1 BotChat 1:1 配对, 1 turn setPeer + send + finish)", async () => {
     vi.useFakeTimers();
-    peerDMStore.setPeer(TEST_PEER);
+    // v0.4.1: mock reply 只对非 URL gateway 生效 (http(s) gateway 走 bridge
+    // 分支, 见下方 bridge path test — 跟 PeerDMView handleSend 分支 1:1 配对)
+    peerDMStore.setPeer(MOCK_PEER);
     const host = mountPeerDM();
     const input = host.querySelector(
       '[data-testid="peer-dm-input"]',
@@ -174,5 +193,45 @@ describe("<PeerDMView /> (render shell)", () => {
     expect(s2.messages).toHaveLength(2);
     expect(s2.messages[1].from).toBe("peer");
     expect(s2.messages[1].content).toContain("[Alpha] echo: ping alpha");
+  });
+
+  it("v0.4.1: http(s) gateway → realPeerBridge bridge path (跟 peer_call 线上协议 1:1 配对)", async () => {
+    peerDMStore.setPeer(TEST_PEER);
+    mockBridgeSend.mockResolvedValueOnce({
+      reply: "real a2a reply",
+      contextId: "ctx-x",
+      state: "completed",
+    });
+    const host = mountPeerDM();
+    const input = host.querySelector(
+      '[data-testid="peer-dm-input"]',
+    ) as HTMLInputElement;
+    const sendBtn = Array.from(host.querySelectorAll("button")).find(
+      (b) => b.textContent === "Send",
+    ) as HTMLButtonElement;
+
+    await act(async () => {
+      setNativeInputValue(input, "ping alpha");
+    });
+    await act(async () => {
+      sendBtn.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    expect(mockBridgeSend).toHaveBeenCalledTimes(1);
+    expect(mockBridgeSend).toHaveBeenCalledWith(
+      "http://100.64.0.1:9999",
+      undefined,
+      "ping alpha",
+      undefined,
+    );
+    const s = peerDMStore.get();
+    expect(s.messages.map((m) => [m.from, m.content])).toEqual([
+      ["user", "ping alpha"],
+      ["peer", "real a2a reply"],
+    ]);
+    expect(s.contextId).toBe("ctx-x");
+    expect(s.streaming).toBeNull();
+    expect(s.isLoading).toBe(false);
   });
 });
