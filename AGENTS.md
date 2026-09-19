@@ -1,17 +1,19 @@
 # Hermes Chat (hermes-tray) — Agent Memory
 
 > Project memory for hermes-tray. Read this first before touching any file.
-> Updated 2026-07-21 21:35 — v0.2.0 STABLE shipped (commit `d7ee96f`,
-> tag `v0.2.0`, 8/8 manual MSI verification). v0.2.1 patch in flight
-> (commit `2790386`, tag pushed, CI in progress). 5 post-release fixes
-> layered on top: voice transcription snake_case + closeable error
-> toasts, routed model display in footer, persona library single-column
-> layout, paste-import share link entry, build fix (drop
-> pauseWhenPageIsHidden — sonner 2.0.7 ToasterProps doesn't declare
-> it; same prop already removed in b911ee2 but re-introduced by `--theirs`
-> conflict resolution during cherry-pick of 2c0f4a8).
-> **Next**: v0.3.0 cycle (4 phases, ~6.5 days planned). Detail in
-> `ROADMAP.md` § v0.3.0 开发计划.
+> Updated 2026-09-19 — **v0.4.0 shipped on master** (tag `v0.4.0`, commit
+> `7f9ce3f`, Sprint 16 档 D 4 块 UI: Bot Chat / peer DM / training tier /
+> protected files, 全部 mock 实现, 0 改 Rust)。alpha-34 (PR #3) /
+> alpha-35a / alpha-36 security hardening (P5/P9-P15, 依
+> `docs/hermes-tray-architecture-review.md`) 已全部合入 master。
+> **alpha-41** (2026-09-19, commit `9d2b6cf`) 补上 v0.4.1 第一步:
+> `src/lib/peer-bridge.ts` A2A v1.0 JSON-RPC client (对照 WSL
+> `~/hermes-agent-cn/plugins/platforms/a2a/tools.py` 1:1), transport 复用
+> `hermes_proxy_get/post` (0 Rust 改), peer 配置 http(s) URL 即走真实 IPC,
+> 无 URL 保留 mock reply。
+> **Next**: v0.4.1 收尾 — peer 管理 UI (discoverAgent 已导出待接) +
+> training tier / protected files 后端联动 + 人工 MSI 验证。
+> Detail in `ROADMAP.md` § v0.4.x 状态.
 
 ---
 
@@ -20,15 +22,15 @@
 | 项 | 值 |
 |---|---|
 | 产品形态 | Tauri 2 桌面应用（Rust 后端 + WebView 前端） |
-| 当前版本 | **v0.2.0 STABLE** (commit `d7ee96f`, tag `v0.2.0`). **v0.2.1 patch** in flight (commit `2790386`, CI in progress) |
-| 上一版本 | v0.1.5（功能完整，UI 待重做） |
-| 下一版本 | v0.3.0 — Phase 1 CSS catch-up → Phase 2 Toast/Persona → Phase 3 Search/Stats/细节 → Phase 4 long-tail + audit |
+| 当前版本 | **v0.4.0** on master (tag `v0.4.0`, commit `7f9ce3f`) + alpha-41 bridge (`9d2b6cf`) |
+| 上一版本 | v0.2.2（rebrand + zh-CN MSI + CI 清红）；v0.3.0 计划内 alpha-33a/33b/34/35a 全部合入 |
+| 下一版本 | v0.4.1 — peer 管理 UI + training tier / protected files 后端联动 + MSI 验证 |
 | 项目根 | `D:\work\workspace\Qoder\hermes-tray` |
 | 前端 | Preact 10 + Vite + Tailwind v3 + shadcn/ui via preact/compat |
 | 后端 | Rust + rusqlite + tokio + aes-gcm + argon2 |
-| 测试 | 13 个 .test.ts 文件，430 tests passing (vitest + happy-dom) |
+| 测试 | 46 个 .test.ts/.tsx 文件，578 tests passing (vitest + happy-dom)；Rust 174 (lib 143 + integration 31) |
 | 设计稿位置 | `D:\work\workspace\MiniMax\projects\hermes-tray-notes\`（20 张 SVG + 验收报告 + UI 设计要求） |
-| 路线图 | [`ROADMAP.md`](./ROADMAP.md) — v0.2-beta → v0.3.0 P3 modal-by-modal + P2 deferred list |
+| 路线图 | [`ROADMAP.md`](./ROADMAP.md) — v0.3.0 P3 完成记录 + § v0.4.x 状态 + K-5/K-6 外部依赖 |
 
 ---
 

@@ -1,15 +1,54 @@
-# Hermes Tray — Roadmap (v0.2.0 STABLE + v0.2.1 → v0.3.0)
+# Hermes Tray — Roadmap (v0.4.0 shipped → v0.4.1)
 
-> **v0.2.0 STABLE** shipped (commit `d7ee96f`, 8/8 manual MSI
-> verification). **v0.2.1 patch** in flight (commit `2790386`,
-> CI run `29835017855` in progress, tag pushed, cron self-checking).
-> This document plans the v0.3.0 cycle per the 2026-07-21 UI design
-> audit: 4 phases over ~6.5 days, against the 20 reference SVGs in
-> `D:\work\workspace\Qoder\hermes-tray设计\assets\svg-pages\`.
+> **v0.4.0** shipped on master (tag `v0.4.0`, commit `7f9ce3f`):
+> Sprint 16 档 D 4 块 UI (Bot Chat / peer DM / training tier warning /
+> protected files approval) 全部落地, **mock 实现, 0 改 Rust**。
+> alpha-34 (focus-trap × 8 modal, PR #3) / alpha-35a (复制按钮 CSS +
+> IME 文档) / alpha-36 (安全加固 P5/P9-P15, 依
+> `docs/hermes-tray-architecture-review.md`) 已全部合入 master。
+> **alpha-41** (2026-09-19) 落地 v0.4.1 第一步: peer IPC bridge
+> (`src/lib/peer-bridge.ts`, A2A v1.0 JSON-RPC client, 对照 WSL
+> `~/hermes-agent-cn/plugins/platforms/a2a/tools.py` 客户端路径 1:1,
+> transport 复用 `hermes_proxy_get/post`, 0 Rust 改)。
+> **Next**: v0.4.1 收尾 (peer 管理 UI + 后端联动 + MSI 验证)。
+> 下方 v0.3.0 章节 (P3 modal-by-modal / audit) 为历史计划记录 —
+> alpha-33a/33b (P1 修复) 已完成, 其余 P2-P4 未实施, 归入后续版本评估。
 
 ---
 
-## Current state (2026-07-22 14:30)
+## v0.4.x 状态 (2026-09-19 更新)
+
+### 已落地
+
+| 项 | commit | 说明 |
+|---|---|---|
+| v0.4.0 4 块 UI | `227227d` / `3ec18d6` / `a37d449` / `eb8054c` | Bot Chat (≤6 bot + @mention) / peer DM / training tier 3 档 / protected files 3 pattern — 全 mock, tag 打在 feat/alpha-36-security 后已 ff-merge 回 master |
+| alpha-36 安全加固 | `4abbd56` | P5 (withGlobalTauri=false + 显式 CSP) / P9-P15 (shareLink 重写 / sanitize / humanizeError / capability 收紧 / lib.rs defense-in-depth) — 唯一动 Rust 的 v0.4 提交 |
+| alpha-41 peer IPC bridge | `9d2b6cf` | `src/lib/peer-bridge.ts` A2A v1.0 client: discovery (card.json → legacy agent.json) / rpc url 三级解析 / `SendMessage` JSON-RPC / reply 三级提取 / 错误 8 分类独立 kind; peer-dm `sendViaBridge` + `contextId` 续聊; bot-chat `trySendViaBridge` (per-bot contextIds + 无 url fallback mock); 578/578 tests (+20) |
+
+### v0.4.1 剩余 (下次开工)
+
+1. **peer 管理 UI** — `discoverAgent` 已在 bridge 导出; 需要一个 peer 添加/编辑入口
+   (name + gateway URL + 可选 token), 把 `peerDMStore.setPeer` /
+   `botChatStore.setPeers` 从"测试驱动"变成用户可操作。
+2. **training tier catalog 后端联动** — alpha-39 走 mock catalog; 等 agent-cn 端
+   确定 catalog 暴露方式 (model catalog IPC or 静态同步) 后接真源。
+3. **protected files approval 后端联动** — alpha-40 审批弹窗独立成 modal; 等
+   agent-cn 端 `agent/safety/protected_files.py` 的审批事件如何到达 tray
+   (SSE event? IPC?) 确定后接 write_file 流程。
+4. **8/8 manual MSI 验证** — v0.4.0 + alpha-41 从未人工装包验证。
+
+### 外部依赖 (阻塞中, 2026-09-19 确认无变化)
+
+| 依赖 | 状态 | tray 侧动作 |
+|---|---|---|
+| hermes-agent-cn **K-5** SSE event schema (`/learn` / `/journey`, 5 event) | 仍未落地 — alpha-34+ 规划时约定"跟 hermes-cn 端 K-5 PR 一起 review", 单方面实施会撞名/错配 | 等 schema 定稿后接 `chat-stream.ts` 现有 `routing_decision` 同 pattern listener |
+| hermes-agent-cn **K-6** workspace/output policy (artifact SSE schema + WSL→Windows 路径映射) | 仍未落地 — alpha-33a 输出文件路径问题的前置 | 等 artifact event 定稿后做消息下文件列表 + 打开目录入口 |
+| assistant 👍/👎 反馈按钮 | 2026-08-03 grep 确认 agent-cn 无 feedback pipeline, **不做** | 无 |
+
+---
+
+## Current state (2026-07-22 14:30) [历史记录]
 
 - v0.2.0 STABLE shipped (tag `v0.2.0`, commit `d7ee96f`).
 - v0.2.1 patch shipped (tag `v0.2.1`, commit `2790386`,

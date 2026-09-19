@@ -6,6 +6,20 @@
 
 ---
 
+## alpha-41（2026-09-19 — v0.4.1 第一步：peer IPC bridge）
+
+v0.4.0 release 遗留的 "4 块 UI 走 mock, 留 v0.4.1 接 IPC bridge" 本体收尾（**纯前端 + 0 改 Rust**）。协议层对照 WSL `~/hermes-agent-cn/plugins/platforms/a2a/tools.py` 客户端路径 1:1 实施（`agent/peer.py` peer_call → a2a_call → `_send_task`），0 重新发明。
+
+- **`src/lib/peer-bridge.ts` — A2A v1.0 JSON-RPC client** — discovery（`/.well-known/agent-card.json` → 404 → legacy `agent.json`，跟 `_fetch_card` 1:1）；rpc url 解析（`supportedInterfaces[JSONRPC].url` → `card.url` → base，跟 `_rpc_url` 1:1）；发送 `SendMessage` JSON-RPC（v1.0 Message，`contextId` 在 Message 内；服务端 adapter.py 双 method 兼容 `message/send`）；回复三级提取（artifacts → status.message → bare message，跟 `_reply_text_from_result` 1:1）；错误 8 分类独立 kind（invalid-url / invalid-request / network / auth / rate-limited / http / rpc / invalid-response，跟 AGENTS.md 教训 ② "validator 不 fold failure case" 1:1）。
+- **transport 复用现有 Rust 代理** — `hermes_proxy_get` / `hermes_proxy_post`（跟 `lib/api.ts` 同 pattern），0 新 Tauri command、0 改 Rust；bridge 依赖注入（store 只认 `PeerBridgeLike` 接口，测试走 fake transport / fake bridge）。
+- **peer-dm-store** — 新增 `sendViaBridge`（真实 A2A 发送 + `contextId` 续聊，切 peer 重置 context 0 串味）+ `abortPeerStream`（错误中止不清 user 消息，可重试）。
+- **bot-chat-store** — 新增 `trySendViaBridge`（@ mention 路由 + per-bot `contextIds` 续聊；路由目标无 url 返回 false 走 mock fallback）；`BotPeer` 加可选 `url` / `token`。
+- **PeerDMView / BotChatView** — peer 配置为 http(s) URL 时走真实 bridge，否则保留 v0.4.0 mock reply（0 改现有 happy path，跟 mavis "UX 倒退审计" 1:1）。
+
+**Stats**: 578/578 frontend tests passing（v0.4.0 558 → +20：bridge 协议 12 + store 集成 9 + 视图 bridge 分支 1）；`tsc --noEmit` 0 error；`npm run build` 通过；`cargo test` 不涉及（0 Rust 改动）。仍走 mock 的部分：training tier catalog 与 protected files approval 的后端联动（等 agent-cn 端 IPC 暴露方式确定）、peer 管理 UI（discoverAgent 已在 bridge 导出待接）。
+
+---
+
 ## v0.4.0 (2026-09-04)
 
 **v0.2.2 上的 minor — 4 块新 UI 跟 hermes-agent-cn Sprint 16 档 D 1:1 配对**
@@ -44,7 +58,7 @@ hermes-agent-cn v0.21.0+cn.3 (Sprint 16 档 A/B/C 收尾) 集成.
 
 ---
 
-## alpha-35a（未发布 — PR 待开）
+## alpha-35a（已合并 — master `334e264`）
 
 post-manual-verification polish 第 1 轮（**纯前端，0 Rust 变更**）。源：alpha-34 PR #3 MERGED 后用户装 MSI 试用时反馈的 2 个问题。完整 plan 见 [`verification/alpha-35-plan.md`](./verification/alpha-35-plan.md) §B / §F'。
 
@@ -55,7 +69,7 @@ post-manual-verification polish 第 1 轮（**纯前端，0 Rust 变更**）。�
 
 ---
 
-## alpha-34（未发布 — PR 待开）
+## alpha-34（已合并 — [PR #3](https://github.com/xyshanren/hermes-tray/pull/3) squash）
 
 纯前端 polish 一锅端（Plan 1 = A 美学 + C 容器 + F 焦点陷阱 + G 全局细节）。完整 diff 见分支 `feat/alpha-34`。
 
@@ -69,7 +83,7 @@ post-manual-verification polish 第 1 轮（**纯前端，0 Rust 变更**）。�
 
 ---
 
-## alpha-33b（已合并 — [PR #2](https://github.com/xyshanren/hermes-tray/pull/2) 待开）
+## alpha-33b（已合并 — [PR #2](https://github.com/xyshanren/hermes-tray/pull/2) squash）
 
 四件 P1 修复全到位，端到端测试覆盖，对应 ROADMAP §v0.3.0 P1-2 / P1-3 / P1-7 / P1-12。完整 diff 见分支 `feat/alpha-33b`。
 
